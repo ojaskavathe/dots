@@ -5,7 +5,7 @@
   inputs.disko.inputs.nixpkgs.follows = "nixpkgs";
 
   outputs = { self, disko, nixpkgs }: {
-    discoConfigurations.nixos = ./disk-config.nix
+    discoConfigurations.nixos = import ./disk-config.nix;
     
     nixosConfigurations.nixos = nixpkgs.lib.nixosSystem {
       system = "x86_64-linux";
