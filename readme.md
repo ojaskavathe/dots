@@ -1,7 +1,7 @@
 Clone the repository in /tmp, then partition and format using disko:
 
 ```
-sudo nix --experimental-features "nix-command flakes" run github:nix-community/disko -- --mode disko /tmp/nixos-config/disk-config.nix
+sudo nix --experimental-features "nix-command flakes" run github:nix-community/disko -- --mode disko --argstr target <device-name> /tmp/nixos-config/disk-config.nix
 ```
 
 Setup config:

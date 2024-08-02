@@ -1,9 +1,11 @@
+{ target, ... }:
+
 {
   disko.devices = {
     disk = {
       main = {
         type = "disk";
-        device = "/dev/sda";
+        device = target;
         content = {
           type = "gpt";
           partitions = {

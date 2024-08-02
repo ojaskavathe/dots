@@ -5,11 +5,15 @@
     [ # Include the results of the hardware scan.
       ./hardware-configuration.nix
     ];
- 
+
+  # Use systemd-boot
+  boot.loader.systemd-boot.enable = true;
+  
   # Use the GRUB 2 boot loader.
-  boot.loader.grub.enable = true;
-  boot.loader.grub.device = "/dev/sda"; # or "nodev" for efi only
-  boot.loader.grub.useOSProber = true;
+  # boot.loader.grub.enable = true;
+  # boot.loader.grub.efiSupport = true;
+  # boot.loader.grub.device = "nodev" # for efi only
+  # boot.loader.grub.useOSProber = true;
  
   networking.hostName = "nixos"; # Define your hostname.
   networking.networkmanager.enable = true;  # Easiest to use and most distros use this by default.
