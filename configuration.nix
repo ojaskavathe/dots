@@ -52,7 +52,7 @@
     ];
   };
   # disabling the root user
-  users.users.root.hashedPassword = "!"
+  users.users.root.hashedPassword = "!";
 
   programs.firefox.enable = true;
 
