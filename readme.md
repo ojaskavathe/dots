@@ -18,3 +18,11 @@ Install NixOS:
 ```
 sudo nixos-install -v --show-trace --no-root-passwd --root /mnt --flake /mnt/etc/nixos#nixos
 ```
+
+Home-manager:
+
+```
+home-manager switch --flake .#dingus@nixos
+```
+
+- Install home-manager using `nix shell nixpkgs#home-manager`.
