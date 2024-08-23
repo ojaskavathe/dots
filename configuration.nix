@@ -50,16 +50,11 @@
     description = "dingus";
     initialPassword = "initpwd";
     extraGroups = [ "network-manager" "wheel" ];
-    packages = with pkgs; [
-      kdePackages.kate
-    ];
   };
   # disabling the root user
   users.users.root.hashedPassword = "!";
 
   programs.firefox.enable = true;
-
-  nixpkgs.config.allowUnfree = true;
 
   environment.systemPackages = with pkgs; [
     vim

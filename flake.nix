@@ -1,18 +1,60 @@
 {
-  inputs.nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable";
+  inputs = {
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-24.05";
 
-  inputs.disko.url = "github:nix-community/disko";
-  inputs.disko.inputs.nixpkgs.follows = "nixpkgs";
+    home-manager = {
+      url = "github:nix-community/home-manager";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
 
-  outputs = { self, disko, nixpkgs }: {
-    discoConfigurations.nixos = import ./disk-config.nix;
-    
-    nixosConfigurations.nixos = nixpkgs.lib.nixosSystem {
-      system = "x86_64-linux";
-      modules = [
-        ./configuration.nix
-        disko.nixosModules.disko
-      ];
+    disko = {
+      url = "github:nix-community/disko";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
+  };
+
+  outputs = { 
+    self, 
+    disko, 
+    nixpkgs, 
+    nixpkgs-stable, 
+    home-manager,
+    ... 
+  } @ inputs: let
+
+    system = "x86_64-linux";
+    pkgs = nixpkgs.legacyPackages.${system};
+    inherit (self) outputs;
+
+  in {
+    diskoConfigurations.nixos = import ./disk-config.nix;
+
+    nixosConfigurations = {
+      nixos = nixpkgs.lib.nixosSystem {
+        inherit system;
+        modules = [
+          ./configuration.nix
+          disko.nixosModules.disko
+        ];
+      };
+    };
+
+    homeConfigurations = {
+      "dingus@nixos" = home-manager.lib.homeManagerConfiguration {
+        pkgs = nixpkgs.legacyPackages.${system}; # Home-manager requires 'pkgs' instance
+        extraSpecialArgs = let
+	  pkgs-stable = import nixpkgs-stable { 
+	    inherit system;
+            config = { 
+              allowUnfree = true;
+              allowUnfreePredicate = (_: true);
+            }; 
+          };
+        in { inherit pkgs-stable; };
+        modules = [ ./home.nix ];
+      };
     };
   };
 }
