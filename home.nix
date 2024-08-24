@@ -11,6 +11,8 @@
 
     # You can also split up your configuration and import pieces of it here:
     # ./nvim.nix
+    ./programs/tmux.nix
+    ./programs/kitty.nix
   ];
 
   nixpkgs = {
@@ -41,8 +43,14 @@
     homeDirectory = "/home/dingus";
   };
 
-  # unstable
-  home.packages = with pkgs; [ neovim ];
+  fonts.fontconfig.enable = true;
+  home.packages = with pkgs; [
+    (nerdfonts.override{ fonts = [ "JetBrainsMono" ]; })
+  ];
+
+  programs.neovim = {
+    enable = true;
+  };
 
   programs.git = {
     enable = true;
