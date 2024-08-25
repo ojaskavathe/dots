@@ -57,6 +57,14 @@
         config = builtins.readFile ./plugins/gitsigns.lua;
       }
       vim-fugitive
+      telescope-fzf-native-nvim
+      telescope-ui-select-nvim
+      telescope-symbols-nvim
+      {
+        plugin = telescope-nvim;
+        type = "lua";
+        config = builtins.readFile ./plugins/telescope.lua;
+      }
     ];
   };
 }
