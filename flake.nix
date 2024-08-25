@@ -35,7 +35,7 @@
       nixos = nixpkgs.lib.nixosSystem {
         inherit system;
         modules = [
-          ./configuration.nix
+          ./nixos/configuration.nix
           disko.nixosModules.disko
         ];
       };

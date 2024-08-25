@@ -11,8 +11,10 @@
 
     # You can also split up your configuration and import pieces of it here:
     # ./nvim.nix
+    ./programs/shell/zsh.nix
     ./programs/tmux.nix
     ./programs/kitty.nix
+    ./programs/nvim/nvim.nix
   ];
 
   nixpkgs = {
@@ -41,6 +43,11 @@
   home = {
     username = "dingus";
     homeDirectory = "/home/dingus";
+    sessionVariables = {
+      EDITOR = "nvim";
+      BROWSER = "firefox";
+      TERMINAL = "kitty";
+    };
   };
 
   fonts.fontconfig.enable = true;
@@ -48,14 +55,15 @@
     (nerdfonts.override{ fonts = [ "JetBrainsMono" ]; })
   ];
 
-  programs.neovim = {
-    enable = true;
-  };
-
   programs.git = {
     enable = true;
     userName = "Ojas Kavathe";
     userEmail = "ojaskavathe@gmail.com";
+  };
+
+  programs.fzf = {
+    enable = true;
+    enableZshIntegration = true;
   };
 
   # Nicely reload system units when changing configs

@@ -45,11 +45,13 @@
     pulse.enable = true;
   };
 
+  programs.zsh.enable = true;
   users.users.dingus = {
     isNormalUser = true;
     description = "dingus";
     initialPassword = "initpwd";
     extraGroups = [ "network-manager" "wheel" ];
+    shell = pkgs.zsh;
   };
   # disabling the root user
   users.users.root.hashedPassword = "!";
