@@ -13,6 +13,7 @@
     # ./nvim.nix
     ./programs/shell/zsh.nix
     ./programs/tmux.nix
+    ./programs/git.nix
     ./programs/kitty.nix
     ./programs/nvim/nvim.nix
   ];
@@ -47,6 +48,7 @@
       EDITOR = "nvim";
       BROWSER = "firefox";
       TERMINAL = "kitty";
+      NIXOS_CONFIG = "$HOME/nixos-config";
     };
   };
 
@@ -54,12 +56,6 @@
   home.packages = with pkgs; [
     (nerdfonts.override{ fonts = [ "JetBrainsMono" ]; })
   ];
-
-  programs.git = {
-    enable = true;
-    userName = "Ojas Kavathe";
-    userEmail = "ojaskavathe@gmail.com";
-  };
 
   programs.fzf = {
     enable = true;

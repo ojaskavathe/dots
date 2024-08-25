@@ -22,6 +22,7 @@
     initExtra = ''
       autoload -Uz promptinit; promptinit
       prompt pure
-    '';
+    '' +
+    builtins.readFile ./aliases.zsh;
   };
 }
