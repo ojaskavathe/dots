@@ -18,6 +18,7 @@
         src = "${pkgs.pure-prompt}/share/zsh/site-functions";
       }
     ];
+    initExtraBeforeCompInit = builtins.readFile ./completions.zsh;
     initExtra = ''
       autoload -Uz promptinit; promptinit
       prompt pure
