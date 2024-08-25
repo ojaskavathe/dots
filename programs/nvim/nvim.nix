@@ -18,7 +18,22 @@
     '';
 
     plugins = with pkgs.vimPlugins; [
-      nvim-web-devicons
+      {
+        plugin = catppuccin-nvim;
+        type = "lua";
+        config = ''
+          require("catppuccin").setup {
+            flavour = "mocha",
+            integrations = {
+              telescope = {
+                enabled = true,
+                style = "nvchad"
+              },
+            }
+          }
+          vim.cmd.colorscheme "catppuccin"
+        '';
+      }
       (nvim-treesitter.withPlugins (
         plugins: with plugins; [
           nix
@@ -64,6 +79,19 @@
         plugin = telescope-nvim;
         type = "lua";
         config = builtins.readFile ./plugins/telescope.lua;
+      }
+      {
+        plugin = indent-blankline-nvim;
+        type = "lua";
+        config = ''require("ibl").setup {}'';
+      }
+      {
+        plugin = lualine-nvim;
+        type = "lua";
+        config = builtins.readFile ./plugins/lualine.lua;
+      }
+      {
+        plugin = vim-tmux-navigator;
       }
     ];
   };

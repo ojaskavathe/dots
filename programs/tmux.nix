@@ -22,6 +22,7 @@
           set -g @catppuccin_status_right_separator "█"
         '';
       }
+      tmuxPlugins.vim-tmux-navigator
     ];
 
     extraConfig = ''
