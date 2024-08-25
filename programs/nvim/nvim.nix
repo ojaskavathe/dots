@@ -34,16 +34,20 @@
           vim.cmd.colorscheme "catppuccin"
         '';
       }
-      (nvim-treesitter.withPlugins (
-        plugins: with plugins; [
-          nix
-          vim
-          bash
-          lua
-          json
-          python
-        ]
-      ))
+      {
+        plugin = (nvim-treesitter.withPlugins (
+          plugins: with plugins; [
+            nix
+            vim
+            bash
+            lua
+            json
+            python
+          ]
+        ));
+        type = "lua";
+        config = builtins.readFile ./plugins/treesitter.lua;
+      }
       {
         plugin = nvim-treesitter-textsubjects;
         type = "lua";
@@ -97,12 +101,12 @@
       }
       {
         plugin = nvim-surround;
-	      type = "lua";
+        type = "lua";
         config = ''require("nvim-surround").setup {}'';
       }
       {
         plugin = nvim-autopairs;
-	      type = "lua";
+        type = "lua";
         config = ''require("nvim-autopairs").setup {}'';
       }
     ];
