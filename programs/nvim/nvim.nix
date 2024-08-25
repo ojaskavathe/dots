@@ -71,7 +71,9 @@
         type = "lua";
         config = builtins.readFile ./plugins/gitsigns.lua;
       }
+      vim-sleuth
       vim-fugitive
+      vim-obsession
       telescope-fzf-native-nvim
       telescope-ui-select-nvim
       telescope-symbols-nvim
@@ -92,6 +94,16 @@
       }
       {
         plugin = vim-tmux-navigator;
+      }
+      {
+        plugin = nvim-surround;
+	      type = "lua";
+        config = ''require("nvim-surround").setup {}'';
+      }
+      {
+        plugin = nvim-autopairs;
+	      type = "lua";
+        config = ''require("nvim-autopairs").setup {}'';
       }
     ];
   };

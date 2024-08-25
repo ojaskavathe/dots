@@ -9,6 +9,7 @@
     prefix = "C-Space";
 
     plugins = with pkgs; [
+      tmuxPlugins.vim-tmux-navigator
       {
         plugin = tmuxPlugins.catppuccin;
         extraConfig = ''
@@ -22,7 +23,21 @@
           set -g @catppuccin_status_right_separator "█"
         '';
       }
-      tmuxPlugins.vim-tmux-navigator
+      {
+        plugin = tmuxPlugins.resurrect;
+        extraConfig = ''
+          set -g @resurrect-capture-pane-contents 'on'
+          set -g @resurrect-strategy-nvim 'session'
+        '';
+      }
+      {
+        plugin = tmuxPlugins.continuum;
+        extraConfig = ''
+          # restore last save on start (& save every 15 min)
+          set -g @continuum-restore 'on'
+          set -g @continuum-boot 'off' # https://github.com/tmux-plugins/tmux-continuum/issues/73
+        '';
+      }
     ];
 
     extraConfig = ''
