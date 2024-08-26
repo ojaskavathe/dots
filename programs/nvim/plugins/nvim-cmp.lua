@@ -23,7 +23,8 @@ cmp.setup({
 		{ name = "luasnip" }, -- For luasnip users.
 	}, {
 			{ name = "buffer" },
-			{ name = 'nvim_lsp_signature_help' }
+			{ name = 'nvim_lsp_signature_help' },
+			{ name = "lazydev", group_index = 0 },
 		}),
 	---@diagnostic disable-next-line: missing-fields
 	formatting = {

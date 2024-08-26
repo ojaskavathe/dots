@@ -124,6 +124,11 @@
       cmp_luasnip
       luasnip
       {
+        plugin = lazydev-nvim;
+        type = "lua";
+        config = ''require("lazydev.config").setup {}'';
+      }
+      {
         plugin = nvim-cmp;
         type = "lua";
         config = builtins.readFile ./plugins/nvim-cmp.lua;
