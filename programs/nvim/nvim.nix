@@ -10,7 +10,6 @@
     viAlias = true;
     vimdiffAlias = true;
 
-
     extraLuaConfig = ''
       ${builtins.readFile ./options.lua}
       ${builtins.readFile ./keymap.lua}
@@ -109,6 +108,16 @@
         type = "lua";
         config = ''require("nvim-autopairs").setup {}'';
       }
+      # lsp stuff
+      {
+        plugin = nvim-lspconfig;
+        type = "lua";
+        config = builtins.readFile ./plugins/lspconfig.lua;
+      }
+    ];
+    extraPackages = with pkgs; [
+      nil
+      lua-language-server
     ];
   };
 }
