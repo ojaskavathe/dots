@@ -15,46 +15,53 @@
 
   };
 
-  outputs = { 
-    self, 
-    disko, 
-    nixpkgs, 
-    nixpkgs-stable, 
-    home-manager,
-    ... 
-  } @ inputs: let
+  outputs =
+    {
+      self,
+      disko,
+      nixpkgs,
+      nixpkgs-stable,
+      home-manager,
+      ...
+    }@inputs:
+    let
 
-    system = "x86_64-linux";
-    pkgs = nixpkgs.legacyPackages.${system};
-    inherit (self) outputs;
+      system = "x86_64-linux";
+      pkgs = nixpkgs.legacyPackages.${system};
+      inherit (self) outputs;
 
-  in {
-    diskoConfigurations.nixos = import ./disk-config.nix;
+    in
+    {
+      diskoConfigurations.nixos = import ./disk-config.nix;
 
-    nixosConfigurations = {
-      nixos = nixpkgs.lib.nixosSystem {
-        inherit system;
-        modules = [
-          ./nixos/configuration.nix
-          disko.nixosModules.disko
-        ];
+      nixosConfigurations = {
+        nixos = nixpkgs.lib.nixosSystem {
+          inherit system;
+          modules = [
+            ./nixos/configuration.nix
+            disko.nixosModules.disko
+          ];
+        };
+      };
+
+      homeConfigurations = {
+        "dingus@nixos" = home-manager.lib.homeManagerConfiguration {
+          pkgs = nixpkgs.legacyPackages.${system}; # Home-manager requires 'pkgs' instance
+          extraSpecialArgs =
+            let
+              pkgs-stable = import nixpkgs-stable {
+                inherit system;
+                config = {
+                  allowUnfree = true;
+                  allowUnfreePredicate = (_: true);
+                };
+              };
+            in
+            {
+              inherit pkgs-stable;
+            };
+          modules = [ ./home.nix ];
+        };
       };
     };
-
-    homeConfigurations = {
-      "dingus@nixos" = home-manager.lib.homeManagerConfiguration {
-        pkgs = nixpkgs.legacyPackages.${system}; # Home-manager requires 'pkgs' instance
-        extraSpecialArgs = let
-	  pkgs-stable = import nixpkgs-stable { 
-	    inherit system;
-            config = { 
-              allowUnfree = true;
-              allowUnfreePredicate = (_: true);
-            }; 
-          };
-        in { inherit pkgs-stable; };
-        modules = [ ./home.nix ];
-      };
-    };
-  };
 }
