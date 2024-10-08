@@ -3,6 +3,7 @@
 {
   imports =
     [ # Include the results of the hardware scan.
+      ./disko-configuration.nix
       ./hardware-configuration.nix
     ];
 
@@ -66,5 +67,5 @@
 
   system.stateVersion = "24.05";
 
-  virtualisation.vmware.guest.enable = true;
+  #virtualisation.vmware.guest.enable = true;
 }

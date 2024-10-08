@@ -1,7 +1,7 @@
 Clone the repository in /tmp, then partition and format using disko:
 
 ```
-sudo nix --experimental-features "nix-command flakes" run github:nix-community/disko -- --mode disko --argstr target <device-name> /tmp/nixos-config/disk-config.nix
+sudo nix --experimental-features "nix-command flakes" run github:nix-community/disko -- --mode disko --argstr target <device-name> /tmp/nixos-config/nixos/disko-configuration.nix
 ```
 
 Setup config:
@@ -10,7 +10,13 @@ Setup config:
 sudo nixos-generate-config --no-filesystems --root /mnt
 ```
 ```
-sudo mv /tmp/nixos-config/*.nix /mnt/etc/nixos
+sudo rm /mnt/etc/nixos/configuration.nix
+```
+```
+sudo mv /tmp/nixos-config/* /mnt/etc/nixos
+```
+```
+sudo mv /mnt/etc/nixos/hardware-configuration /mnt/etc/nixos/nixos
 ```
 
 Install NixOS:
