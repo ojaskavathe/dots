@@ -47,10 +47,11 @@
   };
 
   programs.zsh.enable = true;
+  users.mutableUsers = false;
   users.users.dingus = {
     isNormalUser = true;
     description = "dingus";
-    initialPassword = "initpwd";
+    hashedPassword = "$6$KjZbzuJytrxrQuCb$UhpJOGUU2GUC4R0hLQig0SkfDTWsVp.dSO/aUYo58r1AYNe34IqUIHIiRitVqkJGKAjSe4NqVywunTjnrarzY/";
     extraGroups = [ "network-manager" "wheel" ];
     shell = pkgs.zsh;
   };
@@ -58,6 +59,7 @@
   users.users.root.hashedPassword = "!";
 
   programs.firefox.enable = true;
+  programs.ssh.startAgent = true;
 
   environment.systemPackages = with pkgs; [
     vim
