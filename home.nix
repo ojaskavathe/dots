@@ -10,7 +10,8 @@
     ./programs/shell/zsh.nix
     ./programs/tmux.nix
     ./programs/git.nix
-    ./programs/kitty.nix
+    ./programs/kde.nix
+    ./programs/kitty/kitty.nix
     ./programs/nvim/nvim.nix
   ];
 
@@ -59,6 +60,7 @@
     home.packages = with pkgs; [
       (nerdfonts.override { fonts = [ "JetBrainsMono" ]; })
       ripgrep
+      spotify
     ];
 
     programs.fzf = {
