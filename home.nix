@@ -61,6 +61,7 @@
       (nerdfonts.override { fonts = [ "JetBrainsMono" ]; })
       ripgrep
       spotify
+      mesa-demos
     ];
 
     programs.fzf = {

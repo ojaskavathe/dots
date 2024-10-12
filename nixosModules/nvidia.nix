@@ -12,9 +12,9 @@
   };
 
   config = lib.mkIf config.nvidia.enable {
-    hardware.graphics.enable = true;
-
     services.xserver.videoDrivers = [ "nvidia" ];
+
+    hardware.graphics.enable = true;
 
     hardware.nvidia = {
       modesetting.enable = true;
@@ -39,5 +39,7 @@
       # Optionally, you may need to select the appropriate driver version for your specific GPU.
       package = config.boot.kernelPackages.nvidiaPackages.production;
     };
+
+    # environment.systemPackages = [ nvidia-offload ];
   };
 }
