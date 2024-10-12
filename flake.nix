@@ -18,6 +18,11 @@
       url = "github:nix-community/disko";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    hyprland = {
+      url = "github:hyprwm/Hyprland";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
@@ -42,8 +47,12 @@
       nixosConfigurations = {
         nixos = nixpkgs.lib.nixosSystem {
           inherit system;
+          specialArgs = {
+            inherit inputs;
+          };
           modules = [
             ./nixos/configuration.nix
+            ./nixosModules
             disko.nixosModules.disko
           ];
         };
@@ -65,7 +74,7 @@
             {
               inherit pkgs-stable;
             };
-          modules = [ 
+          modules = [
             inputs.plasma-manager.homeManagerModules.plasma-manager
             ./home.nix
           ];

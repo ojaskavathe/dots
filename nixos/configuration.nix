@@ -1,30 +1,36 @@
-{ config, lib, pkgs, ... }:
- 
 {
-  imports =
-    [ # Include the results of the hardware scan.
-      ./disko-configuration.nix
-      ./hardware-configuration.nix
-    ];
+  config,
+  lib,
+  pkgs,
+  inputs,
+  ...
+}:
+
+{
+  imports = [
+    # Include the results of the hardware scan.
+    ./disko-configuration.nix
+    ./hardware-configuration.nix
+  ];
 
   # Use systemd-boot
   boot.loader.systemd-boot.enable = true;
-  
+
   # Use the GRUB 2 boot loader.
   # boot.loader.grub.enable = true;
   # boot.loader.grub.efiSupport = true;
   # boot.loader.grub.device = "nodev" # for efi only
   # boot.loader.grub.useOSProber = true;
- 
+
   networking.hostName = "nixos"; # Define your hostname.
-  networking.networkmanager.enable = true;  # Easiest to use and most distros use this by default.
- 
+  networking.networkmanager.enable = true; # Easiest to use and most distros use this by default.
+
   # Set your time zone.
   time.timeZone = "Asia/Kolkata";
- 
+
   # Select internationalisation properties.
   i18n.defaultLocale = "en_US.UTF-8";
- 
+
   # Enable the X11 windowing system.
   services = {
     xserver.enable = true;
@@ -116,7 +122,30 @@
     ];
   };
 
-  nix.settings.experimental-features = [ "nix-command" "flakes" ];
+  nixpkgs.config = {
+    allowUnfree = true;
+  };
+
+  nvidia = {
+    enable = true;
+    optimus = true;
+  };
+
+  nix.settings = {
+    substituters = [ "https://hyprland.cachix.org" ];
+    trusted-public-keys = [ "hyprland.cachix.org-1:a7pgxzMz7+chwVL3/pzj6jIBMioiJM7ypFP8PwtkuGc=" ];
+  };
+  programs.hyprland = {
+    enable = true;
+    package = inputs.hyprland.packages.${pkgs.stdenv.hostPlatform.system}.hyprland; # set the flake package
+    portalPackage =
+      inputs.hyprland.packages.${pkgs.stdenv.hostPlatform.system}.xdg-desktop-portal-hyprland; # keep portal in sync
+  };
+
+  nix.settings.experimental-features = [
+    "nix-command"
+    "flakes"
+  ];
 
   system.stateVersion = "24.05";
 
