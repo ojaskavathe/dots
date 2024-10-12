@@ -45,13 +45,13 @@
       diskoConfigurations.nixos = import ./disk-config.nix;
 
       nixosConfigurations = {
-        nixos = nixpkgs.lib.nixosSystem {
+        tuf = nixpkgs.lib.nixosSystem {
           inherit system;
           specialArgs = {
             inherit inputs;
           };
           modules = [
-            ./nixos/configuration.nix
+            ./hosts/tuf/configuration.nix
             ./nixosModules
             disko.nixosModules.disko
           ];
@@ -59,7 +59,7 @@
       };
 
       homeConfigurations = {
-        "dingus@nixos" = home-manager.lib.homeManagerConfiguration {
+        "dingus@tuf" = home-manager.lib.homeManagerConfiguration {
           pkgs = nixpkgs.legacyPackages.${system}; # Home-manager requires 'pkgs' instance
           extraSpecialArgs =
             let
