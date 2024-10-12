@@ -59,13 +59,39 @@
     };
   };
 
+  programs = {
+    rog-control-center.enable = true;
+  };
+  services = {
+    asusd = {
+      enable = true;
+      enableUserService = true;
+    };
+    supergfxd = {
+      enable = true;
+      # settings = {
+      #   always_reboot = false;
+      #   no_logind = true;
+      #   mode = "Integrated";
+      #   # mode = "Hybrid";
+      #   vfio_enable = false;
+      #   vfio_save = false;
+      #   logout_timeout_s = 180;
+      #   hotplug_type = "None";
+      # };
+    };
+  };
+
   programs.zsh.enable = true;
   users.mutableUsers = false;
   users.users.dingus = {
     isNormalUser = true;
     description = "dingus";
     hashedPassword = "$6$KjZbzuJytrxrQuCb$UhpJOGUU2GUC4R0hLQig0SkfDTWsVp.dSO/aUYo58r1AYNe34IqUIHIiRitVqkJGKAjSe4NqVywunTjnrarzY/";
-    extraGroups = [ "network-manager" "wheel" ];
+    extraGroups = [
+      "network-manager"
+      "wheel"
+    ];
     shell = pkgs.zsh;
   };
   # disabling the root user
