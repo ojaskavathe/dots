@@ -76,7 +76,8 @@
             };
           modules = [
             inputs.plasma-manager.homeManagerModules.plasma-manager
-            ./home.nix
+            ./home
+            ./users/dingus.nix
           ];
         };
       };

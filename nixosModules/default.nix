@@ -7,6 +7,7 @@
   imports = [
     ./nvidia.nix
     ./keyd.nix
+    ./hyprland.nix
   ];
 
   nvidia = {
@@ -15,6 +16,10 @@
   };
 
   keyd = {
+    enable = lib.mkDefault false;
+  };
+
+  hyprland = {
     enable = lib.mkDefault false;
   };
 }

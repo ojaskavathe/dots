@@ -16,12 +16,6 @@
   # Use systemd-boot
   boot.loader.systemd-boot.enable = true;
 
-  # Use the GRUB 2 boot loader.
-  # boot.loader.grub.enable = true;
-  # boot.loader.grub.efiSupport = true;
-  # boot.loader.grub.device = "nodev" # for efi only
-  # boot.loader.grub.useOSProber = true;
-
   networking.hostName = "tuf"; # Define your hostname.
   networking.networkmanager.enable = true; # Easiest to use and most distros use this by default.
 
@@ -55,14 +49,14 @@
 
     # Enable CUPS to print documents.
     printing.enable = true;
+  };
 
-    # Enable sound.
-    pipewire = {
-      enable = true;
-      alsa.enable = true;
-      alsa.support32Bit = true;
-      pulse.enable = true;
-    };
+  security.rtkit.enable = true;
+  services.pipewire = {
+    enable = true;
+    alsa.enable = true;
+    alsa.support32Bit = true;
+    pulse.enable = true;
   };
 
   programs = {
@@ -133,16 +127,7 @@
 
   keyd.enable = true;
 
-  nix.settings = {
-    substituters = [ "https://hyprland.cachix.org" ];
-    trusted-public-keys = [ "hyprland.cachix.org-1:a7pgxzMz7+chwVL3/pzj6jIBMioiJM7ypFP8PwtkuGc=" ];
-  };
-  programs.hyprland = {
-    enable = true;
-    package = inputs.hyprland.packages.${pkgs.stdenv.hostPlatform.system}.hyprland; # set the flake package
-    portalPackage =
-      inputs.hyprland.packages.${pkgs.stdenv.hostPlatform.system}.xdg-desktop-portal-hyprland; # keep portal in sync
-  };
+  hyprland.enable = true;
 
   nix.settings.experimental-features = [
     "nix-command"

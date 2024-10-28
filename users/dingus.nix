@@ -6,20 +6,11 @@
   ...
 }:
 {
-  imports = [
-    ./programs/shell/zsh.nix
-    ./programs/tmux.nix
-    ./programs/git.nix
-    ./programs/kde.nix
-    ./programs/kitty/kitty.nix
-    ./programs/nvim/nvim.nix
-  ];
-
   options = {
     my.configDir = lib.mkOption {
       type = lib.types.nullOr lib.types.path;
       apply = toString;
-      default = null;
+      default = ./.;
       description = "Location of the nix config directory (this repo)";
     };
   };
@@ -63,6 +54,11 @@
       spotify
       mesa-demos
     ];
+
+    nvim.enable = true;
+    kitty.enable = true;
+
+    hyprland.enable = true;
 
     programs.fzf = {
       enable = true;
