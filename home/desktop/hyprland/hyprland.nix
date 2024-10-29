@@ -14,10 +14,10 @@
 
   imports = [
     ./binds.nix
+    ./ags.nix
   ];
 
   config = lib.mkIf config.hyprland.enable {
-
     wayland.windowManager.hyprland = {
       enable = true;
 
@@ -43,19 +43,58 @@
 
         env = [
           "XCURSOR_SIZE, 24"
-          "QT_QPA_PLATFORMTHEME,kde" # change to qt6ct if you have that
+          "QT_QPA_PLATFORM,wayland"
 
           # Select Integrated AMD GPU > Nvidia (priority)
           # "AQ_DRM_DEVICES,/dev/dri/card2:/dev/dri/card1"
 
           # toolkit-specific scale
-          "GDK_SCALE,2"
-          "GTK_THEME,Adwaita:dark"
+          "GDK_SCALE,1"
+          "GTK_THEME,Breeze"
         ];
 
-        xwayland = {
-          force_zero_scaling = true;
+        # xwayland = {
+        #   force_zero_scaling = true;
+        # };
+
+        decoration = {
+          rounding = 2;
         };
+      };
+    };
+
+    home.packages = with pkgs; [
+      brightnessctl
+      pavucontrol
+      kdePackages.qtsvg
+    ];
+
+    programs.fuzzel = {
+      enable = true;
+      settings = {
+        main = {
+          font = "Gabarito";
+          terminal = "${pkgs.kitty}/bin/kitty";
+          prompt = "_> ";
+          layer = "overlay";
+        };
+
+        colors = {
+          background = "000000ff";
+          text = "e2e2e2ff";
+          selection = "242424ff";
+          selection-text = "e2e2e2ff";
+          border = "242424ff";
+          match = "e2e2e2ff";
+          selection-match = "e2e2e2ff";
+        };
+
+        border = {
+          radius = 17;
+          width = 2;
+        };
+
+        dmenu.exit-immediately-if-empty = "yes";
       };
     };
   };

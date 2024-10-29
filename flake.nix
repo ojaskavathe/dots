@@ -23,6 +23,11 @@
       url = "github:hyprwm/Hyprland";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    ags = {
+      url = "github:Aylur/ags";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
@@ -52,7 +57,7 @@
           };
           modules = [
             ./hosts/tuf/configuration.nix
-            ./nixosModules
+            ./modules
             disko.nixosModules.disko
           ];
         };
@@ -76,6 +81,7 @@
             };
           modules = [
             inputs.plasma-manager.homeManagerModules.plasma-manager
+            inputs.ags.homeManagerModules.default
             ./home
             ./users/dingus.nix
           ];

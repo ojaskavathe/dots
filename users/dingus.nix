@@ -53,6 +53,9 @@
       ripgrep
       spotify
       mesa-demos
+      brightnessctl
+      qt6ct
+      pavucontrol
     ];
 
     nvim.enable = true;

@@ -5,14 +5,16 @@
       settings = {
         bind = [
           "$mainMod, RETURN, exec, $terminal"
-          "$mainMod, Q, killactive, "
-          "$mainMod, M, exit, "
+          "$mainMod, Q, killactive"
+          "$mainMod, M, exit"
           "$mainMod, E, exec, $fileManager"
           "$mainMod, B, exec, $browser"
-          "$mainMod, V, togglefloating, "
+          "$mainMod, V, togglefloating"
+          "$mainMod SHIFT, V, exec, [float] pavucontrol"
+          "$mainMod, F, fullscreen"
           "$mainMod, R, exec, $menu"
-          "$mainMod, P, pseudo, # dwindle"
-          "$mainMod, T, togglesplit, # dwindle"
+          "$mainMod, P, pseudo" # dwindle
+          "$mainMod, T, togglesplit" # dwindle
 
           # Move focus with mainMod + hjkl keys
           "$mainMod, H, movefocus, l"
@@ -71,6 +73,10 @@
 
           # mic
           ",xf86audiomicmute, exec, wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"
+
+          # brightness
+          ",XF86MonBrightnessUp,   exec, brightnessctl set +5%"
+          ",XF86MonBrightnessDown, exec, brightnessctl set  5%-"
         ];
       };
     };
