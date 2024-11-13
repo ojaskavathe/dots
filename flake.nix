@@ -19,15 +19,8 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    hyprland = {
-      url = "github:hyprwm/Hyprland";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-
-    ags = {
-      url = "github:Aylur/ags";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+    # hyprland.url = "github:hyprwm/Hyprland?submodules=1";
+    ags.url = "github:Aylur/ags";
   };
 
   outputs =
@@ -86,6 +79,19 @@
             ./users/dingus.nix
           ];
         };
+      };
+
+      # for work on the flake
+      devShells.${system}.default = pkgs.mkShell {
+        packages = with pkgs; [
+          nodejs
+
+          # lsp etc.
+          nodePackages.typescript-language-server
+          nodePackages.prettier
+          tailwindcss-language-server
+          vscode-langservers-extracted
+        ];
       };
     };
 }
