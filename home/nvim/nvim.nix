@@ -139,6 +139,14 @@
             vim.keymap.set("n", "gR", function() require("trouble").toggle("lsp_references") end)
           '';
         }
+        {
+          plugin = outline-nvim;
+          type = "lua";
+          config = ''
+            require("outline").setup({})
+            vim.keymap.set("n", "<leader>o", "<cmd>Outline<CR>")
+          '';
+        }
 
         # nav
         {
