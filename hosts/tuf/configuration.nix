@@ -129,6 +129,8 @@
 
   hyprland.enable = true;
 
+  services.cloudflare-warp.enable = true;
+
   nix.settings.experimental-features = [
     "nix-command"
     "flakes"
