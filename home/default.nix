@@ -7,6 +7,7 @@
   imports = [
     ./shell/zsh.nix
     ./git.nix
+    ./shell/direnv.nix
     ./tmux.nix
     ./nvim/nvim.nix
     ./kitty/kitty.nix
@@ -15,6 +16,7 @@
   ];
 
   zsh.enable = lib.mkDefault true;
+  direnv.enable = lib.mkDefault true;
   git.enable = lib.mkDefault true;
   tmux.enable = lib.mkDefault true;
   nvim = {
