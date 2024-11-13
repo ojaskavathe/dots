@@ -125,7 +125,7 @@
     optimus = true;
   };
 
-  keyd.enable = true;
+  kanata.enable = true;
 
   hyprland.enable = true;
 

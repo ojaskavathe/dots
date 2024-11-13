@@ -6,7 +6,7 @@
 {
   imports = [
     ./nvidia.nix
-    ./keyd.nix
+    ./kanata.nix
     ./hyprland.nix
   ];
 
@@ -15,7 +15,7 @@
     optimus = lib.mkDefault false;
   };
 
-  keyd = {
+  kanata = {
     enable = lib.mkDefault false;
   };
 
