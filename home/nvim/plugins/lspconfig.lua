@@ -46,6 +46,8 @@ lspconfig.pyright.setup({
 })
 lspconfig.ruff.setup({})
 
+lspconfig.vala_ls.setup {}
+
 -- Global mappings.
 -- See `:help vim.diagnostic.*` for documentation on any of the below functions
 vim.keymap.set("n", "<leader>E", vim.diagnostic.open_float)

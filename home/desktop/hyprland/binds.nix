@@ -4,17 +4,21 @@
     wayland.windowManager.hyprland = {
       settings = {
         bind = [
-          "$mainMod, RETURN, exec, $terminal"
+          "$mainMod, RETURN, exec, $terminal tmux a || tmux"
+          # "$mainMod, RETURN, exec, $terminal"
           "$mainMod, Q, killactive"
           "$mainMod, M, exit"
           "$mainMod, E, exec, $fileManager"
           "$mainMod, B, exec, $browser"
           "$mainMod, V, togglefloating"
           "$mainMod SHIFT, V, exec, [float] pavucontrol"
+          "$mainMod SHIFT, S, exec, spotify"
           "$mainMod, F, fullscreen"
           "$mainMod, R, exec, $menu"
           "$mainMod, P, pseudo" # dwindle
           "$mainMod, T, togglesplit" # dwindle
+
+          "$mainMod, Slash, exec, ags run-js 'cycleMode();'" # change bar
 
           # Move focus with mainMod + hjkl keys
           "$mainMod, H, movefocus, l"

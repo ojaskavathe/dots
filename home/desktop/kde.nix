@@ -22,15 +22,15 @@
 
     programs.plasma = {
       enable = true;
-      workspace = {
-        lookAndFeel = "org.kde.breezedark.desktop";
-      };
-      fonts = {
-        general = {
-          family = "Sans Serif";
-          pointSize = 10;
-        };
-      };
+      # workspace = {
+      #   lookAndFeel = "org.kde.breezedark.desktop";
+      # };
+      # fonts = {
+      #   general = {
+      #     family = "Sans Serif";
+      #     pointSize = 10;
+      #   };
+      # };
       input = {
         mice = [
           {

@@ -19,6 +19,8 @@
   networking.hostName = "tuf"; # Define your hostname.
   networking.networkmanager.enable = true; # Easiest to use and most distros use this by default.
 
+  hardware.bluetooth.enable = true;
+
   # Set your time zone.
   time.timeZone = "Asia/Kolkata";
 
@@ -57,6 +59,7 @@
     alsa.enable = true;
     alsa.support32Bit = true;
     pulse.enable = true;
+    wireplumber.enable = true;
   };
 
   programs = {
@@ -81,6 +84,20 @@
       # };
     };
   };
+
+  stylix = {
+    enable = true;
+    image = pkgs.fetchurl {
+      url = "https://www.pixelstalk.net/wp-content/uploads/2016/05/Epic-Anime-Awesome-Wallpapers.jpg";
+      sha256 = "enQo3wqhgf0FEPHj2coOCvo7DuZv+x5rL/WIo4qPI50=";
+    };
+    polarity = "dark";
+  };
+
+  hardware.i2c.enable = true; # for ddcutil
+  services.udev.extraRules = ''
+      KERNEL=="i2c-[0-9]*", GROUP="i2c", MODE="0660"
+  '';
 
   programs.zsh.enable = true;
   users.mutableUsers = false;
@@ -110,11 +127,17 @@
         # background = "${./wallpaper.png}";
         # loginBackground = true;
       })
-    ];
-    plasma6.excludePackages = with pkgs.kdePackages; [
-      kwallet
+      lxqt.lxqt-policykit
     ];
   };
+  environment.sessionVariables = {
+    XDG_CACHE_HOME = "$HOME/.cache";
+    XDG_CONFIG_HOME = "$HOME/.config";
+    XDG_DATA_HOME = "$HOME/.local/share";
+    XDG_STATE_HOME = "$HOME/.local/state";
+  };
+
+  security.polkit.enable = true;
 
   nixpkgs.config = {
     allowUnfree = true;

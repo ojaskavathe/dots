@@ -59,6 +59,8 @@
                 lua
                 json
                 python
+
+                vala
               ]
             )
           );
@@ -195,6 +197,9 @@
         # none-ls
         nixfmt-rfc-style
         stylua
+
+        # vala
+        vala-language-server
       ];
     };
   };

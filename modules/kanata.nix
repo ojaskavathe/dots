@@ -17,7 +17,8 @@
         swapcaps = {
           devices = [
             "/dev/input/by-path/platform-i8042-serio-0-event-kbd" # in-built keyboard
-            "/dev/input/by-id/usb-SONiX_AK820-event-kbd" # ak820
+            "/dev/input/by-id/usb-SONiX_AK820-event-kbd" # ak820 (USB cable)
+            "/dev/input/by-id/usb-0c45_2.4G_Dongle-event-kbd" # ak820 (USB dongle)
           ];
           extraDefCfg = "process-unmapped-keys yes";
           config = ''
