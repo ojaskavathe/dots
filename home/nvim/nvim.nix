@@ -51,18 +51,19 @@
         nvim-web-devicons
         {
           plugin = (
-            nvim-treesitter.withPlugins (
-              plugins: with plugins; [
-                nix
-                vim
-                bash
-                lua
-                json
-                python
-
-                vala
-              ]
-            )
+            nvim-treesitter.withAllGrammars
+            # nvim-treesitter.withPlugins (
+            #   plugins: with plugins; [
+            #     nix
+            #     vim
+            #     bash
+            #     lua
+            #     json
+            #     python
+            #
+            #     vala
+            #   ]
+            # )
           );
           type = "lua";
           config = builtins.readFile ./plugins/treesitter.lua;
@@ -85,9 +86,20 @@
           '';
         }
         {
+          plugin = nvim-ts-context-commentstring;
+          type = "lua";
+          config = ''
+            require('ts_context_commentstring').setup {
+              enable_autocmd = false,
+            }
+          '';
+        }
+        {
           plugin = comment-nvim;
           type = "lua";
-          config = ''require("Comment").setup()'';
+          config = ''require("Comment").setup {
+            pre_hook = require('ts_context_commentstring.integrations.comment_nvim').create_pre_hook(),
+          }'';
         }
         {
           plugin = gitsigns-nvim;
