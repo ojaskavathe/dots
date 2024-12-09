@@ -51,7 +51,7 @@
 
     in
     {
-      diskoConfigurations.nixos = import ./disk-config.nix;
+      diskoConfigurations.nixos = import ./hosts/tuf/disko-configuration.nix;
 
       nixosConfigurations = {
         tuf = nixpkgs.lib.nixosSystem {

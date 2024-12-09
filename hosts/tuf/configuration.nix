@@ -9,12 +9,19 @@
 {
   imports = [
     # Include the results of the hardware scan.
-    ./disko-configuration.nix
+    (import ./disko-configuration.nix { target = "/dev/nvme0n1"; })
     ./hardware-configuration.nix
   ];
 
   # Use systemd-boot
   boot.loader.systemd-boot.enable = true;
+
+  # boot.loader.grub = {
+  #   enable = true;
+  #   useOSProber = true;
+  #   efiSupport = true;
+  #   device = "nodev";
+  # };
 
   networking.hostName = "tuf"; # Define your hostname.
   networking.networkmanager.enable = true; # Easiest to use and most distros use this by default.
@@ -87,16 +94,32 @@
 
   stylix = {
     enable = true;
-    image = pkgs.fetchurl {
-      url = "https://www.pixelstalk.net/wp-content/uploads/2016/05/Epic-Anime-Awesome-Wallpapers.jpg";
-      sha256 = "enQo3wqhgf0FEPHj2coOCvo7DuZv+x5rL/WIo4qPI50=";
-    };
+    image = ../../data/wallpapers/wp.jpg;
+    base16Scheme = "${pkgs.base16-schemes}/share/themes/catppuccin-mocha.yaml";
     polarity = "dark";
+
+    cursor = {
+      package = pkgs.bibata-cursors;
+      name = "Bibata-Modern-Ice";
+    };
+
+    fonts = {
+      monospace = {
+        # package = pkgs.nerd-fonts.jetbrains-mono;
+        # name = "JetBrainsMono Nerd Font Mono";
+        package = pkgs.nerd-fonts.caskaydia-cove;
+        name = "CaskaydiaCove Nerd Font Mono";
+      };
+      sansSerif = {
+        package = pkgs.rubik;
+        name = "Rubik";
+      };
+    };
   };
 
   hardware.i2c.enable = true; # for ddcutil
   services.udev.extraRules = ''
-      KERNEL=="i2c-[0-9]*", GROUP="i2c", MODE="0660"
+    KERNEL=="i2c-[0-9]*", GROUP="i2c", MODE="0660"
   '';
 
   programs.zsh.enable = true;
@@ -122,7 +145,7 @@
       vim
       (catppuccin-sddm.override {
         flavor = "mocha";
-        # font  = "Noto Sans";
+        # font  = "Rubik";
         # fontSize = "9";
         # background = "${./wallpaper.png}";
         # loginBackground = true;
@@ -162,4 +185,8 @@
   system.stateVersion = "24.05";
 
   #virtualisation.vmware.guest.enable = true;
+  virtualisation.docker = {
+    enable = true;
+    storageDriver = "btrfs";
+  };
 }
