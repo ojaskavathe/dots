@@ -20,11 +20,6 @@
     };
 
     # hyprland.url = "github:hyprwm/Hyprland?submodules=1";
-    ags = {
-      url = "github:Aylur/ags/v1";
-      # url = "github:Aylur/ags";
-      # inputs.nixpkgs.follows = "nixpkgs";
-    };
 
     stylix = {
       url = "github:danth/stylix";
@@ -39,7 +34,6 @@
       nixpkgs,
       nixpkgs-stable,
       home-manager,
-      ags,
       stylix,
       ...
     }@inputs:
@@ -57,6 +51,7 @@
         tuf = nixpkgs.lib.nixosSystem {
           inherit system;
           specialArgs = {
+            inherit system;
             inherit inputs;
           };
           modules = [
@@ -86,8 +81,7 @@
             };
           modules = [
             inputs.plasma-manager.homeManagerModules.plasma-manager
-            inputs.ags.homeManagerModules.default
-            stylix.homeManagerModules.stylix ./users/dingus.nix
+            stylix.homeManagerModules.stylix
             ./home
             ./users/dingus.nix
           ];
@@ -98,12 +92,6 @@
       devShells.${system}.default = pkgs.mkShell {
         packages = with pkgs; [
           nodejs
-
-          # lsp etc.
-          nodePackages.typescript-language-server
-          nodePackages.prettier
-          tailwindcss-language-server
-          vscode-langservers-extracted
         ];
       };
     };
