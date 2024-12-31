@@ -14,7 +14,6 @@
 
   imports = [
     ./binds.nix
-    # ./ags.nix
   ];
 
   config = lib.mkIf config.hyprland.enable {
@@ -27,7 +26,7 @@
 
       settings = {
         "$mainMod" = "SUPER";
-        "$terminal" = "konsole";
+        "$terminal" = "kitty";
         "$fileManager" = "dolphin";
         "$menu" = "wofi --show drun";
         "$browser" = "firefox";
