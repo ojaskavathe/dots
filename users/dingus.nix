@@ -48,32 +48,19 @@
       };
     };
 
-    # fonts.fontconfig.enable = true;
     home.packages = with pkgs; [
-      # (nerdfonts.override { fonts = [ "JetBrainsMono" ]; })
-      # nerd-fonts.jetbrains-mono
+      # essentials
       ripgrep
-      spotify
-      mesa-demos
       brightnessctl
-      qt6ct
-      pavucontrol
-
-      networkmanagerapplet
-
-      adwaita-icon-theme
-
-      # bluetooth frontend
-      overskride
-
-      steam
-
       tldr
+      fastfetch
 
-      # audio patchbay
-      qpwgraph
-
+      # media
+      spotify
       multiviewer-for-f1
+
+      overskride # bluetooth frontend
+      qpwgraph # audio patchbay
     ];
 
     stylix-home.enable = true;
