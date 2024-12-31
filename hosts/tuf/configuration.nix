@@ -105,10 +105,8 @@
 
     fonts = {
       monospace = {
-        # package = pkgs.nerd-fonts.jetbrains-mono;
-        # name = "JetBrainsMono Nerd Font Mono";
-        package = pkgs.nerd-fonts.caskaydia-cove;
-        name = "CaskaydiaCove Nerd Font Mono";
+        package = pkgs.nerd-fonts.jetbrains-mono;
+        name = "JetBrainsMonoNL Nerd Font Mono";
       };
       sansSerif = {
         package = pkgs.rubik;
@@ -136,6 +134,13 @@
   };
   # disabling the root user
   users.users.root.hashedPassword = "!";
+
+  programs.steam = {
+    enable = true;
+    remotePlay.openFirewall = true;
+    dedicatedServer.openFirewall = true;
+    localNetworkGameTransfers.openFirewall = true;
+  };
 
   programs.firefox.enable = true;
   programs.ssh.startAgent = true;
