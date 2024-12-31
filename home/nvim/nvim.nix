@@ -35,18 +35,20 @@
         {
           plugin = catppuccin-nvim;
           type = "lua";
-          config = ''
-            require("catppuccin").setup {
-              flavour = "mocha",
-              integrations = {
-                telescope = {
-                  enabled = true,
-                  style = "nvchad"
-                },
+          config =
+            # lua
+            ''
+              require("catppuccin").setup {
+                flavour = "mocha",
+                integrations = {
+                  telescope = {
+                    enabled = true,
+                    style = "nvchad"
+                  },
+                }
               }
-            }
-            vim.cmd.colorscheme "catppuccin"
-          '';
+              vim.cmd.colorscheme "catppuccin"
+            '';
         }
         nvim-web-devicons
         {
@@ -71,35 +73,40 @@
         {
           plugin = nvim-treesitter-textsubjects;
           type = "lua";
-          config = ''
-            require('nvim-treesitter.configs').setup {
-              textsubjects = {
-                enable = true,
-                prev_selection = ',', -- (Optional) keymap to select the previous selection
-                keymaps = {
-                  ['.'] = 'textsubjects-smart',
-                  [';'] = 'textsubjects-container-outer',
-                  ['i;'] = { 'textsubjects-container-inner', desc = "Select inside containers (classes, functions, etc.)" },
+          config = # lua
+            ''
+              require('nvim-treesitter.configs').setup {
+                textsubjects = {
+                  enable = true,
+                  prev_selection = ',', -- (Optional) keymap to select the previous selection
+                  keymaps = {
+                    ['.'] = 'textsubjects-smart',
+                    [';'] = 'textsubjects-container-outer',
+                    ['i;'] = { 'textsubjects-container-inner', desc = "Select inside containers (classes, functions, etc.)" },
+                  },
                 },
-              },
-            }
-          '';
+              }
+            '';
         }
         {
           plugin = nvim-ts-context-commentstring;
           type = "lua";
-          config = ''
-            require('ts_context_commentstring').setup {
-              enable_autocmd = false,
-            }
-          '';
+          config = # lua
+            ''
+              require('ts_context_commentstring').setup {
+                enable_autocmd = false,
+              }
+            '';
         }
         {
           plugin = comment-nvim;
           type = "lua";
-          config = ''require("Comment").setup {
-            pre_hook = require('ts_context_commentstring.integrations.comment_nvim').create_pre_hook(),
-          }'';
+          config = # lua
+            ''
+              require("Comment").setup {
+                pre_hook = require('ts_context_commentstring.integrations.comment_nvim').create_pre_hook(),
+              }
+            '';
         }
         {
           plugin = gitsigns-nvim;
@@ -120,7 +127,8 @@
         {
           plugin = indent-blankline-nvim;
           type = "lua";
-          config = ''require("ibl").setup {}'';
+          config = # lua
+            ''require("ibl").setup {}'';
         }
         {
           plugin = lualine-nvim;
@@ -131,7 +139,8 @@
         {
           plugin = nvim-surround;
           type = "lua";
-          config = ''require("nvim-surround").setup {}'';
+          config = # lua
+            ''require("nvim-surround").setup {}'';
         }
         {
           plugin = nvim-autopairs;
@@ -141,25 +150,29 @@
         {
           plugin = trouble-nvim;
           type = "lua";
-          config = ''
-            require("trouble").setup(opts)
+          config =
+            # lua
+            ''
+              require("trouble").setup(opts)
 
-            --keybinds
-            vim.keymap.set("n", "<leader>xx", function() require("trouble").toggle() end)
-            vim.keymap.set("n", "<leader>xw", function() require("trouble").toggle("workspace_diagnostics") end)
-            vim.keymap.set("n", "<leader>xd", function() require("trouble").toggle("document_diagnostics") end)
-            vim.keymap.set("n", "<leader>xq", function() require("trouble").toggle("quickfix") end)
-            vim.keymap.set("n", "<leader>xl", function() require("trouble").toggle("loclist") end)
-            vim.keymap.set("n", "gR", function() require("trouble").toggle("lsp_references") end)
-          '';
+              --keybinds
+              vim.keymap.set("n", "<leader>xx", function() require("trouble").toggle() end)
+              vim.keymap.set("n", "<leader>xw", function() require("trouble").toggle("workspace_diagnostics") end)
+              vim.keymap.set("n", "<leader>xd", function() require("trouble").toggle("document_diagnostics") end)
+              vim.keymap.set("n", "<leader>xq", function() require("trouble").toggle("quickfix") end)
+              vim.keymap.set("n", "<leader>xl", function() require("trouble").toggle("loclist") end)
+              vim.keymap.set("n", "gR", function() require("trouble").toggle("lsp_references") end)
+            '';
         }
         {
           plugin = outline-nvim;
           type = "lua";
-          config = ''
-            require("outline").setup({})
-            vim.keymap.set("n", "<leader>o", "<cmd>Outline<CR>")
-          '';
+          config =
+            # lua
+            ''
+              require("outline").setup({})
+              vim.keymap.set("n", "<leader>o", "<cmd>Outline<CR>")
+            '';
         }
 
         # nav
@@ -179,6 +192,17 @@
           plugin = none-ls-nvim;
           type = "lua";
           config = builtins.readFile ./plugins/none-ls.lua;
+        }
+        {
+          plugin = rustaceanvim;
+          type = "lua";
+        }
+        {
+          plugin = crates-nvim;
+          type = "lua";
+          config = ''
+            require("crates").setup()
+          '';
         }
 
         # cmp
@@ -202,16 +226,30 @@
       ];
 
       extraPackages = with pkgs; [
-        # lsp
+        # nix
         nil
-        lua-language-server
-
-        # none-ls
         nixfmt-rfc-style
+
+        # lua
+        lua-language-server
         stylua
 
         # vala
         vala-language-server
+
+        # elixir-ls
+        elixir-ls
+
+        # js/ts
+        nodePackages.typescript-language-server
+        nodePackages.prettier
+        vscode-langservers-extracted
+
+        tailwindcss-language-server
+
+        # cpp
+        clang-tools
+        cmake-language-server
       ];
     };
   };

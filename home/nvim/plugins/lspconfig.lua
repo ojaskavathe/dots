@@ -30,6 +30,20 @@ lspconfig.clangd.setup({
 })
 lspconfig.cmake.setup({})
 
+-- lspconfig.rust_analyzer.setup{
+--   settings = {
+--     ['rust-analyzer'] = {
+--       checkOnSave =  {
+-- 	command = "clippy",
+--       }
+--     }
+--   }
+-- }
+
+lspconfig.elixirls.setup{
+  cmd = { "elixir-ls" }
+}
+
 -- python
 lspconfig.pyright.setup({
   settings = {
@@ -62,7 +76,7 @@ vim.api.nvim_create_autocmd("LspAttach", {
   callback = function(ev)
     -- Enable completion triggered by <c-x><c-o>
     vim.bo[ev.buf].omnifunc = "v:lua.vim.lsp.omnifunc"
-    
+
     -- Buffer local mappings.
     -- See `:help vim.lsp.*` for documentation on any of the below functions
     local opts = { buffer = ev.buf }
