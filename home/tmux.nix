@@ -73,7 +73,10 @@
         # keybinds
         bind-key -T copy-mode-vi v send-keys -X begin-selection
         bind-key -T copy-mode-vi C-v send-keys -X rectangle-toggle
-        bind-key -T copy-mode-vi y send-keys -X copy-selection-and-cancel
+        bind-key -T copy-mode-vi y send-keys -X copy-selection
+
+        # disable 'release mouse to copy'
+        unbind-key -T copy-mode-vi MouseDragEnd1Pane
 
         # open panes in current directory
         bind '"' split-window -h -c "#{pane_current_path}"
