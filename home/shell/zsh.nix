@@ -42,6 +42,9 @@
         setopt PUSHD_SILENT         # Do not print the directory stack after pushd or popd.
 
         ${builtins.readFile ./aliases.zsh}
+
+        export LC_ALL=en_US.UTF-8
+        export LANG=en_US.UTF-8
       '';
     };
   };
