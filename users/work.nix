@@ -30,8 +30,7 @@
         EDITOR = "nvim";
         BROWSER = "firefox";
         TERMINAL = "kitty";
-        NIXOS_CONFIG = "$HOME/dev/nixos-config";
-        # NIXOS_CONFIG = builtins.toString config.my.configDir;
+        NIX_CFG_PATH = "$HOME/dots";
       };
     };
 

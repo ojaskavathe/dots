@@ -178,7 +178,8 @@
           config = builtins.readFile ./plugins/none-ls.lua;
         }
         {
-          plugin = rustaceanvim;
+          # neotest 5.8.0 currently broken
+          plugin = pkgs-stable.vimPlugins.rustaceanvim;
           type = "lua";
         }
         {

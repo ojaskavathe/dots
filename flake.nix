@@ -3,6 +3,8 @@
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-24.11";
 
+    flake-utils.url = "github:numtide/flake-utils";
+
     nix-darwin.url = "github:LnL7/nix-darwin/master";
     nix-darwin.inputs.nixpkgs.follows = "nixpkgs";
 
@@ -75,7 +77,7 @@
           pkgs = nixpkgs.legacyPackages.${system};
         in
         {
-          "ojas-work" = nix-darwin.lib.darwinSystem {
+          "camille" = nix-darwin.lib.darwinSystem {
             specialArgs = {
               inherit inputs;
             };
@@ -115,7 +117,7 @@
             ];
           };
 
-        "ojas@work" =
+        "ojaskavathe@camille" =
           let
             system = "aarch64-darwin";
           in
@@ -142,12 +144,17 @@
             ];
           };
       };
-
-      # for work on the flake
-      # devShells.${system}.default = pkgs.mkShell {
-      #   packages = with pkgs; [
-      #     nodejs
-      #   ];
-      # };
-    };
+    }
+    # for ags / hyprland stuff
+    // inputs.flake-utils.lib.eachDefaultSystem (system: {
+      devShells.default =
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+        in
+        pkgs.mkShell {
+          packages = with pkgs; [
+            nodejs
+          ];
+        };
+    });
 }
