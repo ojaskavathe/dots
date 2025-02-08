@@ -25,4 +25,11 @@
   system.stateVersion = 5;
 
   security.pam.enableSudoTouchIdAuth = true;
+
+  system.defaults = {
+    NSGlobalDomain = {
+      # ctrl + cmd + mouse to drag windows from any part of the window (not just titlebar)
+      NSWindowShouldDragOnGesture = true;
+    };
+  };
 }
