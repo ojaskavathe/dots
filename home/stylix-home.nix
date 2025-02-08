@@ -32,6 +32,10 @@
           package = pkgs.rubik;
           name = "Rubik";
         };
+
+        sizes = {
+          terminal = 16;
+        };
       };
 
       targets = {

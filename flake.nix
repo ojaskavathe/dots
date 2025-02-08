@@ -3,6 +3,9 @@
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-24.11";
 
+    nix-darwin.url = "github:LnL7/nix-darwin/master";
+    nix-darwin.inputs.nixpkgs.follows = "nixpkgs";
+
     home-manager = {
       url = "github:nix-community/home-manager";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -33,66 +36,118 @@
       disko,
       nixpkgs,
       nixpkgs-stable,
+      nix-darwin,
       home-manager,
       stylix,
       ...
     }@inputs:
     let
-
-      system = "x86_64-linux";
-      pkgs = nixpkgs.legacyPackages.${system};
       inherit (self) outputs;
-
     in
     {
       diskoConfigurations.nixos = import ./hosts/tuf/disko-configuration.nix;
 
-      nixosConfigurations = {
-        tuf = nixpkgs.lib.nixosSystem {
-          inherit system;
-          specialArgs = {
+      nixosConfigurations =
+        let
+          system = "x86_64-linux";
+          pkgs = nixpkgs.legacyPackages.${system};
+        in
+        {
+          tuf = nixpkgs.lib.nixosSystem {
             inherit system;
-            inherit inputs;
+            specialArgs = {
+              inherit system;
+              inherit inputs;
+            };
+            modules = [
+              ./hosts/tuf/configuration.nix
+              ./modules/shared
+              ./modules/nixos
+              disko.nixosModules.disko
+              stylix.nixosModules.stylix
+            ];
           };
-          modules = [
-            ./hosts/tuf/configuration.nix
-            ./modules
-            disko.nixosModules.disko
-            stylix.nixosModules.stylix ./hosts/tuf/configuration.nix
-          ];
         };
-      };
+
+      darwinConfigurations =
+        let
+          system = "aarch64-darwin";
+          pkgs = nixpkgs.legacyPackages.${system};
+        in
+        {
+          "ojas-work" = nix-darwin.lib.darwinSystem {
+            specialArgs = {
+              inherit inputs;
+            };
+            modules = [
+              ./hosts/work/configuration.nix
+              ./modules/shared
+              ./modules/darwin
+            ];
+          };
+        };
 
       homeConfigurations = {
-        "dingus@tuf" = home-manager.lib.homeManagerConfiguration {
-          pkgs = nixpkgs.legacyPackages.${system}; # Home-manager requires 'pkgs' instance
-          extraSpecialArgs =
-            let
-              pkgs-stable = import nixpkgs-stable {
-                inherit system;
-                config = {
-                  allowUnfree = true;
-                  allowUnfreePredicate = (_: true);
+        "dingus@tuf" =
+          let
+            system = "x86_64-linux";
+          in
+          home-manager.lib.homeManagerConfiguration {
+            pkgs = nixpkgs.legacyPackages.${system}; # Home-manager requires 'pkgs' instance
+            extraSpecialArgs =
+              let
+                pkgs-stable = import nixpkgs-stable {
+                  inherit system;
+                  config = {
+                    allowUnfree = true;
+                    allowUnfreePredicate = (_: true);
+                  };
                 };
+              in
+              {
+                inherit pkgs-stable inputs system;
               };
-            in
-            {
-              inherit pkgs-stable inputs system;
-            };
-          modules = [
-            inputs.plasma-manager.homeManagerModules.plasma-manager
-            stylix.homeManagerModules.stylix
-            ./home
-            ./users/dingus.nix
-          ];
-        };
+            modules = [
+              inputs.plasma-manager.homeManagerModules.plasma-manager
+              stylix.homeManagerModules.stylix
+              ./home
+              ./users/dingus.nix
+            ];
+          };
+
+        "ojas@work" =
+          let
+            system = "aarch64-darwin";
+          in
+          home-manager.lib.homeManagerConfiguration {
+            pkgs = nixpkgs.legacyPackages."aarch64-darwin"; # Home-manager requires 'pkgs' instance
+            extraSpecialArgs =
+              let
+                pkgs-stable = import nixpkgs-stable {
+                  inherit system;
+                  config = {
+                    allowUnfree = true;
+                    allowUnfreePredicate = (_: true);
+                  };
+                };
+              in
+              {
+                inherit pkgs-stable inputs system;
+              };
+            modules = [
+              stylix.homeManagerModules.stylix
+              inputs.plasma-manager.homeManagerModules.plasma-manager
+              ./home
+              ./users/work.nix
+            ];
+          };
       };
 
       # for work on the flake
-      devShells.${system}.default = pkgs.mkShell {
-        packages = with pkgs; [
-          nodejs
-        ];
-      };
+      # devShells.${system}.default = pkgs.mkShell {
+      #   packages = with pkgs; [
+      #     nodejs
+      #   ];
+      # };
     };
 }

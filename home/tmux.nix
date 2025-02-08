@@ -1,5 +1,6 @@
 {
   pkgs,
+  pkgs-stable,
   lib,
   config,
   ...
@@ -22,6 +23,8 @@
 
       escapeTime = 10;
 
+      historyLimit = 100000000;
+
       plugins = with pkgs; [
         tmuxPlugins.vim-tmux-navigator
         {
@@ -38,15 +41,12 @@
           '';
         }
         {
-          plugin = tmuxPlugins.resurrect;
+          # unstable resurrect not building
+          plugin = pkgs-stable.tmuxPlugins.resurrect;
           # https://github.com/tmux-plugins/tmux-resurrect/issues/247
           extraConfig = ''
             set -g @resurrect-capture-pane-contents 'on'
             set -g @resurrect-strategy-nvim 'session'
-
-            resurrect_dir=$XDG_DATA_HOME/tmux/resurrect
-            set -g @resurrect-dir $resurrect_dir
-            set -g @resurrect-hook-post-save-all "sed -i 's| --cmd .*-vim-pack-dir||g; s|/etc/profiles/per-user/$USER/bin/||g; s|/home/$USER/.nix-profile/bin/||g' $(readlink -f $resurrect_dir/last)"
           '';
         }
         {

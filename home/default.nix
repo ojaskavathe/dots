@@ -28,6 +28,6 @@
 
   kitty.enable = lib.mkDefault false;
 
-  kde.enable = lib.mkDefault true;
+  kde.enable = lib.mkDefault false;
   hyprland.enable = lib.mkDefault false;
 }
