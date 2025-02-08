@@ -23,4 +23,6 @@
   ];
 
   system.stateVersion = 5;
+
+  security.pam.enableSudoTouchIdAuth = true;
 }
