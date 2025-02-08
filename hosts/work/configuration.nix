@@ -32,4 +32,8 @@
       NSWindowShouldDragOnGesture = true;
     };
   };
+
+  aerospace = {
+    enable = true;
+  };
 }
