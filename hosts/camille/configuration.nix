@@ -27,6 +27,12 @@
   security.pam.enableSudoTouchIdAuth = true;
 
   system.defaults = {
+    dock = {
+      autohide = true;
+      static-only = true;
+      tilesize = 32;
+    };
+
     NSGlobalDomain = {
       # ctrl + cmd + mouse to drag windows  
       NSWindowShouldDragOnGesture = true;
