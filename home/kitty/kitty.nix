@@ -35,6 +35,10 @@
         confirm_os_window_close = 0;
         # hide_window_decorations = "titlebar-only";
       };
+      keybindings = {
+        # https://github.com/kovidgoyal/kitty/issues/948#issuecomment-1107216743
+        "cmd+h" = "no_op";
+      };
     };
   };
 }
