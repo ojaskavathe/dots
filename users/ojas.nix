@@ -24,8 +24,8 @@
     };
 
     home = {
-      username = "ojaskavathe";
-      homeDirectory = "/Users/ojaskavathe";
+      username = "ojas";
+      homeDirectory = "/Users/ojas";
       sessionVariables = {
         EDITOR = "nvim";
         BROWSER = "firefox";

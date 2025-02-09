@@ -58,8 +58,7 @@
           tuf = nixpkgs.lib.nixosSystem {
             inherit system;
             specialArgs = {
-              inherit system;
-              inherit inputs;
+              inherit inputs system;
             };
             modules = [
               ./hosts/tuf/configuration.nix
@@ -77,12 +76,12 @@
           pkgs = nixpkgs.legacyPackages.${system};
         in
         {
-          "camille" = nix-darwin.lib.darwinSystem {
+          camille = nix-darwin.lib.darwinSystem {
             specialArgs = {
-              inherit inputs;
+              inherit inputs system;
             };
             modules = [
-              ./hosts/work/configuration.nix
+              ./hosts/camille/configuration.nix
               ./modules/shared
               ./modules/darwin
             ];
@@ -117,7 +116,7 @@
             ];
           };
 
-        "ojaskavathe@camille" =
+        "ojas@camille" =
           let
             system = "aarch64-darwin";
           in
@@ -140,7 +139,7 @@
               stylix.homeManagerModules.stylix
               inputs.plasma-manager.homeManagerModules.plasma-manager
               ./home
-              ./users/work.nix
+              ./users/ojas.nix
             ];
           };
       };

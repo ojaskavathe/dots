@@ -6,8 +6,8 @@ function get_flake_config() {
 }
 
 alias hms="home-manager switch --flake $NIX_CFG_PATH#$(get_flake_config)"
-alias nrs="sudo nixos-rebuild switch --flake $NIX_CFG_PATH#$(whoami)"
-alias drs="darwin-rebuild switch --flake $NIX_CFG_PATH#$(whoami)"
+alias nrs="sudo nixos-rebuild switch --flake $NIX_CFG_PATH#$(hostname -s)"
+alias drs="darwin-rebuild switch --flake $NIX_CFG_PATH#$(hostname -s)"
 
 alias ll="ls -la"
 
