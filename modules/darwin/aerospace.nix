@@ -53,16 +53,34 @@
           alt-7 = "workspace 7";
           alt-8 = "workspace 8";
           alt-9 = "workspace 9";
+          alt-0 = "workspace 10";
 
-          alt-shift-1 = "move-node-to-workspace 1";
-          alt-shift-2 = "move-node-to-workspace 2";
-          alt-shift-3 = "move-node-to-workspace 3";
-          alt-shift-4 = "move-node-to-workspace 4";
-          alt-shift-5 = "move-node-to-workspace 5";
-          alt-shift-6 = "move-node-to-workspace 6";
-          alt-shift-7 = "move-node-to-workspace 7";
-          alt-shift-8 = "move-node-to-workspace 8";
-          alt-shift-9 = "move-node-to-workspace 9";
+          alt-shift-1 = "move-node-to-workspace 1 --focus-follows-window";
+          alt-shift-2 = "move-node-to-workspace 2 --focus-follows-window";
+          alt-shift-3 = "move-node-to-workspace 3 --focus-follows-window";
+          alt-shift-4 = "move-node-to-workspace 4 --focus-follows-window";
+          alt-shift-5 = "move-node-to-workspace 5 --focus-follows-window";
+          alt-shift-6 = "move-node-to-workspace 6 --focus-follows-window";
+          alt-shift-7 = "move-node-to-workspace 7 --focus-follows-window";
+          alt-shift-8 = "move-node-to-workspace 8 --focus-follows-window";
+          alt-shift-9 = "move-node-to-workspace 9 --focus-follows-window";
+          alt-shift-0 = "move-node-to-workspace 10 --focus-follows-window";
+
+          alt-ctrl-h = "focus-monitor left";
+          alt-ctrl-j = "focus-monitor down";
+          alt-ctrl-k = "focus-monitor up";
+          alt-ctrl-l = "focus-monitor right";
+
+          alt-ctrl-1 = "summon-workspace 1";
+          alt-ctrl-2 = "summon-workspace 2";
+          alt-ctrl-3 = "summon-workspace 3";
+          alt-ctrl-4 = "summon-workspace 4";
+          alt-ctrl-5 = "summon-workspace 5";
+          alt-ctrl-6 = "summon-workspace 6";
+          alt-ctrl-7 = "summon-workspace 7";
+          alt-ctrl-8 = "summon-workspace 8";
+          alt-ctrl-9 = "summon-workspace 9";
+          alt-ctrl-0 = "summon-workspace 10";
 
           alt-f = "layout tiling floating"; # toggle floating
 
