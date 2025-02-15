@@ -3,6 +3,7 @@
   lib,
   pkgs,
   pkgs-stable,
+  username,
   ...
 }:
 {
@@ -24,8 +25,8 @@
     };
 
     home = {
-      username = "ojas";
-      homeDirectory = "/Users/ojas";
+      inherit username;
+      homeDirectory = "/Users/${username}";
       sessionVariables = {
         EDITOR = "nvim";
         BROWSER = "firefox";
@@ -39,25 +40,22 @@
       ripgrep
       tldr
       fastfetch
-
-      nodejs
-
-      obsidian
-      raycast
-
-      # media
-      spotify
+      ffmpeg
+      lazygit
+      yt-dlp
 
       slack
-
       discord
       google-chrome
-
+      obsidian
+      spotify
       dbeaver-bin
-      ffmpeg
+      
+      nodejs
+
+      raycast
 
       monitorcontrol
-      lazygit
     ];
 
     nvim.enable = true;

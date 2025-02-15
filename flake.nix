@@ -5,8 +5,23 @@
 
     flake-utils.url = "github:numtide/flake-utils";
 
-    nix-darwin.url = "github:LnL7/nix-darwin/master";
-    nix-darwin.inputs.nixpkgs.follows = "nixpkgs";
+    nix-darwin = {
+      url = "github:LnL7/nix-darwin/master";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    nix-homebrew.url = "github:zhaofengli-wip/nix-homebrew";
+    homebrew-core = {
+      url = "github:homebrew/homebrew-core";
+      flake = false;
+    };
+    homebrew-cask = {
+      url = "github:homebrew/homebrew-cask";
+      flake = false;
+    };
+    homebrew-bundle = {
+      url = "github:homebrew/homebrew-bundle";
+      flake = false;
+    };
 
     home-manager = {
       url = "github:nix-community/home-manager";
@@ -74,13 +89,15 @@
         let
           system = "aarch64-darwin";
           pkgs = nixpkgs.legacyPackages.${system};
+          username = "ojas"; # single-user
         in
         {
           camille = nix-darwin.lib.darwinSystem {
             specialArgs = {
-              inherit inputs system;
+              inherit inputs system username;
             };
             modules = [
+              inputs.nix-homebrew.darwinModules.nix-homebrew
               ./hosts/camille/configuration.nix
               ./modules/shared
               ./modules/darwin
@@ -119,6 +136,7 @@
         "ojas@camille" =
           let
             system = "aarch64-darwin";
+            username = "ojas";
           in
           home-manager.lib.homeManagerConfiguration {
             pkgs = nixpkgs.legacyPackages."aarch64-darwin"; # Home-manager requires 'pkgs' instance
@@ -133,7 +151,12 @@
                 };
               in
               {
-                inherit pkgs-stable inputs system;
+                inherit
+                  pkgs-stable
+                  inputs
+                  system
+                  username
+                  ;
               };
             modules = [
               stylix.homeManagerModules.stylix
