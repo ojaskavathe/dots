@@ -20,6 +20,21 @@
         default-root-container-layout = "tiles";
         automatically-unhide-macos-hidden-apps = true;
 
+        on-window-detected = [
+          {
+            "if".app-id = "com.apple.finder";
+            run = "layout floating";
+          }
+          {
+            "if".app-id = "com.apple.Preview";
+            run = "layout floating";
+          }
+          {
+            "if".app-name-regex-substring = "quicktime";
+            run = "layout floating";
+          }
+        ];
+
         gaps = {
           outer.left = 8;
           outer.bottom = 8;
