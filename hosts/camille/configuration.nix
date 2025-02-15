@@ -24,6 +24,12 @@
 
   system.stateVersion = 5;
 
+  networking = {
+    computerName = "camille";
+    hostName = "camille";
+    localHostName = "camille";
+  };
+
   security.pam.enableSudoTouchIdAuth = true;
 
   # activationScripts are executed every time you boot the system or run `nixos-rebuild` / `darwin-rebuild`.

@@ -93,9 +93,24 @@
         in
         {
           camille = nix-darwin.lib.darwinSystem {
-            specialArgs = {
-              inherit inputs system username;
-            };
+            specialArgs =
+              let
+                pkgs-stable = import nixpkgs-stable {
+                  inherit system;
+                  config = {
+                    allowUnfree = true;
+                    allowUnfreePredicate = (_: true);
+                  };
+                };
+              in
+              {
+                inherit
+                  inputs
+                  system
+                  pkgs-stable
+                  username
+                  ;
+              };
             modules = [
               inputs.nix-homebrew.darwinModules.nix-homebrew
               ./hosts/camille/configuration.nix
