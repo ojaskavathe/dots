@@ -47,6 +47,9 @@
       static-only = true;
       show-recents = false;
       tilesize = 32;
+
+      # https://nikitabobko.github.io/AeroSpace/guide#a-note-on-mission-control
+      expose-group-apps = true;
     };
 
     finder = {
