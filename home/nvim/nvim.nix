@@ -26,7 +26,14 @@
       viAlias = true;
       vimdiffAlias = true;
 
-      extraLuaConfig = ''
+      extraLuaConfig = 
+        # lua
+        ''
+        -- until https://github.com/yetone/avante.nvim/pull/1345 is merged
+        package.cpath = package.cpath .. ";${pkgs.vimPlugins.avante-nvim}/build/?.${
+          if pkgs.stdenv.isDarwin then "dylib" else "so"
+        }"
+
         ${builtins.readFile ./options.lua}
         ${builtins.readFile ./keymap.lua}
         ${builtins.readFile ./diagnostics.lua}
@@ -208,6 +215,15 @@
           plugin = nvim-cmp;
           type = "lua";
           config = builtins.readFile ./plugins/nvim-cmp.lua;
+        }
+
+        {
+          plugin = avante-nvim;
+          type = "lua";
+          config =
+            ''
+              require("avante").setup()
+            '';
         }
       ];
 
