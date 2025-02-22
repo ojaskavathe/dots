@@ -2,6 +2,7 @@
   config,
   lib,
   pkgs,
+  pkgs-stable,
   inputs,
   ...
 }:
@@ -26,7 +27,7 @@
 
   networking = {
     computerName = "camille";
-    hostName = "camille";
+    hostName = "camille.local";
     localHostName = "camille";
   };
 
@@ -40,6 +41,23 @@
       /System/Library/PrivateFrameworks/SystemAdministration.framework/Resources/activateSettings -u
     '';
   };
+
+  # nixpkgs.overlays = [
+  #   (self: super: {
+  #     karabiner-elements = super.karabiner-elements.overrideAttrs (old: {
+  #       version = "14.13.0";
+  #
+  #       src = super.fetchurl {
+  #         inherit (old.src) url;
+  #         hash = "sha256-gmJwoht/Tfm5qMecmq1N6PSAIfWOqsvuHU8VDJY8bLw=";
+  #       };
+  #     });
+  #   })
+  # ];
+  # 
+  # services.karabiner-elements = {
+  #   enable = true;
+  # };
 
   system.defaults = {
     menuExtraClock.Show24Hour = true;
