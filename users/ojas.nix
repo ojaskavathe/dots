@@ -44,18 +44,24 @@
       lazygit
       yt-dlp
 
+      monitorcontrol
+
+      openvpn
+
       slack
       discord
       google-chrome
       obsidian
       spotify
-      dbeaver-bin
       
-      nodejs
-
       raycast
 
-      monitorcontrol
+      dbeaver-bin
+
+      beamMinimal27Packages.elixir-ls
+      nodejs
+
+      ollama
     ];
 
     nvim.enable = true;

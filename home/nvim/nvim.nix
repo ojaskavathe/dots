@@ -220,10 +220,7 @@
         {
           plugin = avante-nvim;
           type = "lua";
-          config =
-            ''
-              require("avante").setup()
-            '';
+          config = builtins.readFile ./plugins/avante.lua;
         }
       ];
 
@@ -240,7 +237,7 @@
         vala-language-server
 
         # elixir-ls
-        elixir-ls
+        beamMinimal27Packages.elixir-ls
 
         # js/ts
         nodePackages.typescript-language-server

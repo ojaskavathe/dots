@@ -32,13 +32,26 @@
 
     homebrew = {
       enable = true;
-      onActivation.cleanup = "uninstall";
+      onActivation.cleanup = "zap";
+      onActivation.autoUpdate = true;
+      onActivation.upgrade = true;
 
       # https://github.com/zhaofengli/nix-homebrew/issues/5#issuecomment-1878798641
       taps = builtins.attrNames config.nix-homebrew.taps;
 
-      brews = [ "cowsay" ];
-      casks = [];
+      brews = [
+        "cowsay"
+        "kanata"
+        "mas" # cli for mas app ids
+      ];
+      casks = [
+        "steam"
+        "msty"
+      ];
+
+      masApps = {
+        "Amphetamine" = 937984704; 
+      };
     };
   };
 }

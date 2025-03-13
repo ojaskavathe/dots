@@ -89,6 +89,7 @@
       # ctrl + cmd + mouse to drag windows
       NSWindowShouldDragOnGesture = true;
 
+      ApplePressAndHoldEnabled = false;
       InitialKeyRepeat = 25;
       KeyRepeat = 2;
     };
