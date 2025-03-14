@@ -236,9 +236,6 @@
         # vala
         vala-language-server
 
-        # elixir-ls
-        beamMinimal27Packages.elixir-ls
-
         # js/ts
         nodePackages.typescript-language-server
         nodePackages.prettier

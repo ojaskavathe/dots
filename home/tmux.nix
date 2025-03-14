@@ -31,13 +31,21 @@
           plugin = tmuxPlugins.catppuccin;
           extraConfig = ''
             # colorscheme
-            set -g @catppuccin_flavour "mocha" # latte, frappe, macchiato, mocha
+            set -g @catppuccin_flavour "mocha"
+            set -g @catppuccin_window_status_style "basic"
 
             # statusbar
-            set -g @catppuccin_date_time_text "%Y-%m-%d %H:%M"
-            set -g @catppuccin_status_modules_right "application session date_time"
+            set -gw window-status-separator ""
             set -g @catppuccin_status_left_separator "█"
             set -g @catppuccin_status_right_separator "█"
+
+            set -g status-left "" 
+
+            set -g status-right-length 100
+
+            set -g status-right "#{E:@catppuccin_status_session}"
+            set -ag status-right "#{E:@catppuccin_status_uptime}"
+            set -agF status-right "#{E:@catppuccin_status_date_time}"
           '';
         }
         {

@@ -31,6 +31,11 @@
           name = "pure-prompt";
           src = "${pkgs.pure-prompt}/share/zsh/site-functions";
         }
+        {  
+          name = "zsh-autosuggestions";
+          src = pkgs.zsh-autosuggestions;
+          file = "share/zsh-autosuggestions/zsh-autosuggestions.zsh";
+        }
       ];
       initExtraBeforeCompInit = builtins.readFile ./completions.zsh;
       initExtra = ''
@@ -45,6 +50,8 @@
 
         export LC_ALL=en_US.UTF-8
         export LANG=en_US.UTF-8
+
+        bindkey -v                  # vi mode
       '';
     };
   };

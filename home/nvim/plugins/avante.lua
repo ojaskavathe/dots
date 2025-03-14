@@ -1,4 +1,4 @@
-require('avante_lib').load() -- until the next avante nixpkgs release
+-- require('avante_lib').load() -- until the next avante nixpkgs release
 ---@diagnostic disable-next-line: missing-fields
 require('avante').setup {
   provider = "claude", -- The provider used in Aider mode or in the planning phase of Cursor Planning Mode
@@ -48,7 +48,7 @@ require('avante').setup {
       prev = "[x",
     },
     suggestion = {
-      accept = "<M-l>",
+      accept = "<Tab>",
       next = "<M-]>",
       prev = "<M-[>",
       dismiss = "<C-]>",
