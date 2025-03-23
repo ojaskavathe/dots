@@ -43,22 +43,46 @@
     '';
   };
 
-  # nixpkgs.overlays = [
-  #   (self: super: {
-  #     karabiner-elements = super.karabiner-elements.overrideAttrs (old: {
-  #       version = "14.13.0";
-  #
-  #       src = super.fetchurl {
-  #         inherit (old.src) url;
-  #         hash = "sha256-gmJwoht/Tfm5qMecmq1N6PSAIfWOqsvuHU8VDJY8bLw=";
-  #       };
-  #     });
-  #   })
-  # ];
-  # 
-  # services.karabiner-elements = {
-  #   enable = true;
-  # };
+  launchd = {
+    daemons = {
+      karabiner-driver = {
+        command = ''
+          /Library/Application Support/org.pqrs/Karabiner-DriverKit-VirtualHIDDevice/Applications/Karabiner-VirtualHIDDevice-Daemon.app/Contents/MacOS/Karabiner-VirtualHIDDevice-Daemon
+        '';
+        serviceConfig = {
+          KeepAlive = true;
+          RunAtLoad = true;
+        };
+      };
+
+      kanata = {
+        command = ''
+          /opt/homebrew/bin/kanata --cfg /Users/ojas/.config/kanata/hrm.kbd
+        '';
+        serviceConfig = {
+          KeepAlive = true;
+          RunAtLoad = true;
+          StandardOutPath = "/tmp/kanata_daemon.out.log";
+          StandardErrorPath = "/tmp/kanata_daemon.err.log";
+        };
+      };
+
+      # kanata-tray = {
+      #   command = "/Users/ojas/Downloads/kanata-tray-macos";
+      #   environment = {
+      #     KANATA_TRAY_LOG_DIR = "/tmp";
+      #     HOME = "/Users/ojas";
+      #     KANATA_TRAY_CONFIG_DIR = "/Users/ojas/.config/kanata-tray";
+      #   };
+      #   serviceConfig = {
+      #     KeepAlive = true;
+      #     RunAtLoad = true;
+      #     StandardOutPath = "/tmp/kanata_tray_daemon.out.log";
+      #     StandardErrorPath = "/tmp/kanata_tray_daemon.err.log";
+      #   };
+      # };
+    };
+  };
 
   system.defaults = {
     menuExtraClock.Show24Hour = true;
@@ -87,6 +111,13 @@
     };
 
     NSGlobalDomain = {
+      AppleICUForce24HourTime = true;
+      AppleInterfaceStyle = "Dark";
+      AppleMeasurementUnits = "Centimeters";
+      AppleMetricUnits = 1;
+
+      "com.apple.keyboard.fnState" = false; # true -> fn keys are fn keys
+
       # ctrl + cmd + mouse to drag windows
       NSWindowShouldDragOnGesture = true;
 
@@ -103,7 +134,7 @@
           "64".enabled = false; # Cmd + Space - Spotlight Search
           "65".enabled = false; # Cmd + Alt + Space - Finder Search Window
           "60".enabled = false; # Ctrl + Space - Previous Input Source
-          "61".enabled = false; # Ctrol + Alt + Space - Next Input Source
+          "61".enabled = false; # Ctrl + Alt + Space - Next Input Source
         };
       };
     };

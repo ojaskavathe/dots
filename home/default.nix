@@ -14,6 +14,8 @@
     ./kitty/kitty.nix
     ./desktop/kde.nix
     ./desktop/hyprland/hyprland.nix
+
+    ./kanata/kanata.nix
   ];
 
   zsh.enable = lib.mkDefault true;
@@ -30,4 +32,6 @@
 
   kde.enable = lib.mkDefault false;
   hyprland.enable = lib.mkDefault false;
+
+  kanata-macos.enable = lib.mkDefault false;
 }

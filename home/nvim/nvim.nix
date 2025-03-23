@@ -222,6 +222,13 @@
           type = "lua";
           config = builtins.readFile ./plugins/avante.lua;
         }
+        {
+          plugin = render-markdown-nvim;
+          type = "lua";
+          config = ''require("render-markdown").setup {
+            file_types = { "markdown", "Avante" }
+          }'';
+        }
       ];
 
       extraPackages = with pkgs; [

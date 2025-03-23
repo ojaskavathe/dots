@@ -40,6 +40,12 @@
             set -g @catppuccin_status_right_separator "█"
 
             set -g status-left "" 
+            set -gw window-status-format '#(echo "#{pane_current_path}" | rev | cut -d'/' -f-1 | rev)'
+            set -gw window-status-current-format '#(echo "#{pane_current_path}" | rev | cut -d'/' -f-3 | rev)'
+            
+            # status bar updates every 15s by default**, change to 1s here 
+            # (this step is optional - a lower latency might have negative battery/cpu usage impacts)
+            set -g status-interval 1
 
             set -g status-right-length 100
 

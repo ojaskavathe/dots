@@ -47,6 +47,7 @@
       casks = [
         "steam"
         "msty"
+        "multiviewer-for-f1"
       ];
 
       masApps = {

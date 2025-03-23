@@ -120,5 +120,7 @@
       inactive_color = "0xff494d63";
       width = 5.0;
     };
+
+    system.defaults.spaces.spans-displays = false;
   };
 }
