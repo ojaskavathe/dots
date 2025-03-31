@@ -57,7 +57,7 @@
 
       kanata = {
         command = ''
-          /opt/homebrew/bin/kanata --cfg /Users/ojas/.config/kanata/hrm.kbd
+          /opt/homebrew/bin/kanata --cfg /Users/ojas/.config/kanata/hrm.kbd -p 5829
         '';
         serviceConfig = {
           KeepAlive = true;
@@ -66,21 +66,23 @@
           StandardErrorPath = "/tmp/kanata_daemon.err.log";
         };
       };
+    };
 
-      # kanata-tray = {
-      #   command = "/Users/ojas/Downloads/kanata-tray-macos";
-      #   environment = {
-      #     KANATA_TRAY_LOG_DIR = "/tmp";
-      #     HOME = "/Users/ojas";
-      #     KANATA_TRAY_CONFIG_DIR = "/Users/ojas/.config/kanata-tray";
-      #   };
-      #   serviceConfig = {
-      #     KeepAlive = true;
-      #     RunAtLoad = true;
-      #     StandardOutPath = "/tmp/kanata_tray_daemon.out.log";
-      #     StandardErrorPath = "/tmp/kanata_tray_daemon.err.log";
-      #   };
-      # };
+    agents = {
+      kanata-tray = {
+        command = "/Users/ojas/Downloads/kanata-tray-macos";
+        environment = {
+          KANATA_TRAY_LOG_DIR = "/tmp";
+          HOME = "/Users/ojas";
+          KANATA_TRAY_CONFIG_DIR = "/Users/ojas/.config/kanata-tray";
+        };
+        serviceConfig = {
+          KeepAlive = true;
+          RunAtLoad = true;
+          StandardOutPath = "/tmp/kanata_tray_daemon.out.log";
+          StandardErrorPath = "/tmp/kanata_tray_daemon.err.log";
+        };
+      };
     };
   };
 

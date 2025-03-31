@@ -3,7 +3,9 @@
 )
 
 (defsrc
-  caps   a   s   d   f   j   k   l   ;
+  esc    f1   f2   f3   f4   f5   f6   f7   f8   f9   f10   f11   f12
+  caps   a    s    d    f               j    k    l    ;
+  fn
 )
 
 (defvar
@@ -23,18 +25,34 @@
 )
 
 (deflayer base
+  esc brdn  brup  _    _    _    _   prev  pp  next  mute  vold  volu
   @caps  @a  @s  @d  @f  @j  @k  @l  @;
+  @fnl
 )
 
 (deflayer nomods
+  esc brdn  brup  _    _    _    _   prev  pp  next  mute  vold  volu
   @caps  a   s   d   f   j   k   l   ;
+  @fnl
+)
+
+(deflayer fn
+  @tl  f1   f2   f3   f4   f5   f6   f7   f8   f9   f10   f11   f12
+  _ _ _ _ _ _ _ _ _
+  fn
 )
 
 (deffakekeys
   to-base (layer-switch base)
+  to-nomods (layer-switch nomods)
 )
 
 (defalias
+  tl (switch
+    ((base-layer base)) (layer-switch nomods) break
+    ((base-layer nomods)) (layer-switch base) break
+  )
+
   tap (multi
     (layer-switch nomods)
     (on-idle-fakekey to-base tap 20)
@@ -49,4 +67,6 @@
   k (tap-hold-release-keys $tap-time $hold-time (multi k @tap) rctl $right-hand-keys)
   l (tap-hold-release-keys $tap-time $hold-time (multi l @tap) ralt $right-hand-keys)
   ; (tap-hold-release-keys $tap-time $hold-time (multi ; @tap) rmet $right-hand-keys)
+
+  fnl (tap-hold $tap-time $hold-time fn (layer-toggle fn))
 )
