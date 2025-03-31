@@ -67,8 +67,6 @@
     nvim.enable = true;
     kitty.enable = true;
 
-    kanata-macos.enable = true;
-
     programs.fzf = {
       enable = true;
       enableZshIntegration = true;

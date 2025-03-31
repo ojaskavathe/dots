@@ -7,6 +7,7 @@
   imports = [
     ./aerospace.nix
     ./homebrew.nix
+    ./kanata/kanata.nix
   ];
 
   aerospace = {
@@ -17,4 +18,6 @@
   nix-hb = {
     enable = lib.mkDefault true;
   };
+
+  kanata.enable = lib.mkDefault false;
 }

@@ -31,8 +31,7 @@
     localHostName = "camille";
   };
 
-  # security.pam.enableSudoTouchIdAuth = true;
-  security.pam.services.sudo_local.touchIdAuth = true;
+  kanata.enable = true;
 
   # activationScripts are executed every time you boot the system or run `nixos-rebuild` / `darwin-rebuild`.
   system.activationScripts = {
@@ -41,49 +40,6 @@
       # so we do not need to logout and login again to make the changes take effect.
       /System/Library/PrivateFrameworks/SystemAdministration.framework/Resources/activateSettings -u
     '';
-  };
-
-  launchd = {
-    daemons = {
-      karabiner-driver = {
-        command = ''
-          /Library/Application Support/org.pqrs/Karabiner-DriverKit-VirtualHIDDevice/Applications/Karabiner-VirtualHIDDevice-Daemon.app/Contents/MacOS/Karabiner-VirtualHIDDevice-Daemon
-        '';
-        serviceConfig = {
-          KeepAlive = true;
-          RunAtLoad = true;
-        };
-      };
-
-      kanata = {
-        command = ''
-          /opt/homebrew/bin/kanata --cfg /Users/ojas/.config/kanata/hrm.kbd -p 5829
-        '';
-        serviceConfig = {
-          KeepAlive = true;
-          RunAtLoad = true;
-          StandardOutPath = "/tmp/kanata_daemon.out.log";
-          StandardErrorPath = "/tmp/kanata_daemon.err.log";
-        };
-      };
-    };
-
-    agents = {
-      kanata-tray = {
-        command = "/Users/ojas/Downloads/kanata-tray-macos";
-        environment = {
-          KANATA_TRAY_LOG_DIR = "/tmp";
-          HOME = "/Users/ojas";
-          KANATA_TRAY_CONFIG_DIR = "/Users/ojas/.config/kanata-tray";
-        };
-        serviceConfig = {
-          KeepAlive = true;
-          RunAtLoad = true;
-          StandardOutPath = "/tmp/kanata_tray_daemon.out.log";
-          StandardErrorPath = "/tmp/kanata_tray_daemon.err.log";
-        };
-      };
-    };
   };
 
   system.defaults = {
