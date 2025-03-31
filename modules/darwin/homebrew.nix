@@ -46,6 +46,7 @@
       ];
       casks = [
         "steam"
+        "epic-games"
         "msty"
         "multiviewer-for-f1"
       ];
