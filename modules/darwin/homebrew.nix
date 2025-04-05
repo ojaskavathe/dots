@@ -49,6 +49,7 @@
         "epic-games"
         "msty"
         "multiviewer-for-f1"
+        "clocker"
       ];
 
       masApps = {
