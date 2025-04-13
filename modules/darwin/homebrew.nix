@@ -45,6 +45,7 @@
         "mas" # cli for mas app ids
       ];
       casks = [
+        "discord"
         "steam"
         "epic-games"
         "msty"

@@ -16,11 +16,13 @@
       daemons = {
         karabiner-driver = {
           command = ''
-            /Library/Application Support/org.pqrs/Karabiner-DriverKit-VirtualHIDDevice/Applications/Karabiner-VirtualHIDDevice-Daemon.app/Contents/MacOS/Karabiner-VirtualHIDDevice-Daemon
+            /Library/Application\ Support/org.pqrs/Karabiner-DriverKit-VirtualHIDDevice/Applications/Karabiner-VirtualHIDDevice-Daemon.app/Contents/MacOS/Karabiner-VirtualHIDDevice-Daemon
           '';
           serviceConfig = {
             KeepAlive = true;
             RunAtLoad = true;
+            StandardOutPath = "/tmp/Karabiner-VirtualHIDDevice-Daemon.out.log";
+            StandardErrorPath = "/tmp/Karabiner-VirtualHIDDevice-Daemon.err.log";
           };
         };
 

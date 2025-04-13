@@ -74,6 +74,8 @@
       ];
 
       extraConfig = ''
+        set -g set-clipboard on
+
         # update status bar every second
         set -g status-interval 15
         set -g status-position top

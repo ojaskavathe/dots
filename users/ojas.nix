@@ -49,7 +49,6 @@
       openvpn
 
       slack
-      discord
       google-chrome
       obsidian
       spotify

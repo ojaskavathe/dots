@@ -32,3 +32,12 @@ home-manager switch --flake .#dingus@nixos
 ```
 
 - Install home-manager using `nix shell nixpkgs#home-manager`.
+
+# Kanata
+
+Once the Karabine Driver is installed, run:
+```
+/Applications/.Karabiner-VirtualHIDDevice-Manager.app/Contents/MacOS/Karabiner-VirtualHIDDevice-Manager activate
+```
+
+Then go to Settings > General > Driver Extensions and enable the VirtualHIDDevice.
