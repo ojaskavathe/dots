@@ -31,6 +31,8 @@
     localHostName = "camille";
   };
 
+  services.tailscale.enable = true;
+
   kanata.enable = true;
 
   # activationScripts are executed every time you boot the system or run `nixos-rebuild` / `darwin-rebuild`.

@@ -46,13 +46,15 @@
 
       monitorcontrol
 
+      tailscale
       openvpn
+      # syncthing
 
       slack
       google-chrome
       obsidian
       spotify
-      
+
       raycast
 
       dbeaver-bin
@@ -61,6 +63,13 @@
       beamMinimal27Packages.elixir-ls
 
       ollama
+
+      # mods + .NET
+      mono
+
+      # latex
+      texliveFull
+      texlivePackages.latexmk
     ];
 
     nvim.enable = true;
@@ -79,6 +88,10 @@
           output = "json";
         };
       };
+    };
+
+    services.syncthing = {
+      enable = true;
     };
 
     # Nicely reload system units when changing configs
