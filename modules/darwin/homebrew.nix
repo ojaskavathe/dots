@@ -52,6 +52,10 @@
         "msty"
         "multiviewer-for-f1"
         "clocker"
+        "whisky"
+        "crossover"
+        "kicad"
+        "obs"
       ];
 
       masApps = {
