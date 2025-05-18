@@ -36,6 +36,11 @@
 
   kanata.enable = true;
 
+  security.pam.services.sudo_local = {
+    touchIdAuth = true;
+    reattach = true;
+  };
+
   system.primaryUser = primaryUser;
 
   # activationScripts are executed every time you boot the system or run `nixos-rebuild` / `darwin-rebuild`.
