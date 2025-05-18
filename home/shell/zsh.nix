@@ -31,28 +31,37 @@
           name = "pure-prompt";
           src = "${pkgs.pure-prompt}/share/zsh/site-functions";
         }
-        {  
+        {
           name = "zsh-autosuggestions";
           src = pkgs.zsh-autosuggestions;
           file = "share/zsh-autosuggestions/zsh-autosuggestions.zsh";
         }
       ];
-      initExtraBeforeCompInit = builtins.readFile ./completions.zsh;
-      initExtra = ''
-        autoload -Uz promptinit; promptinit
-        prompt pure
 
-        setopt AUTO_PUSHD           # Push the current directory visited on the stack.
-        setopt PUSHD_IGNORE_DUPS    # Do not store duplicates in the stack.
-        setopt PUSHD_SILENT         # Do not print the directory stack after pushd or popd.
+      # https://nix-community.github.io/home-manager/options.xhtml#opt-programs.zsh.initContent
+      initContent =
+        let
+          initExtraBeforeCompInit = lib.mkOrder 550 (builtins.readFile ./completions.zsh);
+          initExtra = lib.mkOrder 1000 ''
+            autoload -Uz promptinit; promptinit
+            prompt pure
 
-        ${builtins.readFile ./aliases.zsh}
+            setopt AUTO_PUSHD           # Push the current directory visited on the stack.
+            setopt PUSHD_IGNORE_DUPS    # Do not store duplicates in the stack.
+            setopt PUSHD_SILENT         # Do not print the directory stack after pushd or popd.
 
-        export LC_ALL=en_US.UTF-8
-        export LANG=en_US.UTF-8
+            ${builtins.readFile ./aliases.zsh}
 
-        bindkey -v                  # vi mode
-      '';
+            export LC_ALL=en_US.UTF-8
+            export LANG=en_US.UTF-8
+
+            bindkey -v                  # vi mode
+          '';
+        in
+        lib.mkMerge [
+          initExtraBeforeCompInit
+          initExtra
+        ];
     };
   };
 }

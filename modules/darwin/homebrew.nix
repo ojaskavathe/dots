@@ -3,7 +3,7 @@
   config,
   inputs,
   pkgs,
-  username,
+  primaryUser,
   ...
 }:
 {
@@ -18,7 +18,7 @@
       enable = true;
       enableRosetta = true; # arch -x86_64 brew
 
-      user = username;
+      user = primaryUser;
 
       taps = {
         "homebrew/homebrew-core" = inputs.homebrew-core;

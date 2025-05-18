@@ -89,7 +89,7 @@
         let
           system = "aarch64-darwin";
           pkgs = nixpkgs.legacyPackages.${system};
-          username = "ojas"; # single-user
+          primaryUser = "ojas"; # single-user
         in
         {
           camille = nix-darwin.lib.darwinSystem {
@@ -108,7 +108,7 @@
                   inputs
                   system
                   pkgs-stable
-                  username
+                  primaryUser
                   ;
               };
             modules = [
@@ -142,7 +142,7 @@
               };
             modules = [
               inputs.plasma-manager.homeManagerModules.plasma-manager
-              stylix.homeManagerModules.stylix
+              stylix.homeModules.stylix
               ./home
               ./users/dingus.nix
             ];
@@ -174,7 +174,7 @@
                   ;
               };
             modules = [
-              stylix.homeManagerModules.stylix
+              stylix.homeModules.stylix
               inputs.plasma-manager.homeManagerModules.plasma-manager
               ./home
               ./users/ojas.nix
