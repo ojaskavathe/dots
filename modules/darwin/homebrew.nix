@@ -56,6 +56,7 @@
         "crossover"
         "kicad"
         "obs"
+        "trex"
       ];
 
       masApps = {
