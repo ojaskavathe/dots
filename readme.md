@@ -37,28 +37,34 @@ modules/
 ## Home Manager Modules
 ```
 home/
-├── default.nix
-├── git.nix
-├── stylix-home.nix
-├── tmux.nix
-├── desktop/
-│   ├── hyprland/
-│   └── kde.nix
-├── kitty/
-│   ├── kitty.nix
-│   └── kitty.app.png
-├── nvim/
-│   ├── nvim.nix
-│   ├── diagnostics.lua
-│   ├── keymap.lua
-│   ├── options.lua
-│   ├── plugins/
-│   └── statuscol.lua
-└── shell/
-    ├── zsh.nix
-    ├── aliases.zsh
-    ├── completions.zsh
-    └── direnv.nix
+├── shared/
+│   ├── default.nix
+│   ├── git.nix
+│   ├── stylix-home.nix
+│   ├── tmux.nix
+│   ├── kitty/
+│   │   ├── kitty.nix
+│   │   └── kitty.app.png
+│   ├── nvim/
+│   │   ├── nvim.nix
+│   │   ├── diagnostics.lua
+│   │   ├── keymap.lua
+│   │   ├── options.lua
+│   │   ├── statuscol.lua
+│   │   ├── avante.nvim/
+│   │   └── plugins/
+│   └── shell/
+│       ├── zsh.nix
+│       ├── aliases.zsh
+│       ├── completions.zsh
+│       └── direnv.nix
+├── darwin/
+│   └── default.nix
+└── nixos/
+    ├── default.nix
+    └── desktop/
+        ├── hyprland/
+        └── kde.nix
 ```
 
 ## User Configurations
