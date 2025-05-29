@@ -53,7 +53,6 @@
       slack
       google-chrome
       obsidian
-      spotify
 
       raycast
 
@@ -74,6 +73,8 @@
 
     nvim.enable = true;
     kitty.enable = true;
+
+    stylix-home.enable = true;
 
     programs.fzf = {
       enable = true;

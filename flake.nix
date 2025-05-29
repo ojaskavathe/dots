@@ -1,7 +1,7 @@
 {
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
-    nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-24.11";
+    nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-25.05";
 
     flake-utils.url = "github:numtide/flake-utils";
 
@@ -42,7 +42,7 @@
     # hyprland.url = "github:hyprwm/Hyprland?submodules=1";
 
     stylix = {
-      url = "github:danth/stylix";
+      url = "github:nix-community/stylix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
@@ -143,7 +143,8 @@
             modules = [
               inputs.plasma-manager.homeManagerModules.plasma-manager
               stylix.homeModules.stylix
-              ./home
+              ./home/shared
+              ./home/nixos
               ./users/dingus.nix
             ];
           };
@@ -175,8 +176,8 @@
               };
             modules = [
               stylix.homeModules.stylix
-              inputs.plasma-manager.homeManagerModules.plasma-manager
-              ./home
+              ./home/shared
+              ./home/darwin
               ./users/ojas.nix
             ];
           };

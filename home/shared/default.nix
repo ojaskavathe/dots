@@ -12,8 +12,6 @@
     ./stylix-home.nix
     ./nvim/nvim.nix
     ./kitty/kitty.nix
-    ./desktop/kde.nix
-    ./desktop/hyprland/hyprland.nix
   ];
 
   zsh.enable = lib.mkDefault true;
@@ -27,7 +25,4 @@
   };
 
   kitty.enable = lib.mkDefault false;
-
-  kde.enable = lib.mkDefault false;
-  hyprland.enable = lib.mkDefault false;
 }

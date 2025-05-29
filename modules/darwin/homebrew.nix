@@ -45,6 +45,7 @@
         "mas" # cli for mas app ids
       ];
       casks = [
+        "spotify"
         "cursor"
         "discord"
         "steam"
@@ -56,6 +57,7 @@
         "crossover"
         "kicad"
         "obs"
+        "parsec"
         "trex"
       ];
 
