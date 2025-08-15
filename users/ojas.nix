@@ -69,6 +69,9 @@
       # latex
       texliveFull
       texlivePackages.latexmk
+
+      # darwin.xcode
+      claude-code
     ];
 
     nvim.enable = true;

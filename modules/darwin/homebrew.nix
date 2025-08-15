@@ -50,6 +50,7 @@
         "discord"
         "steam"
         "epic-games"
+        "porting-kit"
         "msty"
         "multiviewer-for-f1"
         "clocker"
