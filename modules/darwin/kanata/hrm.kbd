@@ -32,7 +32,7 @@
 
 (deflayer nomods
   esc brdn  brup  _    _    _    _   prev  pp  next  mute  vold  volu
-  @caps  a   s   d   f   j   k   l   ;
+  caps  a   s   d   f   j   k   l   ;
   @fnl
 )
 
