@@ -144,3 +144,5 @@ Then run:
 Then go to Settings > General > Driver Extensions and enable the VirtualHIDDevice.
 
 On restart, the launchctl daemon should run an instance of kanata. For errors, check in `/tmp`.
+
+Also, add kanata, tmux, and the default terminal(kitty) to Settings > Privacy and Security > Input monitoring, from their symlinks in `~/.nix-profile/bin`
