@@ -67,8 +67,8 @@
       mono
 
       # latex
-      texliveFull
-      texlivePackages.latexmk
+      # texliveFull
+      # texlivePackages.latexmk
 
       # darwin.xcode
       claude-code
