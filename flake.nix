@@ -45,6 +45,15 @@
       url = "github:nix-community/stylix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    sops-nix = {
+      url = "github:mic92/sops-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    secrets = {
+      url = "git+ssh://git@github.com/ojaskavathe/secrets.git?shallow=1";
+      flake = false;
+    };
   };
 
   outputs =

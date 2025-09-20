@@ -392,7 +392,46 @@
         "nixpkgs": "nixpkgs",
         "nixpkgs-stable": "nixpkgs-stable",
         "plasma-manager": "plasma-manager",
+        "secrets": "secrets",
+        "sops-nix": "sops-nix",
         "stylix": "stylix"
+      }
+    },
+    "secrets": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1758360158,
+        "narHash": "sha256-L122G+/yxg85qQkouk7kfp0o3w090oAl53jmp0RW+k0=",
+        "ref": "master",
+        "rev": "211a54f4e286f26f7e94ae3ce3751c062d940c10",
+        "shallow": true,
+        "type": "git",
+        "url": "ssh://git@github.com/ojaskavathe/secrets.git"
+      },
+      "original": {
+        "shallow": true,
+        "type": "git",
+        "url": "ssh://git@github.com/ojaskavathe/secrets.git"
+      }
+    },
+    "sops-nix": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1754988908,
+        "narHash": "sha256-t+voe2961vCgrzPFtZxha0/kmFSHFobzF00sT8p9h0U=",
+        "owner": "mic92",
+        "repo": "sops-nix",
+        "rev": "3223c7a92724b5d804e9988c6b447a0d09017d48",
+        "type": "github"
+      },
+      "original": {
+        "owner": "mic92",
+        "repo": "sops-nix",
+        "type": "github"
       }
     },
     "stylix": {

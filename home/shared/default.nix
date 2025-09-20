@@ -12,6 +12,10 @@
     ./stylix-home.nix
     ./nvim/nvim.nix
     ./kitty/kitty.nix
+
+    ./sops.nix
+
+    ./claude-code.nix
   ];
 
   zsh.enable = lib.mkDefault true;
@@ -25,4 +29,6 @@
   };
 
   kitty.enable = lib.mkDefault false;
+
+  claude-code.enable = lib.mkDefault false;
 }
