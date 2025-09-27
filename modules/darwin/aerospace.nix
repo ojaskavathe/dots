@@ -33,6 +33,26 @@
             "if".app-name-regex-substring = "quicktime";
             run = "layout floating";
           }
+          # {
+          #   "if".app-id = "app.zen-browser.zen";
+          #   "if".app-name-regex-substring = "Picture-in-Picture";
+          #   run = "layout floating";
+          # }
+        ];
+
+        exec-on-workspace-change = [
+          "/bin/bash"
+          "${pkgs.writeShellScript "pip-move.sh" ''
+            # Get current workspace
+            current_workspace=$(aerospace list-workspaces --focused)
+
+            # Move PiP windows to current workspace (handles both "Picture-in-Picture" and "Picture in Picture")
+            aerospace list-windows --all | grep -E "(Picture-in-Picture|Picture in Picture)" | awk '{print $1}' | while read window_id; do
+              if [ -n "$window_id" ]; then
+                aerospace move-node-to-workspace --window-id "$window_id" "$current_workspace"
+              fi
+            done
+          ''}"
         ];
 
         gaps = {

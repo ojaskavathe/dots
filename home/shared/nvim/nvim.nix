@@ -119,6 +119,11 @@
           config = builtins.readFile ./plugins/telescope.lua;
         }
         {
+          plugin = grug-far-nvim;
+          type = "lua";
+          config = builtins.readFile ./plugins/grug-far.lua;
+        }
+        {
           plugin = indent-blankline-nvim;
           type = "lua";
           config = # lua

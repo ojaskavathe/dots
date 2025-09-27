@@ -110,5 +110,6 @@
 
   aerospace = {
     enable = true;
+    borders = true;
   };
 }

@@ -60,6 +60,7 @@
         "obs"
         "parsec"
         "trex"
+        "whatsapp"
       ];
 
       masApps = {

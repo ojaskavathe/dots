@@ -43,6 +43,7 @@
       ffmpeg
       lazygit
       yt-dlp
+      yazi
 
       monitorcontrol
 
