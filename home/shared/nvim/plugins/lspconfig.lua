@@ -1,14 +1,16 @@
-local lspconfig = require("lspconfig")
+-- local lspconfig = require("lspconfig")
+local lspconfig = vim.lsp
 
 local capabilities = require("cmp_nvim_lsp").default_capabilities()
 capabilities.textDocument.completion.completionItem.snippetSupport = true
 
-lspconfig.nil_ls.setup({})
-lspconfig.lua_ls.setup({})
+lspconfig.enable('nil_ls')
+lspconfig.enable('lua_ls')
 
-lspconfig.ts_ls.setup({})
-lspconfig.prismals.setup({})
-lspconfig.cssls.setup({
+lspconfig.enable('ts_ls')
+lspconfig.enable('prismals')
+
+lspconfig.config('css_ls', {
   settings = {
     css = {
       validate = true,
@@ -19,16 +21,18 @@ lspconfig.cssls.setup({
   },
   capabilities = capabilities,
 })
-lspconfig.tailwindcss.setup({})
-lspconfig.html.setup({})
+lspconfig.enable('css_ls')
+lspconfig.enable('tailwindcss')
+lspconfig.enable('html')
 
-lspconfig.clangd.setup({
+lspconfig.config('clangd', {
   cmd = {
     "clangd",
     "--offset-encoding=utf-16",
   },
 })
-lspconfig.cmake.setup({})
+lspconfig.enable('clangd')
+lspconfig.enable('cmake')
 
 -- lspconfig.rust_analyzer.setup{
 --   settings = {
@@ -40,12 +44,12 @@ lspconfig.cmake.setup({})
 --   }
 -- }
 
-lspconfig.elixirls.setup{
+lspconfig.config('elixirls', {
   cmd = { "elixir-ls" }
-}
+})
 
 -- python
-lspconfig.pyright.setup({
+lspconfig.config('pyright', {
   settings = {
     pyright = {
       disableOrganizeImports = true, -- using Ruff
@@ -58,9 +62,9 @@ lspconfig.pyright.setup({
     },
   },
 })
-lspconfig.ruff.setup({})
+lspconfig.enable('ruff')
 
-lspconfig.vala_ls.setup {}
+lspconfig.enable('vala_ls')
 
 -- Global mappings.
 -- See `:help vim.diagnostic.*` for documentation on any of the below functions

@@ -54,6 +54,17 @@
       url = "git+ssh://git@github.com/ojaskavathe/secrets.git?shallow=1";
       flake = false;
     };
+
+    zen-browser = {
+      # Using fork with macOS profile path fix
+      # See: https://github.com/ReeSilva/zen-browser-flake/pull/1
+      url = "github:0xc000022070/zen-browser-flake";
+      # url = "github:ReeSilva/zen-browser-flake";
+      # IMPORTANT: we're using "libgbm" and is only available in unstable so ensure
+      # to have it up-to-date or simply don't specify the nixpkgs input
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
   };
 
   outputs =
@@ -185,6 +196,7 @@
               };
             modules = [
               stylix.homeModules.stylix
+              inputs.zen-browser.homeModules.beta
               ./home/shared
               ./home/darwin
               ./users/ojas.nix

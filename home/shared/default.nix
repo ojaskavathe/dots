@@ -12,6 +12,7 @@
     ./stylix-home.nix
     ./nvim/nvim.nix
     ./kitty/kitty.nix
+    ./browser/zen.nix
 
     ./sops.nix
 
@@ -29,6 +30,8 @@
   };
 
   kitty.enable = lib.mkDefault false;
+
+  zen.enable = lib.mkDefault false;
 
   claude-code.enable = lib.mkDefault false;
 }

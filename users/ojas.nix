@@ -44,6 +44,7 @@
       lazygit
       yt-dlp
       yazi
+      tree
 
       monitorcontrol
 
@@ -110,6 +111,8 @@
         };
       };
     };
+
+    zen.enable = false;
 
     services.syncthing = {
       enable = true;
