@@ -1,16 +1,13 @@
--- local lspconfig = require("lspconfig")
-local lspconfig = vim.lsp
-
 local capabilities = require("cmp_nvim_lsp").default_capabilities()
 capabilities.textDocument.completion.completionItem.snippetSupport = true
 
-lspconfig.enable('nil_ls')
-lspconfig.enable('lua_ls')
+vim.lsp.enable('nil_ls')
+vim.lsp.enable('lua_ls')
 
-lspconfig.enable('ts_ls')
-lspconfig.enable('prismals')
+vim.lsp.enable('ts_ls')
+vim.lsp.enable('prismals')
 
-lspconfig.config('css_ls', {
+vim.lsp.config('css_ls', {
   settings = {
     css = {
       validate = true,
@@ -21,20 +18,20 @@ lspconfig.config('css_ls', {
   },
   capabilities = capabilities,
 })
-lspconfig.enable('css_ls')
-lspconfig.enable('tailwindcss')
-lspconfig.enable('html')
+vim.lsp.enable('css_ls')
+vim.lsp.enable('tailwindcss')
+vim.lsp.enable('html')
 
-lspconfig.config('clangd', {
+vim.lsp.config('clangd', {
   cmd = {
     "clangd",
     "--offset-encoding=utf-16",
   },
 })
-lspconfig.enable('clangd')
-lspconfig.enable('cmake')
+vim.lsp.enable('clangd')
+vim.lsp.enable('cmake')
 
--- lspconfig.rust_analyzer.setup{
+-- vim.lsp.rust_analyzer.setup{
 --   settings = {
 --     ['rust-analyzer'] = {
 --       checkOnSave =  {
@@ -44,12 +41,12 @@ lspconfig.enable('cmake')
 --   }
 -- }
 
-lspconfig.config('elixirls', {
+vim.lsp.config('elixirls', {
   cmd = { "elixir-ls" }
 })
 
 -- python
-lspconfig.config('pyright', {
+vim.lsp.config('pyright', {
   settings = {
     pyright = {
       disableOrganizeImports = true, -- using Ruff
@@ -62,9 +59,9 @@ lspconfig.config('pyright', {
     },
   },
 })
-lspconfig.enable('ruff')
+vim.lsp.enable('ruff')
 
-lspconfig.enable('vala_ls')
+vim.lsp.enable('vala_ls')
 
 -- Global mappings.
 -- See `:help vim.diagnostic.*` for documentation on any of the below functions
