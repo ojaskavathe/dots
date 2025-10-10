@@ -38,6 +38,7 @@
       keybindings = {
         # https://github.com/kovidgoyal/kitty/issues/948#issuecomment-1107216743
         "cmd+h" = "no_op";
+        "cmd+l" = "no_op";
       };
     };
   };
