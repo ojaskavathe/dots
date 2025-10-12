@@ -85,6 +85,10 @@
       enableZshIntegration = true;
     };
 
+    programs.zoxide = {
+      enable = true;
+    };
+
     programs.awscli = {
       enable = true;
       settings = {

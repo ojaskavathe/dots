@@ -32,16 +32,17 @@
           extraConfig = ''
             # colorscheme
             set -g @catppuccin_flavour "mocha"
+
+            # windows
             set -g @catppuccin_window_status_style "basic"
+            set -g @catppuccin_window_text " #{b:pane_current_path}"
+            set -g @catppuccin_window_current_text " #{b:pane_current_path}"
+            set -gw window-status-separator ""
 
             # statusbar
-            set -gw window-status-separator ""
             set -g @catppuccin_status_left_separator "█"
             set -g @catppuccin_status_right_separator "█"
-
             set -g status-left "" 
-            set -gw window-status-format '#(echo "#{pane_current_path}" | rev | cut -d'/' -f-1 | rev)'
-            set -gw window-status-current-format '#(echo "#{pane_current_path}" | rev | cut -d'/' -f-3 | rev)'
             
             # status bar updates every 15s by default**, change to 1s here 
             # (this step is optional - a lower latency might have negative battery/cpu usage impacts)
@@ -51,7 +52,7 @@
 
             set -g status-right "#{E:@catppuccin_status_session}"
             set -ag status-right "#{E:@catppuccin_status_uptime}"
-            set -agF status-right "#{E:@catppuccin_status_date_time}"
+            set -ag status-right "#{E:@catppuccin_status_date_time}"
           '';
         }
         {
