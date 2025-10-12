@@ -16,6 +16,9 @@
       enable = true;
       userName = "Ojas Kavathe";
       userEmail = "ojaskavathe@gmail.com";
+      extraConfig = {
+        pull.rebase = false;
+      };
       aliases = {
         a = "add";
         c = "commit";

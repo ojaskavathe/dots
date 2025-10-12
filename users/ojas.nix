@@ -95,6 +95,7 @@
 
     programs.awscli = {
       enable = true;
+      package = pkgs-stable.awscli2; # https://github.com/nixos/nixpkgs/issues/450617
       settings = {
         default = {
           region = "us-west-2";
@@ -106,10 +107,10 @@
           credential_process = "${pkgs.writeShellScript "aws_credential_process.sh" ''
             ACCESS_KEY_FILE="${config.sops.secrets.aws_access_key_id.path}"
             SECRET_KEY_FILE="${config.sops.secrets.aws_secret_access_key.path}"
-            
+
             ACCESS_KEY=$(cat "$ACCESS_KEY_FILE")
             SECRET_KEY=$(cat "$SECRET_KEY_FILE")
-            
+
             echo '{
               "Version": 1,
               "AccessKeyId": "'$ACCESS_KEY'",
