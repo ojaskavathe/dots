@@ -43,7 +43,6 @@
       ffmpeg
       lazygit
       yt-dlp
-      yazi
       tree
 
       monitorcontrol
@@ -87,6 +86,11 @@
 
     programs.zoxide = {
       enable = true;
+    };
+
+    programs.yazi = {
+      enable = true;
+      enableZshIntegration = true;
     };
 
     programs.awscli = {
