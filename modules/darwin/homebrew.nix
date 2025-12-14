@@ -45,6 +45,7 @@
         "mas" # cli for mas app ids
       ];
       casks = [
+        "ghostty"
         "spotify"
         "cursor"
         "discord"
@@ -61,6 +62,7 @@
         "parsec"
         "trex"
         "whatsapp"
+        "android-file-transfer"
       ];
 
       masApps = {

@@ -47,9 +47,11 @@
 
       monitorcontrol
 
-      tailscale
       openvpn
+      moonlight-qt
       # syncthing
+      rclone
+      localsend
 
       slack
       google-chrome
