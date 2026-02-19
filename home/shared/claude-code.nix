@@ -35,10 +35,10 @@
             "Read(./.env)"
             "Read(./secrets/**)"
           ];
-          disableBypassPermissionsMode = "disable";
+          # disableBypassPermissionsMode = "enable";
         };
         statusLine = {
-          command = "input=$(cat); echo \"[$(echo \"$input\" | jq -r '.model.display_name')] 📁 $(basename \"$(echo \"$input\" | jq -r '.workspace.current_dir')\")\"";
+          command = "npx -y ccusage@latest statusline";
           padding = 0;
           type = "command";
         };
@@ -46,13 +46,10 @@
     };
 
     home.packages = with pkgs; [
-      ccusage
+      (writeShellScriptBin "claude-litellm" ''
+        export ANTHROPIC_BASE_URL=$(cat "${config.sops.secrets.litellm_endpoint.path}")
+        exec claude "$@"
+      '')
     ];
-
-    # programs.zsh = {
-    #   initContent = lib.mkOrder 2000 ''
-    #     export ANTHROPIC_BASE_URL=$(cat ${config.sops.secrets.litellm_endpoint.path})
-    #   '';
-    # };
   };
 }

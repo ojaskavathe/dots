@@ -42,10 +42,14 @@
       fastfetch
       ffmpeg
       lazygit
+      harlequin
       yt-dlp
       tree
 
+      # macos specific
       monitorcontrol
+      iina
+      raycast
 
       openvpn
       moonlight-qt
@@ -57,12 +61,13 @@
       google-chrome
       obsidian
 
-      raycast
+
+      antigravity
 
       dbeaver-bin
 
       nodejs
-      beamMinimal27Packages.elixir-ls
+      beamMinimal28Packages.elixir-ls
 
       ollama
 

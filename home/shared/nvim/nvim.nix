@@ -26,7 +26,7 @@
       viAlias = true;
       vimdiffAlias = true;
 
-      extraLuaConfig = 
+      initLua = 
         # lua
         ''
         -- until https://github.com/yetone/avante.nvim/pull/1345 is merged
@@ -63,24 +63,6 @@
           plugin = nvim-treesitter.withAllGrammars;
           type = "lua";
           config = builtins.readFile ./plugins/treesitter.lua;
-        }
-        {
-          plugin = nvim-treesitter-textsubjects;
-          type = "lua";
-          config = # lua
-            ''
-              require('nvim-treesitter.configs').setup {
-                textsubjects = {
-                  enable = true,
-                  prev_selection = ',', -- (Optional) keymap to select the previous selection
-                  keymaps = {
-                    ['.'] = 'textsubjects-smart',
-                    [';'] = 'textsubjects-container-outer',
-                    ['i;'] = { 'textsubjects-container-inner', desc = "Select inside containers (classes, functions, etc.)" },
-                  },
-                },
-              }
-            '';
         }
         {
           plugin = nvim-ts-context-commentstring;
@@ -191,8 +173,7 @@
           config = builtins.readFile ./plugins/none-ls.lua;
         }
         {
-          # neotest 5.8.0 currently broken
-          plugin = pkgs-stable.vimPlugins.rustaceanvim;
+          plugin = rustaceanvim;
           type = "lua";
         }
         {
@@ -239,7 +220,7 @@
       extraPackages = with pkgs; [
         # nix
         nil
-        nixfmt-rfc-style
+        nixfmt
 
         # lua
         lua-language-server

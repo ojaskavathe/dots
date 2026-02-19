@@ -1,7 +1,4 @@
-require("nvim-treesitter.configs").setup({
-	ensure_installed = {},
-	sync_install = false,
-	auto_install = false,
+require("nvim-treesitter").setup({
 	highlight = { enable = true },
 	indent = { enable = true },
 })

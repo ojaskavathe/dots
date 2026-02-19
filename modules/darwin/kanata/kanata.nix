@@ -31,10 +31,14 @@
             kanataConfig = builtins.readFile ./hrm.kbd;
           in
           {
-            command = ''
-              /opt/homebrew/bin/kanata --cfg ${pkgs.writeText "hrm.kbd" kanataConfig} -p 5829
-            '';
             serviceConfig = {
+              ProgramArguments = [
+                "/opt/homebrew/bin/kanata"
+                "--cfg"
+                (toString (pkgs.writeText "hrm.kbd" kanataConfig))
+                "-p"
+                "5829"
+              ];
               KeepAlive = true;
               RunAtLoad = true;
               StandardOutPath = "/tmp/kanata_daemon.out.log";

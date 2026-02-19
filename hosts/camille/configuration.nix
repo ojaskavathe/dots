@@ -32,7 +32,7 @@
     localHostName = "camille";
   };
 
-  services.tailscale.enable = true;
+  # services.tailscale.enable = true;
 
   kanata.enable = true;
 

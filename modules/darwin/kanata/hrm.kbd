@@ -26,7 +26,7 @@
 
 (deflayer base
   esc brdn  brup  _    _    _    _   prev  pp  next  mute  vold  volu
-  @caps  @a  @s  @d  @f  @j  @k  @l  @;
+  esc  @a  @s  @d  @f  @j  @k  @l  @;
   @fnl
 )
 
@@ -58,7 +58,6 @@
     (on-idle-fakekey to-base tap 20)
   )
 
-  caps (tap-hold $tap-time $hold-time esc lctl)
   a (tap-hold-release-keys $tap-time $hold-time (multi a @tap) lmet $left-hand-keys)
   s (tap-hold-release-keys $tap-time $hold-time (multi s @tap) lalt $left-hand-keys)
   d (tap-hold-release-keys $tap-time $hold-time (multi d @tap) lctl $left-hand-keys)

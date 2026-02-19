@@ -53,7 +53,7 @@
         "epic-games"
         "porting-kit"
         "msty"
-        "multiviewer-for-f1"
+        "multiviewer"
         "clocker"
         "whisky"
         "crossover"
@@ -63,6 +63,7 @@
         "trex"
         "whatsapp"
         "android-file-transfer"
+        "protonvpn"
       ];
 
       masApps = {
