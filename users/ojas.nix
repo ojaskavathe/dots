@@ -50,6 +50,7 @@
       monitorcontrol
       iina
       raycast
+      unnaturalscrollwheels
 
       openvpn
       moonlight-qt
