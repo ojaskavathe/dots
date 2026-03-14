@@ -27,16 +27,22 @@
     # Inputs prefixed with "plugins-" are auto-detected by nixCats'
     # standardPluginOverlay and made available as pkgs.neovimPlugins.*
     "plugins-lze" = {
-      url = "github:BirdeeHub/lze";       # Lazy-loading engine
+      url = "github:BirdeeHub/lze"; # Lazy-loading engine
       flake = false;
     };
     "plugins-lzextras" = {
-      url = "github:BirdeeHub/lzextras";  # Extra lze handlers (lsp, etc.)
+      url = "github:BirdeeHub/lzextras"; # Extra lze handlers (lsp, etc.)
       flake = false;
     };
   };
 
-  outputs = { self, nixpkgs, nixCats, ... }@inputs:
+  outputs =
+    {
+      self,
+      nixpkgs,
+      nixCats,
+      ...
+    }@inputs:
     let
       inherit (nixCats) utils;
 
@@ -45,22 +51,30 @@
       luaPath = "${./.}";
 
       forEachSystem = utils.eachSystem nixpkgs.lib.platforms.all;
-      extra_pkg_config = { allowUnfree = true; };
+      extra_pkg_config = {
+        allowUnfree = true;
+      };
 
       # standardPluginOverlay turns "plugins-*" inputs into neovim plugins
       # accessible as pkgs.neovimPlugins.lze, pkgs.neovimPlugins.lzextras, etc.
       dependencyOverlays = [ (utils.standardPluginOverlay inputs) ];
 
-      categoryDefinitions = import ./nix/categories.nix;  # what's available
-      packageDefinitions = import ./nix/packages.nix;      # what's enabled
-      defaultPackageName = "nvim";                         # also the binary name
+      categoryDefinitions = import ./nix/categories.nix; # what's available
+      packageDefinitions = import ./nix/packages.nix; # what's enabled
+      defaultPackageName = "nvim"; # also the binary name
     in
 
     # Per-system outputs (packages, devShells)
-    forEachSystem (system:
+    forEachSystem (
+      system:
       let
         nixCatsBuilder = utils.baseBuilder luaPath {
-          inherit nixpkgs system dependencyOverlays extra_pkg_config;
+          inherit
+            nixpkgs
+            system
+            dependencyOverlays
+            extra_pkg_config
+            ;
         } categoryDefinitions packageDefinitions;
 
         defaultPackage = nixCatsBuilder defaultPackageName;
@@ -71,11 +85,17 @@
 
         devShells.default = pkgs.mkShell {
           name = defaultPackageName;
-          packages = [ defaultPackage pkgs.nil pkgs.nixfmt-rfc-style pkgs.lua-language-server ];
+          packages = [
+            defaultPackage
+            pkgs.nil
+            pkgs.nixfmt-rfc-style
+            pkgs.lua-language-server
+          ];
           shellHook = ''echo "Run 'nvim' to start neovim"'';
         };
       }
-    ) // {
+    )
+    // {
       # System-independent outputs
 
       # Home-manager module: import in your home config to get programs.nvim options
@@ -83,8 +103,15 @@
 
       # NixOS/nix-darwin module (alternative to home-manager)
       nixosModules.default = utils.mkNixosModules {
-        inherit defaultPackageName dependencyOverlays luaPath
-          categoryDefinitions packageDefinitions extra_pkg_config nixpkgs;
+        inherit
+          defaultPackageName
+          dependencyOverlays
+          luaPath
+          categoryDefinitions
+          packageDefinitions
+          extra_pkg_config
+          nixpkgs
+          ;
       };
 
       overlays = utils.makeOverlays luaPath {

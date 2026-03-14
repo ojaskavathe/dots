@@ -15,7 +15,13 @@
     home.packages = [
       (pkgs.writeShellApplication {
         name = "extract-zen-extension";
-        runtimeInputs = with pkgs; [curl unzip jq gnused coreutils];
+        runtimeInputs = with pkgs; [
+          curl
+          unzip
+          jq
+          gnused
+          coreutils
+        ];
         text = builtins.readFile ./extract-zen-extension.sh;
       })
     ];

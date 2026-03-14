@@ -43,7 +43,7 @@
             set -g @catppuccin_status_left_separator "█"
             set -g @catppuccin_status_right_separator "█"
             set -g status-left "" 
-            
+
             # status bar updates every 15s by default**, change to 1s here 
             # (this step is optional - a lower latency might have negative battery/cpu usage impacts)
             set -g status-interval 1

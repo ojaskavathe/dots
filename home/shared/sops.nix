@@ -5,22 +5,22 @@
   ...
 }:
 let
-  sopsFolder = (builtins.toString inputs.secrets);
   homeDirectory = config.home.homeDirectory;
-  defaultSopsFile = "${sopsFolder}/hosts/common/secrets.yaml";
-  fileSecrets =
-    lib.attrsets.mergeAttrsList (
-      lib.lists.map (name: {
+  defaultSopsFile = builtins.toString (inputs.secrets + "/hosts/common/secrets.yaml");
+  fileSecrets = lib.attrsets.mergeAttrsList (
+    lib.lists.map
+      (name: {
         "${name}" = {
           sopsFile = defaultSopsFile;
         };
-      }) [
+      })
+      [
         "aws_access_key_id"
         "aws_secret_access_key"
         "litellm_api_key"
         "litellm_endpoint"
       ]
-    );
+  );
 in
 {
   imports = [
