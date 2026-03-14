@@ -13,10 +13,20 @@
 # and shell aliases.
 
 { self }:
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 let
   cfg = config.programs.nvim;
-  inherit (lib) mkEnableOption mkOption mkIf types;
+  inherit (lib)
+    mkEnableOption
+    mkOption
+    mkIf
+    types
+    ;
 in
 {
   options.programs.nvim = {
@@ -36,7 +46,10 @@ in
 
     aliases = mkOption {
       type = types.listOf types.str;
-      default = [ "vi" "vim" ];
+      default = [
+        "vi"
+        "vim"
+      ];
       description = "Shell aliases that point to nvim";
     };
   };
@@ -50,14 +63,8 @@ in
     };
 
     # Create aliases in all common shells
-    programs.bash.shellAliases = mkIf (cfg.aliases != [ ]) (
-      lib.genAttrs cfg.aliases (_: "nvim")
-    );
-    programs.zsh.shellAliases = mkIf (cfg.aliases != [ ]) (
-      lib.genAttrs cfg.aliases (_: "nvim")
-    );
-    programs.fish.shellAliases = mkIf (cfg.aliases != [ ]) (
-      lib.genAttrs cfg.aliases (_: "nvim")
-    );
+    programs.bash.shellAliases = mkIf (cfg.aliases != [ ]) (lib.genAttrs cfg.aliases (_: "nvim"));
+    programs.zsh.shellAliases = mkIf (cfg.aliases != [ ]) (lib.genAttrs cfg.aliases (_: "nvim"));
+    programs.fish.shellAliases = mkIf (cfg.aliases != [ ]) (lib.genAttrs cfg.aliases (_: "nvim"));
   };
 }
