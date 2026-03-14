@@ -55,6 +55,8 @@
       flake = false;
     };
 
+    nvim.url = "path:./home/shared/nvim";
+
     zen-browser = {
       # Using fork with macOS profile path fix
       # See: https://github.com/ReeSilva/zen-browser-flake/pull/1
@@ -197,6 +199,7 @@
             modules = [
               stylix.homeModules.stylix
               inputs.zen-browser.homeModules.beta
+              inputs.nvim.homeModule
               ./home/shared
               ./home/darwin
               ./users/ojas.nix

@@ -37,6 +37,7 @@
 
     home.packages = with pkgs; [
       # essentials
+      gh
       ripgrep
       tldr
       fastfetch
@@ -62,7 +63,6 @@
       google-chrome
       obsidian
 
-
       antigravity
 
       dbeaver-bin
@@ -80,7 +80,10 @@
       # darwin.xcode
     ];
 
-    nvim.enable = true;
+    programs.nvim = {
+      enable = true;
+      aliases = [ "vim" "vi" ];
+    };
     kitty.enable = true;
 
     stylix-home.enable = true;
@@ -99,6 +102,7 @@
     programs.yazi = {
       enable = true;
       enableZshIntegration = true;
+      shellWrapperName = "y";
     };
 
     programs.awscli = {

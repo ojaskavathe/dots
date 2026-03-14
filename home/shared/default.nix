@@ -10,7 +10,6 @@
     ./shell/direnv.nix
     ./tmux.nix
     ./stylix-home.nix
-    ./nvim/nvim.nix
     ./kitty/kitty.nix
     ./browser/zen.nix
 
@@ -24,10 +23,6 @@
   git.enable = lib.mkDefault true;
   tmux.enable = lib.mkDefault true;
   stylix-home.enable = lib.mkDefault true;
-
-  nvim = {
-    enable = lib.mkDefault true;
-  };
 
   kitty.enable = lib.mkDefault false;
 

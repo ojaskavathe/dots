@@ -28,7 +28,7 @@
             (defvar
               tap-time 200
               hold-time 150
-            
+
               left-hand-keys (
                 q w e r t
                 a s d f g
@@ -43,7 +43,7 @@
             (deflayer base
               @caps  @a  @s  @d  @f  @j  @k  @l  @;
             )
-            
+
             (deflayer nomods
               @caps  a   s   d   f   j   k   l   ;
             )
@@ -55,7 +55,7 @@
                 (layer-switch nomods)
                 (on-idle-fakekey to-base tap 20)
               )
-            
+
               caps (tap-hold $tap-time $hold-time esc lctl)
               a (tap-hold-release-keys $tap-time $hold-time (multi a @tap) lmet $left-hand-keys)
               s (tap-hold-release-keys $tap-time $hold-time (multi s @tap) lalt $left-hand-keys)
