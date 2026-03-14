@@ -64,6 +64,7 @@
         "whatsapp"
         "android-file-transfer"
         "protonvpn"
+        "osquery"
       ];
 
       masApps = {
