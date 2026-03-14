@@ -4,20 +4,20 @@
 -- ===========================================================================
 -- OPTIONS AND KEYMAPS
 -- ===========================================================================
-require('myLuaConf.opts_and_keys')
+require("config.opts_and_keys")
 
 -- ===========================================================================
 -- COLORSCHEME
 -- ===========================================================================
-local colorschemeName = nixCats('colorscheme') or 'catppuccin'
+local colorschemeName = nixCats("colorscheme") or "catppuccin"
 vim.cmd.colorscheme(colorschemeName)
 
 -- ===========================================================================
 -- TREESITTER
 -- ===========================================================================
-require('nvim-treesitter.configs').setup({
-  highlight = { enable = true },
-  indent = { enable = true },
+require("nvim-treesitter.configs").setup({
+	highlight = { enable = true },
+	indent = { enable = true },
 })
 
 -- ===========================================================================
@@ -31,34 +31,34 @@ require('nvim-treesitter.configs').setup({
 -- Instead of: enabled = nixCats('category')
 -- Use: for_cat = 'category'
 if nixCats then
-  require('lze').register_handlers({
-    for_cat = {
-      spec_field = 'for_cat',
-      handler = function(plugin)
-        local cat = plugin.for_cat
-        if type(cat) == "string" then
-          return nixCats(cat) == true
-        end
-        return true
-      end,
-    },
-  })
+	require("lze").register_handlers({
+		for_cat = {
+			spec_field = "for_cat",
+			handler = function(plugin)
+				local cat = plugin.for_cat
+				if type(cat) == "string" then
+					return nixCats(cat) == true
+				end
+				return true
+			end,
+		},
+	})
 end
 
 -- LSP handler from lzextras: Allows defining LSPs as lze specs
 -- This handler triggers lspconfig setup on the correct filetypes
-require('lze').register_handlers(require('lzextras').lsp)
+require("lze").register_handlers(require("lzextras").lsp)
 
 -- ===========================================================================
 -- LOAD PLUGINS
 -- ===========================================================================
 
-require("myLuaConf.plugins")
+require("config.plugins")
 
 -- ===========================================================================
 -- LOAD LSP CONFIGURATIONS
 -- ===========================================================================
 
-if nixCats('general.always') or nixCats('lsp') then
-  require("myLuaConf.LSPs")
+if nixCats("general.always") or nixCats("lsp") then
+	require("config.LSPs")
 end

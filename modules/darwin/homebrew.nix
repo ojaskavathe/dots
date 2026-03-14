@@ -68,7 +68,7 @@
       ];
 
       masApps = {
-        "Amphetamine" = 937984704; 
+        "Amphetamine" = 937984704;
       };
     };
   };

@@ -1,6 +1,2 @@
--- nixCats Neovim Configuration
--- Root entry point - simply loads the main configuration
---
--- All actual config is in lua/myLuaConf/
-
-require('myLuaConf')
+-- root entry point — all config is in lua/config/
+require("config")

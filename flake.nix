@@ -51,7 +51,7 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     secrets = {
-      url = "git+ssh://git@github.com/ojaskavathe/secrets.git?shallow=1";
+      url = "path:./secrets";
       flake = false;
     };
 
@@ -215,6 +215,9 @@
         in
         pkgs.mkShell {
           packages = with pkgs; [
+            just
+            nixfmt-rfc-style
+            stylua
             nodejs
           ];
         };

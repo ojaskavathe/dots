@@ -4,8 +4,8 @@
 -- ===========================================================================
 -- LEADER KEYS
 -- ===========================================================================
-vim.g.mapleader = ' '
-vim.g.maplocalleader = ' '
+vim.g.mapleader = " "
+vim.g.maplocalleader = " "
 
 -- Disable netrw (oil.nvim replaces it)
 vim.g.loaded_netrw = 1
@@ -35,32 +35,32 @@ vim.opt.cursorline = true
 vim.opt.number = true
 vim.opt.relativenumber = true
 vim.opt.signcolumn = "yes"
-vim.opt.statuscolumn = "%!v:lua.require'myLuaConf.statuscol'.statuscolumn()"
+vim.opt.statuscolumn = "%!v:lua.require'config.statuscol'.statuscolumn()"
 
 -- ===========================================================================
 -- DIAGNOSTICS
 -- ===========================================================================
 
 vim.diagnostic.config({
-  signs = {
-    text = {
-      [vim.diagnostic.severity.ERROR] = '',
-      [vim.diagnostic.severity.WARN] = '',
-      [vim.diagnostic.severity.HINT] = '',
-      [vim.diagnostic.severity.INFO] = '',
-    },
-  },
-  update_in_insert = false,
-  underline = true,
-  severity_sort = true,
-  float = {
-    focusable = true,
-    style = 'minimal',
-    border = 'single',
-    source = 'always',
-    header = 'Diagnostic',
-    prefix = '',
-  },
+	signs = {
+		text = {
+			[vim.diagnostic.severity.ERROR] = "",
+			[vim.diagnostic.severity.WARN] = "",
+			[vim.diagnostic.severity.HINT] = "",
+			[vim.diagnostic.severity.INFO] = "",
+		},
+	},
+	update_in_insert = false,
+	underline = true,
+	severity_sort = true,
+	float = {
+		focusable = true,
+		style = "minimal",
+		border = "single",
+		source = "always",
+		header = "Diagnostic",
+		prefix = "",
+	},
 })
 
 -- ===========================================================================
@@ -70,23 +70,23 @@ vim.diagnostic.config({
 -- NOTE: Split movement handled by vim-tmux-navigator plugin (Ctrl+hjkl)
 
 -- Search for visual selection with *
-vim.keymap.set('v', '*', 'y/\\V<C-R>"<CR>', { desc = 'Search visual selection' })
+vim.keymap.set("v", "*", 'y/\\V<C-R>"<CR>', { desc = "Search visual selection" })
 
 -- Clear search highlight on Esc
-vim.keymap.set('n', '<Esc>', '<cmd>nohlsearch<CR>')
+vim.keymap.set("n", "<Esc>", "<cmd>nohlsearch<CR>")
 
 -- Black hole register instead of cut
-vim.keymap.set('', '<leader>d', '"_d', { desc = 'Delete to black hole register' })
+vim.keymap.set("", "<leader>d", '"_d', { desc = "Delete to black hole register" })
 
 -- Clipboard operations
-vim.keymap.set({ 'n', 'v' }, '<leader>y', '"+y', { desc = 'Yank to clipboard' })
-vim.keymap.set('n', '<leader>p', '"+p', { desc = 'Paste from clipboard' })
-vim.keymap.set('n', '<leader>P', '"+P', { desc = 'Paste from clipboard (before)' })
+vim.keymap.set({ "n", "v" }, "<leader>y", '"+y', { desc = "Yank to clipboard" })
+vim.keymap.set("n", "<leader>p", '"+p', { desc = "Paste from clipboard" })
+vim.keymap.set("n", "<leader>P", '"+P', { desc = "Paste from clipboard (before)" })
 
 -- Select all
-vim.keymap.set('n', '<leader>sa', 'ggVG', { desc = 'Select all' })
+vim.keymap.set("n", "<leader>sa", "ggVG", { desc = "Select all" })
 
 -- Diagnostic keymaps
-vim.keymap.set('n', '<leader>e', vim.diagnostic.open_float, { desc = 'Show diagnostic' })
-vim.keymap.set('n', '[d', vim.diagnostic.goto_prev, { desc = 'Previous diagnostic' })
-vim.keymap.set('n', ']d', vim.diagnostic.goto_next, { desc = 'Next diagnostic' })
+vim.keymap.set("n", "<leader>e", vim.diagnostic.open_float, { desc = "Show diagnostic" })
+vim.keymap.set("n", "[d", vim.diagnostic.goto_prev, { desc = "Previous diagnostic" })
+vim.keymap.set("n", "]d", vim.diagnostic.goto_next, { desc = "Next diagnostic" })

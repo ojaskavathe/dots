@@ -506,19 +506,14 @@
     "secrets": {
       "flake": false,
       "locked": {
-        "lastModified": 1758360158,
-        "narHash": "sha256-L122G+/yxg85qQkouk7kfp0o3w090oAl53jmp0RW+k0=",
-        "ref": "refs/heads/master",
-        "rev": "211a54f4e286f26f7e94ae3ce3751c062d940c10",
-        "shallow": true,
-        "type": "git",
-        "url": "ssh://git@github.com/ojaskavathe/secrets.git"
+        "path": "./secrets",
+        "type": "path"
       },
       "original": {
-        "shallow": true,
-        "type": "git",
-        "url": "ssh://git@github.com/ojaskavathe/secrets.git"
-      }
+        "path": "./secrets",
+        "type": "path"
+      },
+      "parent": []
     },
     "sops-nix": {
       "inputs": {

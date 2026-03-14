@@ -82,7 +82,10 @@
 
     programs.nvim = {
       enable = true;
-      aliases = [ "vim" "vi" ];
+      aliases = [
+        "vim"
+        "vi"
+      ];
     };
     kitty.enable = true;
 
