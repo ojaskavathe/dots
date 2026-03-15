@@ -19,7 +19,6 @@ return function(_, bufnr)
 	nmap("K", vim.lsp.buf.hover, "Hover documentation")
 	-- gi is kept as built-in (go to last insert position)
 	-- gI is mapped to LSP implementations via telescope below
-	nmap("<C-k>", vim.lsp.buf.signature_help, "Signature help")
 
 	-- Workspace management
 	nmap("<leader>wa", vim.lsp.buf.add_workspace_folder, "Add workspace folder")

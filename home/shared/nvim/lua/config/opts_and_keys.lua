@@ -86,6 +86,10 @@ vim.keymap.set("n", "<leader>P", '"+P', { desc = "Paste from clipboard (before)"
 -- Select all
 vim.keymap.set("n", "<leader>sa", "ggVG", { desc = "Select all" })
 
+-- Tab keymaps
+vim.keymap.set("n", "<leader><Tab>n", "<cmd>tabnew<cr>", { desc = "New tab" })
+vim.keymap.set("n", "<leader><Tab>c", "<cmd>tabclose<cr>", { desc = "Close tab" })
+
 -- Diagnostic keymaps
 vim.keymap.set("n", "<leader>e", vim.diagnostic.open_float, { desc = "Show diagnostic" })
 vim.keymap.set("n", "[d", vim.diagnostic.goto_prev, { desc = "Previous diagnostic" })
