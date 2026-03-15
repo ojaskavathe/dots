@@ -72,6 +72,7 @@
       ];
 
       extra = with pkgs.vimPlugins; [
+        supermaven-nvim # AI inline completions
         oil-nvim # File explorer (-)
         grug-far-nvim # Find & replace
         comment-nvim # Toggle comments (gc, gb)
