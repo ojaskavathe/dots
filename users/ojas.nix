@@ -91,7 +91,7 @@
 
     stylix-home.enable = true;
 
-    claude-code.enable = true;
+    claude.enable = true;
 
     programs.fzf = {
       enable = true;

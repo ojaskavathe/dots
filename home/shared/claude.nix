@@ -7,12 +7,12 @@
 {
 
   options = {
-    claude-code = {
+    claude = {
       enable = lib.mkEnableOption "Enable Claude Code";
     };
   };
 
-  config = lib.mkIf config.claude-code.enable {
+  config = lib.mkIf config.claude.enable {
     programs.claude-code = {
       enable = true;
       settings = {
@@ -36,11 +36,6 @@
             "Read(./secrets/**)"
           ];
           # disableBypassPermissionsMode = "enable";
-        };
-        statusLine = {
-          command = "npx -y ccusage@latest statusline";
-          padding = 0;
-          type = "command";
         };
       };
     };
