@@ -61,6 +61,17 @@ require("lze").load({
 	},
 
 	{
+		"colorful-winsep.nvim",
+		for_cat = "general.extra",
+		event = "WinNew",
+		after = function(_)
+			require("colorful-winsep").setup({
+				animate = { enabled = false },
+			})
+		end,
+	},
+
+	{
 		"indent-blankline.nvim",
 		for_cat = "general.extra",
 		event = "DeferredUIEnter",
@@ -257,7 +268,7 @@ require("lze").load({
 		for_cat = "lsp",
 		cmd = "UndotreeToggle",
 		keys = {
-			{ "<leader>u", "<cmd>UndotreeToggle<CR>", desc = "Toggle undotree" },
+			{ "<leader>u", "<cmd>UndotreeToggle | UndotreeFocus<CR>", desc = "Toggle undotree" },
 		},
 	},
 

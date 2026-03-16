@@ -86,6 +86,7 @@
         render-markdown-nvim # Inline markdown rendering
         neo-tree-nvim # File tree sidebar
         nui-nvim # UI library (neo-tree dependency)
+        colorful-winsep-nvim # Highlight active window separator
       ];
 
       telescope = with pkgs.vimPlugins; [
