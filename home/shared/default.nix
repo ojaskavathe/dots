@@ -15,7 +15,7 @@
 
     ./sops.nix
 
-    ./claude-code.nix
+    ./claude.nix
   ];
 
   zsh.enable = lib.mkDefault true;
@@ -28,5 +28,5 @@
 
   zen.enable = lib.mkDefault false;
 
-  claude-code.enable = lib.mkDefault false;
+  claude.enable = lib.mkDefault false;
 }
