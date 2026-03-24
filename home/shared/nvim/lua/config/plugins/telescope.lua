@@ -5,6 +5,7 @@ return {
 	{
 		"telescope.nvim",
 		for_cat = "general.telescope",
+		on_require = "telescope",
 		cmd = "Telescope",
 		keys = {
 			{ "<leader>ff", desc = "Find files" },
