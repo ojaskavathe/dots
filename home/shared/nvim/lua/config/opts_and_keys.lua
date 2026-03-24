@@ -37,6 +37,49 @@ vim.opt.relativenumber = true
 vim.opt.signcolumn = "yes"
 vim.opt.statuscolumn = "%!v:lua.require'config.statuscol'.statuscolumn()"
 
+-- Auto-reload files changed outside of nvim
+vim.opt.autoread = true
+
+local watchers = {}
+local function watch_buffer(buf)
+	local path = vim.api.nvim_buf_get_name(buf)
+	if path == "" or vim.uv.fs_stat(path) == nil then
+		return
+	end
+	local old = watchers[buf]
+	if old then
+		old:stop()
+	end
+	local w = vim.uv.new_fs_event()
+	if not w then
+		return
+	end
+	w:start(path, {}, vim.schedule_wrap(function()
+		w:stop()
+		if vim.api.nvim_buf_is_valid(buf) then
+			vim.api.nvim_buf_call(buf, function()
+				vim.cmd("silent! checktime")
+			end)
+			watch_buffer(buf)
+		end
+	end))
+	watchers[buf] = w
+end
+vim.api.nvim_create_autocmd("BufReadPost", {
+	callback = function(args)
+		watch_buffer(args.buf)
+	end,
+})
+vim.api.nvim_create_autocmd("BufDelete", {
+	callback = function(args)
+		local w = watchers[args.buf]
+		if w then
+			w:stop()
+			watchers[args.buf] = nil
+		end
+	end,
+})
+
 -- ===========================================================================
 -- DIAGNOSTICS
 -- ===========================================================================
@@ -94,3 +137,40 @@ vim.keymap.set("n", "<leader><Tab>c", "<cmd>tabclose<cr>", { desc = "Close tab" 
 vim.keymap.set("n", "<leader>e", vim.diagnostic.open_float, { desc = "Show diagnostic" })
 vim.keymap.set("n", "[d", vim.diagnostic.goto_prev, { desc = "Previous diagnostic" })
 vim.keymap.set("n", "]d", vim.diagnostic.goto_next, { desc = "Next diagnostic" })
+
+-- ===========================================================================
+-- SESSION MANAGEMENT
+-- ===========================================================================
+
+local session_dir = vim.fn.stdpath("state") .. "/sessions/"
+vim.fn.mkdir(session_dir, "p")
+
+local function session_file()
+	return session_dir .. vim.fn.getcwd():gsub("[/\\]", "%%") .. ".vim"
+end
+
+local function should_manage_session()
+	-- skip when nvim was opened with file arguments (e.g. $EDITOR tempfile)
+	return vim.fn.argc() == 0
+end
+
+vim.api.nvim_create_autocmd("VimLeavePre", {
+	callback = function()
+		if should_manage_session() then
+			vim.cmd("mksession! " .. vim.fn.fnameescape(session_file()))
+		end
+	end,
+})
+
+vim.api.nvim_create_autocmd("VimEnter", {
+	nested = true,
+	callback = function()
+		if not should_manage_session() then
+			return
+		end
+		local f = session_file()
+		if vim.fn.filereadable(f) == 1 then
+			vim.cmd("source " .. vim.fn.fnameescape(f))
+		end
+	end,
+})

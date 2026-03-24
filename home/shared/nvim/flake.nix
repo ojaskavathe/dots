@@ -88,7 +88,7 @@
           packages = [
             defaultPackage
             pkgs.nil
-            pkgs.nixfmt-rfc-style
+            pkgs.nixfmt
             pkgs.lua-language-server
           ];
           shellHook = ''echo "Run 'nvim' to start neovim"'';

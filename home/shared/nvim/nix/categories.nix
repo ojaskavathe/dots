@@ -118,7 +118,7 @@
   lspsAndRuntimeDeps = {
     general = with pkgs; [
       nil # Nix LSP
-      nixfmt-rfc-style # Nix formatter (used by conform)
+      nixfmt # Nix formatter (used by conform)
       lua-language-server # Lua LSP
       stylua # Lua formatter (used by conform)
       vala-language-server
