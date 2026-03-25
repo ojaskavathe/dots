@@ -54,15 +54,19 @@ local function watch_buffer(buf)
 	if not w then
 		return
 	end
-	w:start(path, {}, vim.schedule_wrap(function()
-		w:stop()
-		if vim.api.nvim_buf_is_valid(buf) then
-			vim.api.nvim_buf_call(buf, function()
-				vim.cmd("silent! checktime")
-			end)
-			watch_buffer(buf)
-		end
-	end))
+	w:start(
+		path,
+		{},
+		vim.schedule_wrap(function()
+			w:stop()
+			if vim.api.nvim_buf_is_valid(buf) then
+				vim.api.nvim_buf_call(buf, function()
+					vim.cmd("silent! checktime")
+				end)
+				watch_buffer(buf)
+			end
+		end)
+	)
 	watchers[buf] = w
 end
 vim.api.nvim_create_autocmd("BufReadPost", {
@@ -158,6 +162,10 @@ vim.api.nvim_create_autocmd("VimLeavePre", {
 	callback = function()
 		if should_manage_session() then
 			vim.cmd("mksession! " .. vim.fn.fnameescape(session_file()))
+		end
+		-- Force-stop LSP clients to avoid blocking on graceful shutdown
+		for _, client in ipairs(vim.lsp.get_clients()) do
+			client.stop(true)
 		end
 	end,
 })
