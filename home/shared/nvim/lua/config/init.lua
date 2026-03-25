@@ -15,10 +15,7 @@ vim.cmd.colorscheme(colorschemeName)
 -- ===========================================================================
 -- TREESITTER
 -- ===========================================================================
-require("nvim-treesitter.configs").setup({
-	highlight = { enable = true },
-	indent = { enable = true },
-})
+-- highlight and indent are enabled by default in newer nvim-treesitter
 
 -- ===========================================================================
 -- REGISTER LZE HANDLERS
