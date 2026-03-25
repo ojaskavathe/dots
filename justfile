@@ -4,6 +4,7 @@ default:
     @just --list --unsorted
 
 fmt:
+format:
     find . -name '*.nix' -not -path './secrets/*' | xargs nixfmt
     find . -name '*.lua' | xargs stylua
 
