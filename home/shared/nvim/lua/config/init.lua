@@ -15,7 +15,11 @@ vim.cmd.colorscheme(colorschemeName)
 -- ===========================================================================
 -- TREESITTER
 -- ===========================================================================
--- highlight and indent are enabled by default in newer nvim-treesitter
+vim.api.nvim_create_autocmd("FileType", {
+	callback = function(args)
+		pcall(vim.treesitter.start, args.buf)
+	end,
+})
 
 -- ===========================================================================
 -- REGISTER LZE HANDLERS
