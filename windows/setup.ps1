@@ -12,6 +12,13 @@ $kanataExe = Join-Path $kanataDir "kanata.exe"
 $kanataConfig = Join-Path $kanataDir "hrm.kbd"
 $taskName = "Kanata"
 
+# --- Stop kanata if running ---
+if (Get-Process kanata -ErrorAction SilentlyContinue) {
+    Write-Host "Stopping kanata..."
+    Stop-Process -Name kanata -Force
+    Start-Sleep -Seconds 1
+}
+
 # --- Install/update kanata ---
 New-Item -ItemType Directory -Path $kanataDir -Force | Out-Null
 
@@ -85,12 +92,7 @@ if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
     Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal | Out-Null
 }
 
-# --- Start/restart kanata ---
-if (Get-Process kanata -ErrorAction SilentlyContinue) {
-    Write-Host "Restarting kanata..."
-    Stop-Process -Name kanata -Force
-    Start-Sleep -Seconds 1
-}
+# --- Start kanata ---
 Start-ScheduledTask -TaskName $taskName
 Write-Host "kanata running."
 
