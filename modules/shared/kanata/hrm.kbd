@@ -1,5 +1,6 @@
 (defsrc
   caps   a   s   d   f   j   k   l   ;
+  fn
 )
 
 (defvar
@@ -20,10 +21,17 @@
 
 (deflayer base
   @caps  @a  @s  @d  @f  @j  @k  @l  @;
+  @fnl
 )
 
 (deflayer nomods
   @caps  a   s   d   f   j   k   l   ;
+  @fnl
+)
+
+(deflayer fn
+  @tl  _  _  _  _  _  _  _  _
+  fn
 )
 
 (deffakekeys
@@ -31,11 +39,17 @@
 )
 
 (defalias
+  tl (switch
+    ((base-layer base)) (layer-switch nomods) break
+    ((base-layer nomods)) (layer-switch base) break
+  )
+
   tap (multi
     (layer-switch nomods)
     (on-idle-fakekey to-base tap 20)
   )
 
+  fnl (tap-hold $tap-time $hold-time fn (layer-toggle fn))
   caps (tap-hold $tap-time $hold-time esc lctl)
   a (tap-hold-release-keys $tap-time $hold-time (multi a @tap) lmet $left-hand-keys)
   s (tap-hold-release-keys $tap-time $hold-time (multi s @tap) lalt $left-hand-keys)
