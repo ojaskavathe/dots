@@ -3,7 +3,8 @@ set shell := ["bash", "-c"]
 default:
     @just --list --unsorted
 
-fmt:
+alias fmt := format
+
 format:
     find . -name '*.nix' -not -path './secrets/*' | xargs nixfmt
     find . -name '*.lua' | xargs stylua
