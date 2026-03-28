@@ -1,12 +1,13 @@
 # Neovim → nixCats + lze Migration Plan
 
-**Date:** 2025-10-12
-**Status:** Planning
-**Goal:** Migrate Neovim config from `programs.neovim` to nixCats with lze lazy-loading
+**Date:** 2025-10-12 **Status:** Planning **Goal:** Migrate Neovim config from
+`programs.neovim` to nixCats with lze lazy-loading
 
 ## Strategy: Internal Flake + Home Manager Integration
 
-This migration creates a **standalone nixCats flake** inside your dotfiles that can be:
+This migration creates a **standalone nixCats flake** inside your dotfiles that
+can be:
+
 - Run directly: `nix run ~/dots/home/shared/nvim`
 - Used with home-manager: Import as a flake input
 - Portable: Copy the `nvim/` directory anywhere and it works
@@ -14,6 +15,7 @@ This migration creates a **standalone nixCats flake** inside your dotfiles that 
 ---
 
 ## Table of Contents
+
 - [Overview](#overview)
 - [Architecture](#architecture)
 - [Current State](#current-state)
@@ -28,9 +30,11 @@ This migration creates a **standalone nixCats flake** inside your dotfiles that 
 ## Overview
 
 ### Philosophy
+
 **nixCats:** "Nix is for downloading. Lua is for configuring."
 
 ### Goals
+
 - [x] Research nixCats and lze
 - [ ] Create standalone nixCats flake in dotfiles
 - [ ] Integrate with home-manager
@@ -39,6 +43,7 @@ This migration creates a **standalone nixCats flake** inside your dotfiles that 
 - [ ] Enable running from anywhere: `nix run ~/dots/home/shared/nvim`
 
 ### Benefits
+
 - **Portable:** Copy nvim directory and run anywhere
 - **Standalone:** `nix run` without home-manager rebuild
 - **Integrated:** Also works with home-manager
@@ -52,6 +57,7 @@ This migration creates a **standalone nixCats flake** inside your dotfiles that 
 ### Two Usage Modes
 
 #### Mode 1: Standalone
+
 ```bash
 # Run directly from flake
 nix run ~/dots/home/shared/nvim
@@ -62,6 +68,7 @@ nix run
 ```
 
 #### Mode 2: Home Manager Integration
+
 ```nix
 # In your main flake.nix
 inputs.nvim.url = "path:/Users/ojas/dots/home/shared/nvim";
@@ -76,16 +83,19 @@ programs.nixCats = {
 ### Layer Separation
 
 #### 1. Nix Layer (nixCats)
+
 - Define plugin categories
 - Manage LSP servers and tools
 - Create multiple package variants
 
 #### 2. Lua Layer
+
 - Pure Lua configuration
 - Plugin-specific configs
 - Keymaps and options
 
 #### 3. Lazy-Loading (lze)
+
 - Load plugins on-demand
 - Reduce startup time
 
@@ -94,6 +104,7 @@ programs.nixCats = {
 ## Current State
 
 ### File Structure
+
 ```
 home/shared/nvim/
 ├── nvim.nix              # Home-manager module (to be removed)
@@ -115,12 +126,14 @@ home/shared/nvim/
 ```
 
 ### Plugin Count
+
 - **Total plugins:** ~30
 - **With config:** ~15
 - **Simple plugins:** ~15
 - **LSP tools:** 11 language servers + formatters
 
 ### Current Issues
+
 - All plugins load on startup (slow)
 - Mixed Nix/Lua configuration
 - Not portable (tied to home-manager)
@@ -131,6 +144,7 @@ home/shared/nvim/
 ## Target Structure
 
 ### Directory Layout
+
 ```
 home/shared/nvim/
 ├── flake.nix                    # Standalone flake
@@ -165,6 +179,7 @@ home/shared/nvim/
 ### Flake Outputs
 
 The internal flake will provide:
+
 ```nix
 {
   # Standalone package
@@ -183,6 +198,7 @@ The internal flake will provide:
 ## Migration Phases
 
 ### Phase 0: Preparation ✅
+
 - [x] Research nixCats and lze
 - [x] Review example configurations
 - [x] Create migration plan
@@ -190,9 +206,11 @@ The internal flake will provide:
 ---
 
 ### Phase 1: Create Internal Flake Structure
+
 **Goal:** Set up standalone nixCats flake in `home/shared/nvim/`
 
 #### 1.1 Initialize Flake Structure
+
 - [ ] Create `home/shared/nvim-new/` directory (parallel to existing)
 - [ ] Initialize nixCats template:
   ```bash
@@ -203,6 +221,7 @@ The internal flake will provide:
 - [ ] Test flake evaluates: `nix flake show`
 
 #### 1.2 Create Nix Module Structure
+
 - [ ] Create `nix/` subdirectory
 - [ ] Create `nix/categories.nix` for plugin definitions
 - [ ] Create `nix/packages.nix` for package variants
@@ -210,6 +229,7 @@ The internal flake will provide:
 - [ ] Create `nix/home-module.nix` for home-manager integration
 
 #### 1.3 Configure Main flake.nix
+
 ```nix
 {
   description = "Neovim configuration with nixCats";
@@ -274,6 +294,7 @@ The internal flake will provide:
 ```
 
 #### 1.4 Verification
+
 - [ ] `nix flake check` passes
 - [ ] `nix flake show` displays outputs
 - [ ] `nix run . -- --version` works
@@ -283,6 +304,7 @@ The internal flake will provide:
 ---
 
 ### Phase 2: Define Plugin Categories
+
 **Goal:** Configure all plugins in nixCats categories
 
 #### 2.1 Create nix/categories.nix
@@ -496,6 +518,7 @@ in
 ```
 
 #### 2.4 Verification
+
 - [ ] `nix flake check` passes
 - [ ] All plugins listed correctly
 - [ ] LSP tools included
@@ -505,15 +528,18 @@ in
 ---
 
 ### Phase 3: Create Lua Configuration Structure
+
 **Goal:** Set up Lua directory with proper organization
 
 #### 3.1 Create Directory Structure
+
 ```bash
 mkdir -p lua/config
 mkdir -p lua/plugins
 ```
 
 #### 3.2 Move Core Config Files
+
 - [ ] Move `options.lua` → `lua/config/options.lua`
 - [ ] Move `keymap.lua` → `lua/config/keymaps.lua`
 - [ ] Move `diagnostics.lua` → `lua/config/diagnostics.lua`
@@ -555,6 +581,7 @@ vim.cmd.colorscheme "catppuccin"
 ```
 
 #### 3.5 Test Structure
+
 - [ ] Flake still evaluates
 - [ ] Files are in correct locations
 - [ ] No syntax errors
@@ -564,6 +591,7 @@ vim.cmd.colorscheme "catppuccin"
 ---
 
 ### Phase 4: Implement Lazy-Loading with lze
+
 **Goal:** Create lze-loader.lua with all plugin specs
 
 #### 4.1 Create lua/plugins/lze-loader.lua
@@ -767,6 +795,7 @@ lze.load(specs)
 ```
 
 #### 4.2 Verification
+
 - [ ] File has no syntax errors
 - [ ] All plugins have specs
 - [ ] Triggers are appropriate
@@ -776,9 +805,11 @@ lze.load(specs)
 ---
 
 ### Phase 5: Migrate Plugin Configs
+
 **Goal:** Move all plugin configs to Lua files
 
 #### 5.1 Simple Moves (already exist)
+
 - [ ] `plugins/telescope.lua` - verify and enhance with extensions
 - [ ] `plugins/lspconfig.lua` - verify
 - [ ] `plugins/treesitter.lua` - verify
@@ -786,6 +817,7 @@ lze.load(specs)
 #### 5.2 Create Consolidated Files
 
 **lua/plugins/git.lua:**
+
 ```lua
 local M = {}
 
@@ -800,6 +832,7 @@ return M
 ```
 
 **lua/plugins/ui.lua:**
+
 ```lua
 local M = {}
 
@@ -834,6 +867,7 @@ return M
 ```
 
 **lua/plugins/editing.lua:**
+
 ```lua
 local M = {}
 
@@ -859,6 +893,7 @@ return M
 ```
 
 **lua/plugins/navigation.lua:**
+
 ```lua
 local M = {}
 
@@ -870,6 +905,7 @@ return M
 ```
 
 **lua/plugins/search.lua:**
+
 ```lua
 -- Content from current plugins/grug-far.lua
 local M = require('grug-far').setup {
@@ -879,6 +915,7 @@ return M
 ```
 
 **lua/plugins/rust.lua:**
+
 ```lua
 local M = {}
 
@@ -890,12 +927,14 @@ return M
 ```
 
 **lua/plugins/cmp.lua:**
+
 ```lua
 -- Rename from nvim-cmp.lua
 -- Content from current plugins/nvim-cmp.lua
 ```
 
 **lua/plugins/none-ls.lua:**
+
 ```lua
 -- Content from current plugins/none-ls.lua
 ```
@@ -903,6 +942,7 @@ return M
 #### 5.3 Update Existing Files
 
 **plugins/telescope.lua** - Add extension loading:
+
 ```lua
 -- At the end of file
 require("telescope").load_extension("fzf")
@@ -910,6 +950,7 @@ require("telescope").load_extension("ui-select")
 ```
 
 #### 5.4 Checklist
+
 - [ ] lua/plugins/git.lua created
 - [ ] lua/plugins/ui.lua created
 - [ ] lua/plugins/editing.lua created
@@ -927,6 +968,7 @@ require("telescope").load_extension("ui-select")
 ---
 
 ### Phase 6: Integrate with Main Flake
+
 **Goal:** Connect internal flake to main dotfiles flake
 
 #### 6.1 Add to Main Flake Inputs
@@ -979,6 +1021,7 @@ Edit `/Users/ojas/dots/users/ojas.nix`:
 ```
 
 #### 6.4 Checklist
+
 - [ ] Add nvim to main flake inputs
 - [ ] Add homeModule to imports
 - [ ] Update users/ojas.nix
@@ -990,9 +1033,11 @@ Edit `/Users/ojas/dots/users/ojas.nix`:
 ---
 
 ### Phase 7: Testing & Validation
+
 **Goal:** Comprehensive testing of both usage modes
 
 #### 7.1 Test Standalone Mode
+
 ```bash
 # From dotfiles root
 nix run ./home/shared/nvim -- --version
@@ -1010,6 +1055,7 @@ nix run -- --headless -c "lua print('hello')" -c quit
 - [ ] Colorscheme loads
 
 #### 7.2 Test Home Manager Mode
+
 ```bash
 # Rebuild home-manager
 home-manager switch --flake .#ojas@camille
@@ -1029,6 +1075,7 @@ which vim
 - [ ] Set as EDITOR
 
 #### 7.3 Test Startup & Lazy-Loading
+
 ```bash
 # Measure startup time
 nvim --startuptime /tmp/startup.txt +quit
@@ -1045,6 +1092,7 @@ nvim --headless -c "lua print(vim.inspect(package.loaded))" -c quit
 #### 7.4 Test Plugin Loading
 
 Open nvim and test:
+
 ```vim
 " Check nixCats available
 :lua print(vim.inspect(nixCats))
@@ -1081,33 +1129,39 @@ Open nvim and test:
 Test with actual code files:
 
 - [ ] **Nix:** nil LSP, formatting with nixfmt
+
   ```bash
   nvim test.nix
   # Test: gd (go to definition), <leader>f (format)
   ```
 
 - [ ] **Lua:** lua_ls, formatting with stylua
+
   ```bash
   nvim test.lua
   ```
 
 - [ ] **TypeScript:** ts_ls, formatting with prettier
+
   ```bash
   nvim test.ts
   ```
 
 - [ ] **HTML/CSS:** vscode servers
+
   ```bash
   nvim test.html
   nvim test.css
   ```
 
 - [ ] **Tailwind:** tailwindcss LSP
+
   ```bash
   nvim test.html  # with tailwind classes
   ```
 
 - [ ] **C++:** clangd
+
   ```bash
   nvim test.cpp
   ```
@@ -1118,6 +1172,7 @@ Test with actual code files:
   ```
 
 #### 7.6 Test All Features
+
 - [ ] Treesitter syntax highlighting
 - [ ] Git integration (fugitive, gitsigns)
 - [ ] File navigation (oil, telescope)
@@ -1132,6 +1187,7 @@ Test with actual code files:
 - [ ] Search/replace (grug-far)
 
 #### 7.7 Performance Comparison
+
 ```bash
 # Before migration (if you still have it)
 # nvim-old --startuptime before.txt +quit
@@ -1154,9 +1210,11 @@ grep "^TOTAL" after.txt
 ---
 
 ### Phase 8: Cleanup & Documentation
+
 **Goal:** Remove old config and document the new system
 
 #### 8.1 Cleanup Old Files
+
 - [ ] Remove `home/shared/nvim/nvim.nix` (old home-manager module)
 - [ ] Remove any temporary test files
 - [ ] Rename `nvim-new/` to `nvim/` if needed
@@ -1166,15 +1224,16 @@ grep "^TOTAL" after.txt
 
 Create `home/shared/nvim/README.md`:
 
-```markdown
+````markdown
 # Neovim Configuration with nixCats
 
-This is a standalone nixCats-based Neovim configuration that can be used both
-as a standalone flake and integrated with home-manager.
+This is a standalone nixCats-based Neovim configuration that can be used both as
+a standalone flake and integrated with home-manager.
 
 ## Usage
 
 ### Standalone
+
 ```bash
 # Run from anywhere
 nix run ~/dots/home/shared/nvim
@@ -1182,17 +1241,22 @@ nix run ~/dots/home/shared/nvim
 # Or from this directory
 nix run
 ```
+````
 
 ### Home Manager
-The main flake imports this as an input and uses the provided home-manager module.
+
+The main flake imports this as an input and uses the provided home-manager
+module.
 
 ## Structure
+
 - `flake.nix` - Standalone flake definition
 - `nix/` - Nix configuration (categories, packages, settings)
 - `lua/` - Pure Lua configuration
 - `init.lua` - Entry point
 
 ## Plugin Categories
+
 - `general` - Core plugins (telescope, oil, editing tools)
 - `treesitter` - Syntax highlighting
 - `lsp` - Language servers and completion
@@ -1200,7 +1264,9 @@ The main flake imports this as an input and uses the provided home-manager modul
 - `ui` - UI enhancements
 
 ## Lazy-Loading
+
 Plugins are lazy-loaded via `lze` based on:
+
 - Commands (e.g., `:Telescope`)
 - Keys (e.g., `<leader>ff`)
 - Events (e.g., `FileType`)
@@ -1209,30 +1275,37 @@ Plugins are lazy-loaded via `lze` based on:
 ## Modifying
 
 ### Add a Plugin
+
 1. Add to `nix/categories.nix` in appropriate category
 2. Add lazy-loading spec to `lua/plugins/lze-loader.lua`
 3. Create config in `lua/plugins/`
 4. Test: `nix run . -- --headless +checkhealth +quit`
 
 ### Change Settings
+
 1. Edit Lua files in `lua/config/` or `lua/plugins/`
 2. No rebuild needed! Just restart nvim.
 
 ### Change Packages/Dependencies
+
 1. Edit `nix/categories.nix`
 2. Rebuild: `nix run .` or `home-manager switch`
 
 ## Troubleshooting
 
 ### Plugin not found
+
 Check it's in correct category in `nix/categories.nix`
 
 ### Lazy-loading not working
+
 Verify trigger in `lua/plugins/lze-loader.lua`
 
 ### LSP not starting
+
 Check server is in `lspsAndRuntimeDeps` in `nix/categories.nix`
-```
+
+````
 
 #### 8.3 Add Comments to Key Files
 
@@ -1255,7 +1328,7 @@ git commit -m "feat: migrate neovim to nixCats with lze
 Can be used standalone: nix run ~/dots/home/shared/nvim
 Or via home-manager with programs.nixCats.enable = true
 "
-```
+````
 
 - [ ] Commit changes with descriptive message
 - [ ] Push to remote if desired
@@ -1269,6 +1342,7 @@ Or via home-manager with programs.nixCats.enable = true
 ### Complete File Templates
 
 #### flake.nix (Full Example)
+
 ```nix
 {
   description = "Neovim configuration with nixCats";
@@ -1359,6 +1433,7 @@ Or via home-manager with programs.nixCats.enable = true
 ```
 
 #### nix/home-module.nix (Full Example)
+
 ```nix
 { inputs, self }:
 { config, lib, pkgs, ... }:
@@ -1419,14 +1494,18 @@ in
 ### Common Issues
 
 #### 1. "flake.nix is not a flake"
+
 **Solution:** Ensure `home/shared/nvim` is a git repository or tracked by git
+
 ```bash
 cd home/shared/nvim
 git add .
 ```
 
 #### 2. "path './home/shared/nvim' does not exist"
+
 **Solution:** Use absolute path in main flake.nix
+
 ```nix
 nvim.url = "path:/Users/ojas/dots/home/shared/nvim";
 # OR make it relative to flake root
@@ -1434,7 +1513,9 @@ nvim.url = "path:./home/shared/nvim";
 ```
 
 #### 3. "Package 'lze' not found"
+
 **Solution:** Verify lze is being built correctly
+
 ```nix
 # In nix/categories.nix
 lze-plugin = pkgs.vimUtils.buildVimPlugin {
@@ -1444,13 +1525,17 @@ lze-plugin = pkgs.vimUtils.buildVimPlugin {
 ```
 
 #### 4. nixCats function undefined in Lua
+
 **Solution:** Ensure using nixCats package, not regular neovim
+
 ```vim
 :lua print(vim.g.nixCats)  " Should not be nil
 ```
 
 #### 5. Home-manager module not found
+
 **Solution:** Check homeModule is in outputs
+
 ```nix
 # In internal flake.nix
 outputs = {
@@ -1462,7 +1547,9 @@ inputs.nvim.homeModule  # Should be available
 ```
 
 #### 6. Circular dependency errors
+
 **Solution:** Ensure nixpkgs follows main flake
+
 ```nix
 nvim = {
   url = "path:./home/shared/nvim";
@@ -1504,12 +1591,14 @@ home-manager switch --flake .#ojas@camille --show-trace -v
 ## References
 
 ### Documentation
+
 - [nixCats Official Site](https://nixcats.org/)
 - [nixCats GitHub](https://github.com/BirdeeHub/nixCats-nvim)
 - [nixCats Installation Guide](https://nixcats.org/nixCats_installation.html)
 - [lze GitHub](https://github.com/BirdeeHub/lze)
 
 ### Templates
+
 ```bash
 # View available templates
 nix flake show github:BirdeeHub/nixCats-nvim
@@ -1520,6 +1609,7 @@ nix flake init -t github:BirdeeHub/nixCats-nvim#home-manager
 ```
 
 ### Example Configs
+
 - [BirdeeHub/nixCats-nvim Examples](https://github.com/BirdeeHub/nixCats-nvim/tree/main/templates)
 - [ZZU1U/nixCats](https://github.com/ZZU1U/nixCats)
 
@@ -1528,6 +1618,7 @@ nix flake init -t github:BirdeeHub/nixCats-nvim#home-manager
 ## Progress Tracking
 
 ### Phase Completion
+
 - [x] Phase 0: Preparation & Planning ✅
 - [x] Phase 1: Create Internal Flake Structure ✅
   - [x] 1.1: Initialize flake structure
@@ -1543,19 +1634,23 @@ nix flake init -t github:BirdeeHub/nixCats-nvim#home-manager
 - [ ] Phase 8: Cleanup & Documentation (manual cleanup)
 
 ### Current Status
-**Phase:** Phases 1-5 Complete! ✓
-**Next:** Phase 6 - Integrate with Main Flake (when you're ready to switch)
+
+**Phase:** Phases 1-5 Complete! ✓ **Next:** Phase 6 - Integrate with Main Flake
+(when you're ready to switch)
 
 ### Timeline
+
 - **Started:** 2025-10-12
 - **Planning Complete:** 2025-10-12
 - **Target Completion:** TBD
 
 ### Session Notes
+
 - **Session 1 (2025-10-12):** Research and planning complete
 - **Session 2 (2025-10-12):** Phases 1-5 Complete! 🎉
   - ✅ Created nvim-new/ directory with nixCats template
-  - ✅ Built nix/ module structure (categories.nix, packages.nix, home-module.nix)
+  - ✅ Built nix/ module structure (categories.nix, packages.nix,
+    home-module.nix)
   - ✅ Configured flake.nix with lze input
   - ✅ Verified flake evaluates successfully
   - ✅ All plugins categorized (general, treesitter, lsp, git, ui)
@@ -1563,7 +1658,8 @@ nix flake init -t github:BirdeeHub/nixCats-nvim#home-manager
   - ✅ Created complete Lua configuration structure
   - ✅ Implemented lze lazy-loading for all plugins
   - ✅ Migrated all plugin configs to new structure
-  - ✅ Created consolidated config files (git, ui, editing, navigation, search, rust)
+  - ✅ Created consolidated config files (git, ui, editing, navigation, search,
+    rust)
 
   **RESULT:** Fully functional nixCats config ready to test!
 
@@ -1573,9 +1669,11 @@ nix flake init -t github:BirdeeHub/nixCats-nvim#home-manager
 
 ### 🎉 Core Migration Complete!
 
-The nixCats configuration is fully functional and ready to test. Here's what's left:
+The nixCats configuration is fully functional and ready to test. Here's what's
+left:
 
 ### ✅ To Test the Standalone Flake (Optional):
+
 ```bash
 # From the nvim-new directory
 cd ~/dots/home/shared/nvim-new
@@ -1586,7 +1684,9 @@ nix run .  # Launch nvim!
 ### 📋 Remaining Manual Steps:
 
 #### Phase 6: Integrate with Main Flake
+
 1. **Add nvim flake input** to your main `flake.nix`:
+
    ```nix
    inputs = {
      # ... existing inputs ...
@@ -1598,6 +1698,7 @@ nix run .  # Launch nvim!
    ```
 
 2. **Import homeModule** in your home-manager config:
+
    ```nix
    # In homeConfigurations."ojas@camille".modules
    modules = [
@@ -1607,6 +1708,7 @@ nix run .  # Launch nvim!
    ```
 
 3. **Update `users/ojas.nix`:**
+
    ```nix
    # Remove:
    # nvim.enable = true;
@@ -1626,6 +1728,7 @@ nix run .  # Launch nvim!
    ```
 
 #### Phase 7: Testing & Validation
+
 - Test nvim starts without errors
 - Test lazy-loading works (plugins load on triggers)
 - Test LSP functionality with actual code files
@@ -1633,6 +1736,7 @@ nix run .  # Launch nvim!
 - Compare startup time (should be much faster!)
 
 #### Phase 8: Cleanup & Documentation
+
 - Rename `nvim-new/` to `nvim/` (backup old one first!)
 - Remove old `nvim.nix` module
 - Update README if you have one
@@ -1640,10 +1744,11 @@ nix run .  # Launch nvim!
 
 ---
 
-**Last Updated:** 2025-10-12
-**Status:** ✅ **WORKING!** Flake successfully builds and runs! 🎉
+**Last Updated:** 2025-10-12 **Status:** ✅ **WORKING!** Flake successfully
+builds and runs! 🎉
 
 ### Quick Test Results:
+
 ```bash
 cd ~/dots/home/shared/nvim-new
 nix run . -- --version  # ✅ NVIM v0.11.4
