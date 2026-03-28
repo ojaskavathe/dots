@@ -9,7 +9,7 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 $repo = "https://raw.githubusercontent.com/ojaskavathe/dots/master"
 $kanataDir = "$env:LOCALAPPDATA\kanata"
 $kanataExe = Join-Path $kanataDir "kanata.exe"
-$kanataConfig = Join-Path $kanataDir "kanata.kbd"
+$kanataConfig = Join-Path $kanataDir "hrm.kbd"
 $taskName = "Kanata"
 
 # --- Install/update kanata ---
