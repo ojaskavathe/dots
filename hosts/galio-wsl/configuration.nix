@@ -36,6 +36,7 @@ users.users.dingus = {
   shell = pkgs.zsh;
 };
 users.users.root.hashedPassword = "!";
+  programs.nix-ld.enable = true;
   programs.zsh.enable = true;
 
   networking = {
