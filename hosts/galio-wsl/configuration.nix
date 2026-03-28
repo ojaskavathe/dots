@@ -28,14 +28,14 @@
   };
 
   users.mutableUsers = false;
-users.users.dingus = {
-  isNormalUser = true;
-  description = "dingus";
-  hashedPassword = "$6$KjZbzuJytrxrQuCb$UhpJOGUU2GUC4R0hLQig0SkfDTWsVp.dSO/aUYo58r1AYNe34IqUIHIiRitVqkJGKAjSe4NqVywunTjnrarzY/";
-  extraGroups = [ "wheel" ];
-  shell = pkgs.zsh;
-};
-users.users.root.hashedPassword = "!";
+  users.users.dingus = {
+    isNormalUser = true;
+    description = "dingus";
+    hashedPassword = "$6$KjZbzuJytrxrQuCb$UhpJOGUU2GUC4R0hLQig0SkfDTWsVp.dSO/aUYo58r1AYNe34IqUIHIiRitVqkJGKAjSe4NqVywunTjnrarzY/";
+    extraGroups = [ "wheel" ];
+    shell = pkgs.zsh;
+  };
+  users.users.root.hashedPassword = "!";
   programs.nix-ld.enable = true;
   programs.zsh.enable = true;
 

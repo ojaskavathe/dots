@@ -222,7 +222,12 @@
                 };
               in
               {
-                inherit pkgs-stable inputs system username;
+                inherit
+                  pkgs-stable
+                  inputs
+                  system
+                  username
+                  ;
               };
             modules = [
               stylix.homeModules.stylix
@@ -272,19 +277,19 @@
 
     }
 
-  # for ags / hyprland stuff
-  // inputs.flake-utils.lib.eachDefaultSystem (system: {
-    devShells.default =
-      let
-        pkgs = nixpkgs.legacyPackages.${system};
-      in
-      pkgs.mkShell {
-        packages = with pkgs; [
-          just
-          nixfmt
-          stylua
-          nodejs
-        ];
-      };
-  });
+    # for ags / hyprland stuff
+    // inputs.flake-utils.lib.eachDefaultSystem (system: {
+      devShells.default =
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+        in
+        pkgs.mkShell {
+          packages = with pkgs; [
+            just
+            nixfmt
+            stylua
+            nodejs
+          ];
+        };
+    });
 }
