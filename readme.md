@@ -1,17 +1,24 @@
 # NixOS and Darwin Configuration
 
-This repository contains my Nix configurations for both NixOS and Darwin (macOS) systems, managed through Nix flakes. It includes home-manager configurations and various system modules.
+This repository contains my Nix configurations for both NixOS and Darwin (macOS)
+systems, managed through Nix flakes. It includes home-manager configurations and
+various system modules.
 
 ## System Configurations
 
 ### NixOS (TUF)
+
 The NixOS configuration was designed for my Asus TUF A15 (tuf) and includes:
+
 - Disko-based disk partitioning and formatting
 - System-wide configurations in `hosts/tuf/`
 - Shared and NixOS-specific modules
 
 ### Darwin (Camille)
-The Darwin configuration is designed for an M4 Max Macbook Pro (camille) and includes:
+
+The Darwin configuration is designed for an M4 Max Macbook Pro (camille) and
+includes:
+
 - System-wide configurations in `hosts/camille/`
 - Shared and Darwin-specific modules
 - Homebrew integration through nix-homebrew
@@ -35,6 +42,7 @@ modules/
 ```
 
 ## Home Manager Modules
+
 ```
 home/
 ├── shared/
@@ -70,6 +78,7 @@ home/
 ## User Configurations
 
 User-specific configurations are stored in the `users/` directory:
+
 - `dingus.nix`: Configuration for the dingus user on NixOS
 - `ojas.nix`: Configuration for the ojas user on Darwin
 
@@ -78,16 +87,19 @@ User-specific configurations are stored in the `users/` directory:
 ### NixOS Installation
 
 1. Clone the repository in `/tmp`:
+
    ```bash
    git clone <repository-url> /tmp/nixos-config
    ```
 
 2. Partition and format using disko:
+
    ```bash
    sudo nix --experimental-features "nix-command flakes" run github:nix-community/disko -- --mode disko --argstr target <device-name> /tmp/nixos-config/nixos/disko-configuration.nix
    ```
 
 3. Generate and set up configuration:
+
    ```bash
    sudo nixos-generate-config --no-filesystems --root /mnt
    sudo rm /mnt/etc/nixos/configuration.nix
@@ -103,6 +115,7 @@ User-specific configurations are stored in the `users/` directory:
 ### Darwin Installation
 
 1. Install nix-darwin:
+
    ```bash
    nix-build https://github.com/LnL7/nix-darwin/archive/master.tar.gz -A installer
    ./result/bin/darwin-installer
@@ -119,11 +132,13 @@ User-specific configurations are stored in the `users/` directory:
 To apply home-manager configurations:
 
 ### NixOS
+
 ```bash
 home-manager switch --flake .#dingus@nixos
 ```
 
 ### Darwin
+
 ```bash
 home-manager switch --flake .#ojas@camille
 ```
@@ -133,25 +148,32 @@ home-manager switch --flake .#ojas@camille
 ### Windows (Kanata only)
 
 From an elevated PowerShell:
+
 ```powershell
 irm https://raw.githubusercontent.com/ojaskavathe/dots/master/windows/setup.ps1 | iex
 ```
 
-This installs kanata, fetches the latest keyboard config, and sets it to run at login. Re-run to update.
+This installs kanata, fetches the latest keyboard config, and sets it to run at
+login. Re-run to update.
 
 ## Misc
 
 ### Kanata on MacOS
 
-Install Karabiner-DriverKit-VirtualHIDDevice from [here](https://github.com/pqrs-org/Karabiner-DriverKit-VirtualHIDDevice/tree/main/dist).
+Install Karabiner-DriverKit-VirtualHIDDevice from
+[here](https://github.com/pqrs-org/Karabiner-DriverKit-VirtualHIDDevice/tree/main/dist).
 
 Then run:
+
 ```
 /Applications/.Karabiner-VirtualHIDDevice-Manager.app/Contents/MacOS/Karabiner-VirtualHIDDevice-Manager activate
 ```
 
-Then go to Settings > General > Driver Extensions and enable the VirtualHIDDevice.
+Then go to Settings > General > Driver Extensions and enable the
+VirtualHIDDevice.
 
-On restart, the launchctl daemon should run an instance of kanata. For errors, check in `/tmp`.
+On restart, the launchctl daemon should run an instance of kanata. For errors,
+check in `/tmp`.
 
-Also, add kanata, tmux, and the default terminal(kitty) to Settings > Privacy and Security > Input monitoring, from their symlinks in `~/.nix-profile/bin`
+Also, add kanata, tmux, and the default terminal(kitty) to Settings > Privacy
+and Security > Input monitoring, from their symlinks in `~/.nix-profile/bin`
