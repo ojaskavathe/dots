@@ -1,7 +1,7 @@
 (defsrc
   esc
   caps   a   s   d   f   j   k   l   ;
-  fn
+  ralt
 )
 
 (defvar
@@ -35,7 +35,7 @@
 (deflayer fn
   @tl
   caps  _  _  _  _  _  _  _  _
-  fn
+  ralt
 )
 
 (deffakekeys
@@ -53,7 +53,7 @@
     (on-idle-fakekey to-base tap 20)
   )
 
-  fnl (tap-hold $tap-time $hold-time fn (layer-toggle fn))
+  fnl (tap-hold $tap-time $hold-time ralt (layer-toggle fn))
   caps (tap-hold $tap-time $hold-time esc lctl)
   a (tap-hold-release-keys $tap-time $hold-time (multi a @tap) lmet $left-hand-keys)
   s (tap-hold-release-keys $tap-time $hold-time (multi s @tap) lalt $left-hand-keys)
