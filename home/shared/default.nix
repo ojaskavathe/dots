@@ -29,4 +29,6 @@
   zen.enable = lib.mkDefault false;
 
   claude.enable = lib.mkDefault false;
+
+  sops-home.enable = lib.mkDefault false;
 }

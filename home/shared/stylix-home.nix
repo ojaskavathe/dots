@@ -2,6 +2,7 @@
   pkgs,
   lib,
   config,
+  inputs,
   ...
 }:
 {
@@ -14,7 +15,7 @@
   config = lib.mkIf config.stylix-home.enable {
     stylix = {
       enable = true;
-      image = ../data/wallpapers/wp.jpg;
+      image = inputs.self + /data/wallpapers/wp.jpg;
       base16Scheme = "${pkgs.base16-schemes}/share/themes/catppuccin-mocha.yaml";
       polarity = "dark";
 
