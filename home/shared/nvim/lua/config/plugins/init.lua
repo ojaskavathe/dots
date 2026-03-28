@@ -321,23 +321,4 @@ require("lze").load({
 			require("nvim-autopairs").setup()
 		end,
 	},
-
-	{
-		"nvim-treesitter-textsubjects",
-		for_cat = "general.extra",
-		event = "DeferredUIEnter",
-		after = function(_)
-			require("nvim-treesitter.configs").setup({
-				textsubjects = {
-					enable = true,
-					prev_selection = ",",
-					keymaps = {
-						["."] = "textsubjects-smart",
-						[";"] = "textsubjects-container-outer",
-						["i;"] = { "textsubjects-container-inner", desc = "Select inside containers" },
-					},
-				},
-			})
-		end,
-	},
 })

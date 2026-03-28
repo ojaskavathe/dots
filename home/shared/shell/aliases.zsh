@@ -18,6 +18,6 @@ alias lg="lazygit"
 
 # nv: test nvim config changes without hms (nix run rebuilds if nix files changed)
 # v:  daily driver, uses the hms-installed nvim
-# Both restore vim-obsession session if Session.vim exists in cwd
-nv() { [ -f Session.vim ] && nix run $NIX_CFG_PATH/home/shared/nvim -- -S || nix run $NIX_CFG_PATH/home/shared/nvim; }
-v() { [ -f Session.vim ] && nvim -S || nvim; }
+# sessions are auto-managed in stdpath("state") when opened with no args
+nv() { nix run $NIX_CFG_PATH/home/shared/nvim; }
+v() { nvim; }

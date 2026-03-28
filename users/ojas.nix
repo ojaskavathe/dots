@@ -43,7 +43,7 @@
       fastfetch
       ffmpeg
       lazygit
-      harlequin
+      pkgs-stable.harlequin
       yt-dlp
       tree
 

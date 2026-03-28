@@ -66,7 +66,10 @@
       flake = false;
     };
 
-    nvim.url = "path:./home/shared/nvim";
+    nvim = {
+      url = "path:./home/shared/nvim";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
 
     zen-browser = {
       # Using fork with macOS profile path fix
@@ -278,11 +281,10 @@
       pkgs.mkShell {
         packages = with pkgs; [
           just
-          nixfmt-rfc-style
+          nixfmt
           stylua
           nodejs
         ];
       };
   });
-
 }
