@@ -1,9 +1,4 @@
-{
-  inputs,
-  config,
-  lib,
-  ...
-}:
+{ inputs, config, lib, ... }:
 let
   homeDirectory = config.home.homeDirectory;
   defaultSopsFile = builtins.toString (inputs.secrets + "/hosts/common/secrets.yaml");
@@ -23,20 +18,21 @@ let
   );
 in
 {
+  options.sops-home.enable = lib.mkEnableOption "sops home manager config";
+
   imports = [
     inputs.sops-nix.homeManagerModules.sops
   ];
 
-  home.sessionVariables = {
-    SOPS_AGE_KEY_FILE = "${homeDirectory}/.config/sops/age/keys.txt";
-  };
-
-  sops = {
-    age.keyFile = "${homeDirectory}/.config/sops/age/keys.txt";
-
-    inherit defaultSopsFile;
-    validateSopsFiles = false;
-
-    secrets = fileSecrets;
+  config = lib.mkIf config.sops-home.enable {
+    home.sessionVariables = {
+      SOPS_AGE_KEY_FILE = "${homeDirectory}/.config/sops/age/keys.txt";
+    };
+    sops = {
+      age.keyFile = "${homeDirectory}/.config/sops/age/keys.txt";
+      inherit defaultSopsFile;
+      validateSopsFiles = false;
+      secrets = fileSecrets;
+    };
   };
 }

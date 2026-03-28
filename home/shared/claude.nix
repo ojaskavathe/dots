@@ -40,11 +40,14 @@
       };
     };
 
-    home.packages = with pkgs; [
-      (writeShellScriptBin "claude-litellm" ''
-        export ANTHROPIC_BASE_URL=$(cat "${config.sops.secrets.litellm_endpoint.path}")
-        exec claude "$@"
-      '')
-    ];
+    home.packages = lib.mkIf config.sops-home.enable (
+      with pkgs;
+      [
+        (writeShellScriptBin "claude-litellm" ''
+          export ANTHROPIC_BASE_URL=$(cat "${config.sops.secrets.litellm_endpoint.path}")
+          exec claude "$@"
+        '')
+      ]
+    );
   };
 }

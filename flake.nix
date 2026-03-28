@@ -1,4 +1,5 @@
 {
+
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-25.05";
@@ -9,15 +10,19 @@
       url = "github:LnL7/nix-darwin/master";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
     nix-homebrew.url = "github:zhaofengli-wip/nix-homebrew";
+
     homebrew-core = {
       url = "github:homebrew/homebrew-core";
       flake = false;
     };
+
     homebrew-cask = {
       url = "github:homebrew/homebrew-cask";
       flake = false;
     };
+
     homebrew-bundle = {
       url = "github:homebrew/homebrew-bundle";
       flake = false;
@@ -39,6 +44,11 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
+    nixos-wsl = {
+      url = "github:nix-community/NixOS-WSL";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
     # hyprland.url = "github:hyprwm/Hyprland?submodules=1";
 
     stylix = {
@@ -50,6 +60,7 @@
       url = "github:mic92/sops-nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
     secrets = {
       url = "path:./secrets";
       flake = false;
@@ -66,7 +77,6 @@
       # to have it up-to-date or simply don't specify the nixpkgs input
       inputs.nixpkgs.follows = "nixpkgs";
     };
-
   };
 
   outputs =
@@ -84,6 +94,7 @@
       inherit (self) outputs;
     in
     {
+
       diskoConfigurations.nixos = import ./hosts/tuf/disko-configuration.nix;
 
       nixosConfigurations =
@@ -92,6 +103,7 @@
           pkgs = nixpkgs.legacyPackages.${system};
         in
         {
+
           tuf = nixpkgs.lib.nixosSystem {
             inherit system;
             specialArgs = {
@@ -105,6 +117,21 @@
               stylix.nixosModules.stylix
             ];
           };
+
+          galio-wsl = nixpkgs.lib.nixosSystem {
+            inherit system;
+            specialArgs = {
+              inherit inputs system;
+              primaryUser = "dingus";
+            };
+            modules = [
+              inputs.nixos-wsl.nixosModules.default
+              ./hosts/galio-wsl/configuration.nix
+              ./modules/shared
+              stylix.nixosModules.stylix
+            ];
+          };
+
         };
 
       darwinConfigurations =
@@ -114,6 +141,7 @@
           primaryUser = "ojas"; # single-user
         in
         {
+
           camille = nix-darwin.lib.darwinSystem {
             specialArgs =
               let
@@ -140,9 +168,11 @@
               ./modules/darwin
             ];
           };
+
         };
 
       homeConfigurations = {
+
         "dingus@tuf" =
           let
             system = "x86_64-linux";
@@ -168,6 +198,35 @@
               ./home/shared
               ./home/nixos
               ./users/dingus.nix
+            ];
+          };
+
+        "dingus@galio-wsl" =
+          let
+            system = "x86_64-linux";
+            username = "dingus";
+          in
+          home-manager.lib.homeManagerConfiguration {
+            pkgs = nixpkgs.legacyPackages.${system};
+            extraSpecialArgs =
+              let
+                pkgs-stable = import nixpkgs-stable {
+                  inherit system;
+                  config = {
+                    allowUnfree = true;
+                    allowUnfreePredicate = (_: true);
+                  };
+                };
+              in
+              {
+                inherit pkgs-stable inputs system username;
+              };
+            modules = [
+              stylix.homeModules.stylix
+              inputs.zen-browser.homeModules.beta
+              inputs.nvim.homeModule
+              ./home/shared
+              ./users/dingus-wsl.nix
             ];
           };
 
@@ -205,21 +264,25 @@
               ./users/ojas.nix
             ];
           };
+
       };
+
     }
-    # for ags / hyprland stuff
-    // inputs.flake-utils.lib.eachDefaultSystem (system: {
-      devShells.default =
-        let
-          pkgs = nixpkgs.legacyPackages.${system};
-        in
-        pkgs.mkShell {
-          packages = with pkgs; [
-            just
-            nixfmt-rfc-style
-            stylua
-            nodejs
-          ];
-        };
-    });
+
+  # for ags / hyprland stuff
+  // inputs.flake-utils.lib.eachDefaultSystem (system: {
+    devShells.default =
+      let
+        pkgs = nixpkgs.legacyPackages.${system};
+      in
+      pkgs.mkShell {
+        packages = with pkgs; [
+          just
+          nixfmt-rfc-style
+          stylua
+          nodejs
+        ];
+      };
+  });
+
 }
