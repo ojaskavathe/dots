@@ -1,4 +1,5 @@
 (defsrc
+  esc
   caps   a   s   d   f   j   k   l   ;
   fn
 )
@@ -20,17 +21,20 @@
 )
 
 (deflayer base
+  esc
   @caps  @a  @s  @d  @f  @j  @k  @l  @;
   @fnl
 )
 
 (deflayer nomods
+  esc
   @caps  a   s   d   f   j   k   l   ;
   @fnl
 )
 
 (deflayer fn
-  @tl  _  _  _  _  _  _  _  _
+  @tl
+  caps  _  _  _  _  _  _  _  _
   fn
 )
 
