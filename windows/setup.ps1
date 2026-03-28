@@ -8,18 +8,23 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 
 $repo = "https://raw.githubusercontent.com/ojaskavathe/dots/master"
 $kanataDir = "$env:LOCALAPPDATA\kanata"
+$kanataExe = Join-Path $kanataDir "kanata.exe"
 $kanataConfig = Join-Path $kanataDir "kanata.kbd"
 $taskName = "Kanata"
 
-# --- Install kanata ---
-if (-not (Get-Command kanata -ErrorAction SilentlyContinue)) {
-    Write-Host "Installing kanata..."
-    winget install --id jtroo.kanata --accept-source-agreements --accept-package-agreements
-    # Refresh PATH
-    $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
-} else {
-    Write-Host "kanata already installed."
+# --- Install/update kanata ---
+New-Item -ItemType Directory -Path $kanataDir -Force | Out-Null
+
+$release = Invoke-RestMethod "https://api.github.com/repos/jtroo/kanata/releases/latest"
+$asset = $release.assets | Where-Object { $_.name -eq "kanata.exe" } | Select-Object -First 1
+
+if (Test-Path $kanataExe) {
+    Write-Host "kanata already installed, checking for updates..."
 }
+
+Write-Host "Downloading kanata $($release.tag_name)..."
+Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $kanataExe
+Write-Host "kanata installed at $kanataExe"
 
 # --- Fetch and assemble config ---
 Write-Host "Fetching kanata config from repo..."
@@ -41,7 +46,6 @@ Set-Content -Path $kanataConfig -Value ($defcfg + $core) -NoNewline
 Write-Host "Config written to $kanataConfig"
 
 # --- Scheduled task ---
-$kanataExe = (Get-Command kanata).Source
 $action = New-ScheduledTaskAction -Execute $kanataExe -Argument "--cfg `"$kanataConfig`""
 $trigger = New-ScheduledTaskTrigger -AtLogOn
 $settings = New-ScheduledTaskSettingsSet `
