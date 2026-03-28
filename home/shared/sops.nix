@@ -1,4 +1,9 @@
-{ inputs, config, lib, ... }:
+{
+  inputs,
+  config,
+  lib,
+  ...
+}:
 let
   homeDirectory = config.home.homeDirectory;
   defaultSopsFile = builtins.toString (inputs.secrets + "/hosts/common/secrets.yaml");
