@@ -130,6 +130,15 @@ home-manager switch --flake .#ojas@camille
 
 - Install home-manager using `nix shell nixpkgs#home-manager`.
 
+### Windows (Kanata only)
+
+From an elevated PowerShell:
+```powershell
+irm https://raw.githubusercontent.com/ojaskavathe/dots/master/windows/setup.ps1 | iex
+```
+
+This installs kanata, fetches the latest keyboard config, and sets it to run at login. Re-run to update.
+
 ## Misc
 
 ### Kanata on MacOS
