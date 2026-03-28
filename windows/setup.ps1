@@ -36,9 +36,9 @@ $extractDir = Join-Path $env:TEMP "kanata-extract"
 if (Test-Path $extractDir) { Remove-Item $extractDir -Recurse -Force }
 Expand-Archive -Path $zipPath -DestinationPath $extractDir
 
-$exe = Get-ChildItem -Path $extractDir -Filter "kanata.exe" -Recurse | Select-Object -First 1
+$exe = Get-ChildItem -Path $extractDir -Filter "kanata_windows_tty_winIOv2_x64.exe" -Recurse | Select-Object -First 1
 if (-not $exe) {
-    Write-Error "kanata.exe not found in the downloaded archive."
+    Write-Error "kanata_windows_tty_winIOv2_x64.exe not found in the downloaded archive."
     exit 1
 }
 Copy-Item -Path $exe.FullName -Destination $kanataExe -Force
