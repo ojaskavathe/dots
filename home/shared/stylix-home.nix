@@ -13,6 +13,7 @@
   };
 
   config = lib.mkIf config.stylix-home.enable {
+    gtk.gtk4.theme = null;
     stylix = {
       enable = true;
       image = inputs.self + /data/wallpapers/wp.jpg;

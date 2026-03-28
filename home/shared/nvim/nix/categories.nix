@@ -78,7 +78,6 @@
         comment-nvim # Toggle comments (gc, gb)
         nvim-autopairs # Auto-close brackets
         nvim-ts-context-commentstring # Treesitter-aware comment styles
-        nvim-treesitter-textsubjects # Smart text selection (. and ;)
         indent-blankline-nvim # Indent guides
         trouble-nvim # Diagnostics list
         outline-nvim # Code outline sidebar
@@ -118,13 +117,12 @@
   lspsAndRuntimeDeps = {
     general = with pkgs; [
       nil # Nix LSP
-      nixfmt-rfc-style # Nix formatter (used by conform)
+      nixfmt # Nix formatter (used by conform)
       lua-language-server # Lua LSP
       stylua # Lua formatter (used by conform)
       vala-language-server
       nodePackages.typescript-language-server
       nodePackages.prettier # JS/TS/HTML/CSS formatter (used by conform)
-      nodePackages.prisma
       vscode-langservers-extracted # HTML, CSS, JSON, ESLint LSPs
       tailwindcss-language-server
       clang-tools # clangd + clang-format (used by conform)
