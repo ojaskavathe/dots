@@ -62,7 +62,7 @@
     };
 
     secrets = {
-      url = "path:./secrets";
+      url = "git+file:///Users/ojas/dots/secrets";
       flake = false;
     };
 
