@@ -62,7 +62,7 @@
     };
 
     secrets = {
-      url = "git+file:///Users/ojas/dots/secrets";
+      url = "git+ssh://git@github.com/ojaskavathe/secrets.git";
       flake = false;
     };
 
