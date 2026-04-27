@@ -633,11 +633,11 @@
         "rev": "211a54f4e286f26f7e94ae3ce3751c062d940c10",
         "revCount": 2,
         "type": "git",
-        "url": "file:///Users/ojas/dots/secrets"
+        "url": "ssh://git@github.com/ojaskavathe/secrets.git"
       },
       "original": {
         "type": "git",
-        "url": "file:///Users/ojas/dots/secrets"
+        "url": "ssh://git@github.com/ojaskavathe/secrets.git"
       }
     },
     "sops-nix": {
