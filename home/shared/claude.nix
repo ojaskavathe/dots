@@ -19,6 +19,9 @@
         permissions = {
           defaultMode = "bypassPermissions";
         };
+        preferences = {
+          reasoning_effort = "high";
+        };
       };
     };
 
