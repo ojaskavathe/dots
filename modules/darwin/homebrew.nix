@@ -57,7 +57,6 @@
         "clocker"
         "whisky"
         "crossover"
-        "kicad"
         "obs"
         "parsec"
         "trex"

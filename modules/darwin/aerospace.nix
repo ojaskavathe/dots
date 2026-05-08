@@ -118,6 +118,8 @@
           alt-ctrl-0 = "summon-workspace 10";
 
           alt-f = "layout tiling floating"; # toggle floating
+          alt-t = "layout tiles";
+          alt-a = "layout accordion";
 
           alt-shift-semicolon = "mode service";
         };
