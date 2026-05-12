@@ -522,6 +522,7 @@
         "secrets": "secrets",
         "sops-nix": "sops-nix",
         "stylix": "stylix",
+        "xmqywx-codeisland": "xmqywx-codeisland",
         "zen-browser": "zen-browser"
       }
     },
@@ -685,6 +686,22 @@
       "original": {
         "owner": "tinted-theming",
         "repo": "base16-zed",
+        "type": "github"
+      }
+    },
+    "xmqywx-codeisland": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1777425795,
+        "narHash": "sha256-/yjEGcgUHZ0Vxe1ONAhxYyuvcpxeTswiJX00UM0SK6I=",
+        "owner": "xmqywx",
+        "repo": "homebrew-codeisland",
+        "rev": "d406392d9d1734343b58c6a39f4e7768f108a6e5",
+        "type": "github"
+      },
+      "original": {
+        "owner": "xmqywx",
+        "repo": "homebrew-codeisland",
         "type": "github"
       }
     },
