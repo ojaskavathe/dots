@@ -129,6 +129,19 @@ vim.keymap.set("", "<leader>d", '"_d', { desc = "Delete to black hole register" 
 vim.keymap.set({ "n", "v" }, "<leader>y", '"+y', { desc = "Yank to clipboard" })
 vim.keymap.set("n", "<leader>p", '"+p', { desc = "Paste from clipboard" })
 vim.keymap.set("n", "<leader>P", '"+P', { desc = "Paste from clipboard (before)" })
+vim.keymap.set("n", "<leader>yl", function()
+	local relative_path = vim.fn.expand("%:.")
+	if relative_path == "" then
+		return
+	end
+
+	local line_no = vim.api.nvim_win_get_cursor(0)[1]
+	local location = string.format("%s:%d", relative_path, line_no)
+
+	vim.fn.setreg("+", location)
+	vim.fn.setreg('"', location)
+	vim.notify("Copied " .. location)
+end, { desc = "Yank relative path with line" })
 
 -- Select all
 vim.keymap.set("n", "<leader>sa", "ggVG", { desc = "Select all" })

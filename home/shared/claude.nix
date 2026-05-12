@@ -19,6 +19,7 @@
         permissions = {
           defaultMode = "bypassPermissions";
         };
+        skipDangerousModePermissionPrompt = true;
         preferences = {
           reasoning_effort = "high";
         };

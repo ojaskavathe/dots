@@ -88,11 +88,8 @@
         colorful-winsep-nvim # Highlight active window separator
       ];
 
-      telescope = with pkgs.vimPlugins; [
-        telescope-nvim
-        telescope-fzf-native-nvim # Fast fuzzy matching
-        telescope-ui-select-nvim # Use telescope for vim.ui.select
-        telescope-symbols-nvim # Symbol picker
+      snacks = with pkgs.vimPlugins; [
+        snacks-nvim # Picker + gitbrowse (replaces telescope)
       ];
 
       blink = with pkgs.vimPlugins; [
@@ -130,8 +127,8 @@
       pyright # Python LSP
       ruff # Python linter/formatter (used as LSP + conform)
       elixir-ls
-      ripgrep # Used by telescope and grug-far
-      fd # Used by telescope for file finding
+      ripgrep # Used by snacks picker and grug-far
+      fd # Used by snacks picker for file finding
     ];
   };
 
