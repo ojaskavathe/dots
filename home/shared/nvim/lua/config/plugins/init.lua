@@ -5,7 +5,7 @@
 require("lze").load({
 	-- Import modular plugin configurations
 	{ import = "config.plugins.completion" },
-	{ import = "config.plugins.telescope" },
+	{ import = "config.plugins.snacks" },
 	{ import = "config.plugins.treesitter" },
 
 	-- ==========================================================================

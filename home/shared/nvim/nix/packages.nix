@@ -4,7 +4,7 @@
 # Each package picks which categories from categories.nix are turned on.
 #
 # Setting `general = true` enables ALL subcategories (general.always,
-# general.extra, general.telescope, general.blink).
+# general.extra, general.snacks, general.blink).
 # You can also enable specific subcategories: `general.always = true`.
 {
   nvim =

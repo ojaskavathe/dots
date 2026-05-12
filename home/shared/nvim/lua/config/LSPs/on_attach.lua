@@ -18,7 +18,7 @@ return function(_, bufnr)
 	nmap("gd", vim.lsp.buf.definition, "Goto definition")
 	nmap("K", vim.lsp.buf.hover, "Hover documentation")
 	-- gi is kept as built-in (go to last insert position)
-	-- gI is mapped to LSP implementations via telescope below
+	-- gI is mapped to LSP implementations via snacks picker below
 
 	-- Workspace management
 	nmap("<leader>wa", vim.lsp.buf.add_workspace_folder, "Add workspace folder")
@@ -32,19 +32,19 @@ return function(_, bufnr)
 	nmap("<leader>rn", vim.lsp.buf.rename, "Rename")
 	vim.keymap.set({ "n", "v" }, "<leader>ca", vim.lsp.buf.code_action, { buffer = bufnr, desc = "LSP: Code action" })
 
-	-- References (use telescope if available)
-	if nixCats and nixCats("general.telescope") then
+	-- References (use snacks picker if available)
+	if nixCats and nixCats("general.snacks") then
 		nmap("gr", function()
-			require("telescope.builtin").lsp_references()
+			Snacks.picker.lsp_references()
 		end, "Goto references")
 		nmap("gI", function()
-			require("telescope.builtin").lsp_implementations()
+			Snacks.picker.lsp_implementations()
 		end, "Goto implementations")
 		nmap("<leader>ds", function()
-			require("telescope.builtin").lsp_document_symbols()
+			Snacks.picker.lsp_symbols()
 		end, "Document symbols")
 		nmap("<leader>ws", function()
-			require("telescope.builtin").lsp_dynamic_workspace_symbols()
+			Snacks.picker.lsp_workspace_symbols()
 		end, "Workspace symbols")
 	else
 		nmap("gr", vim.lsp.buf.references, "Goto references")

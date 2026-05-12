@@ -63,7 +63,7 @@
       google-chrome
       obsidian
 
-      antigravity
+      codex
 
       dbeaver-bin
 

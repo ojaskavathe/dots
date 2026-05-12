@@ -100,6 +100,9 @@
         bind % split-window -v -c "#{pane_current_path}"
         bind c new-window -c "#{pane_current_path}"
 
+        # equally space panes without changing the current layout
+        bind e select-layout -E
+
         # restore clear with <prefix>C-l
         bind C-l send-keys 'C-l'
       '';
