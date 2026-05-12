@@ -28,6 +28,11 @@
       flake = false;
     };
 
+    xmqywx-codeisland = {
+      url = "github:xmqywx/homebrew-codeisland";
+      flake = false;
+    };
+
     home-manager = {
       url = "github:nix-community/home-manager";
       inputs.nixpkgs.follows = "nixpkgs";
