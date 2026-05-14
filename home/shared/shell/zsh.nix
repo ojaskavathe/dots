@@ -55,6 +55,10 @@
             export LANG=en_US.UTF-8
 
             bindkey -v                  # vi mode
+
+            if [[ $options[zle] = on ]]; then
+              source <(${pkgs.fzf}/bin/fzf --zsh)
+            fi
           '';
         in
         lib.mkMerge [
