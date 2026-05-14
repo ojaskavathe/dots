@@ -288,6 +288,7 @@
             just
             nixfmt
             stylua
+            shfmt
             nodejs
           ];
         };
