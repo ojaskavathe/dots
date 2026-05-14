@@ -24,7 +24,6 @@
         "homebrew/homebrew-core" = inputs.homebrew-core;
         "homebrew/homebrew-cask" = inputs.homebrew-cask;
         "homebrew/homebrew-bundle" = inputs.homebrew-bundle;
-        "xmqywx/homebrew-codeisland" = inputs.xmqywx-codeisland;
       };
 
       # taps can no longer be added imperatively with `brew tap`.
@@ -65,7 +64,6 @@
         "android-file-transfer"
         "protonvpn"
         "osquery"
-        "codeisland"
       ];
 
       masApps = {
