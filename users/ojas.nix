@@ -52,6 +52,7 @@
       iina
       raycast
       unnaturalscrollwheels
+      stats
 
       openvpn
       moonlight-qt
@@ -62,8 +63,6 @@
       slack
       google-chrome
       obsidian
-
-      codex
 
       dbeaver-bin
 
@@ -92,6 +91,7 @@
     stylix-home.enable = true;
 
     claude.enable = true;
+    codex.enable = true;
 
     programs.fzf = {
       enable = true;
