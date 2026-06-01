@@ -66,10 +66,10 @@
         };
 
         mode.main.binding = {
-          alt-h = "focus left";
-          alt-j = "focus down";
-          alt-k = "focus up";
-          alt-l = "focus right";
+          alt-h = "focus --boundaries all-monitors-outer-frame --boundaries-action stop left";
+          alt-j = "focus --boundaries all-monitors-outer-frame --boundaries-action stop down";
+          alt-k = "focus --boundaries all-monitors-outer-frame --boundaries-action stop up";
+          alt-l = "focus --boundaries all-monitors-outer-frame --boundaries-action stop right";
 
           alt-shift-h = "move left";
           alt-shift-j = "move down";
