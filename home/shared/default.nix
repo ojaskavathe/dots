@@ -16,6 +16,7 @@
     ./sops.nix
 
     ./claude.nix
+    ./codex.nix
   ];
 
   zsh.enable = lib.mkDefault true;
@@ -29,6 +30,7 @@
   zen.enable = lib.mkDefault false;
 
   claude.enable = lib.mkDefault false;
+  codex.enable = lib.mkDefault false;
 
   sops-home.enable = lib.mkDefault false;
 }
