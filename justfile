@@ -41,3 +41,22 @@ update-claude:
       '{version: $v, hashes: {"aarch64-darwin": $d, "x86_64-linux": $l}}' \
       > home/shared/claude-version.json
     echo "updated $current -> $version"
+
+update-codex:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    tag=$(curl -sf https://api.github.com/repos/openai/codex/releases/latest | jq -r .tag_name)
+    version="${tag#rust-v}"
+    current=$(jq -r '.version' home/shared/codex-version.json)
+    if [[ "$version" == "$current" ]]; then
+      echo "already up to date ($version)"
+      exit 0
+    fi
+    base="https://github.com/openai/codex/releases/download/${tag}"
+    sri() { nix hash convert --hash-algo sha256 --to sri "$(nix-prefetch-url --type sha256 "$1" 2>/dev/null | tail -1)"; }
+    darwin=$(sri "${base}/codex-aarch64-apple-darwin.tar.gz")
+    linux=$(sri "${base}/codex-x86_64-unknown-linux-musl.tar.gz")
+    jq -n --arg v "$version" --arg d "$darwin" --arg l "$linux" \
+      '{version: $v, hashes: {"aarch64-darwin": $d, "x86_64-linux": $l}}' \
+      > home/shared/codex-version.json
+    echo "updated $current -> $version"
