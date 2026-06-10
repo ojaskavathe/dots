@@ -62,6 +62,23 @@ let
       ];
     };
   };
+
+  statusline = pkgs.writeShellScript "claude-statusline" ''
+    input=$(cat)
+    jq() { ${pkgs.jq}/bin/jq "$@"; }
+
+    model=$(printf '%s' "$input" | jq -r '.model.display_name')
+    dir=$(printf '%s' "$input" | jq -r '.workspace.current_dir' | sed "s|^$HOME|~|")
+    pct=$(printf '%s' "$input" | jq -r '.context_window.used_percentage // 0 | floor')
+    used=$(printf '%s' "$input" | jq -r '.context_window.total_input_tokens // 0')
+    max=$(printf '%s' "$input" | jq -r '.context_window.context_window_size // 0')
+
+    numfmt() { LC_ALL=en_US.UTF-8 ${pkgs.coreutils}/bin/numfmt --to=si "$@"; }
+    usedfmt=$(printf '%s' "$used" | numfmt 2>/dev/null || printf '%s' "$used")
+    maxfmt=$(printf '%s' "$max" | numfmt 2>/dev/null || printf '%s' "$max")
+
+    printf '%s · %s · ctx %s%% (%s/%s)' "$model" "$dir" "$pct" "$usedfmt" "$maxfmt"
+  '';
 in
 {
 
@@ -76,13 +93,16 @@ in
       enable = true;
       package = claude-code-pkg;
       settings = {
-        model = "claude-opus-4-6";
         permissions = {
           defaultMode = "bypassPermissions";
         };
         skipDangerousModePermissionPrompt = true;
         preferences = {
           reasoning_effort = "high";
+        };
+        statusLine = {
+          type = "command";
+          command = "${statusline}";
         };
       };
     };
