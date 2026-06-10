@@ -24,6 +24,34 @@ return {
 			set_picker_hl()
 			vim.api.nvim_create_autocmd("ColorScheme", { callback = set_picker_hl })
 
+			-- Open the picked item in a new split in direction `dir` (h/j/k/l),
+			-- relative to the window the picker was launched from.
+			local function open_in(dir)
+				local split = {
+					h = "leftabove vsplit",
+					l = "rightbelow vsplit",
+					k = "leftabove split",
+					j = "rightbelow split",
+				}
+				return function(picker, item)
+					if not item then
+						return
+					end
+					local main = picker.main
+					if not (main and vim.api.nvim_win_is_valid(main)) then
+						return picker:action("confirm")
+					end
+					-- always create a fresh split in main's context
+					local target = vim.api.nvim_win_call(main, function()
+						vim.cmd(split[dir])
+						return vim.api.nvim_get_current_win()
+					end)
+					picker.main = target
+					-- confirm = jump, which opens the item in picker.main
+					picker:action("confirm")
+				end
+			end
+
 			local search_wo = {
 				winhighlight = "Normal:SnacksPickerSearch,NormalFloat:SnacksPickerSearch,FloatBorder:SnacksPickerSearch",
 			}
@@ -34,6 +62,15 @@ return {
 			require("snacks").setup({
 				picker = {
 					ui_select = true,
+					-- ctrl-h/j/k/l: open the item in a new split in that
+					-- direction. Note: this overrides the default ctrl-j/k list
+					-- navigation — use ctrl-n/p or arrows instead.
+					actions = {
+						open_left = open_in("h"),
+						open_down = open_in("j"),
+						open_up = open_in("k"),
+						open_right = open_in("l"),
+					},
 					sources = {
 						files = {
 							hidden = true,
@@ -53,6 +90,10 @@ return {
 								-- alt-i is a macOS dead key (option-i → ˆ)
 								["<a-i>"] = false,
 								["<a-,>"] = { "toggle_ignored", mode = { "n", "i" } },
+								["<c-h>"] = { "open_left", mode = { "n", "i" } },
+								["<c-j>"] = { "open_down", mode = { "n", "i" } },
+								["<c-k>"] = { "open_up", mode = { "n", "i" } },
+								["<c-l>"] = { "open_right", mode = { "n", "i" } },
 							},
 						},
 						list = { wo = search_wo },
