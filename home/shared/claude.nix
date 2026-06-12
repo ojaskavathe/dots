@@ -93,6 +93,8 @@ in
       enable = true;
       package = claude-code-pkg;
       settings = {
+        tui = "fullscreen";
+        theme = "auto";
         permissions = {
           defaultMode = "bypassPermissions";
         };
