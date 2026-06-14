@@ -13,7 +13,6 @@
   };
 
   config = lib.mkIf config.stylix-home.enable {
-    gtk.gtk4.theme = null;
     stylix = {
       enable = true;
       image = inputs.self + /data/wallpapers/wp.jpg;
@@ -44,6 +43,9 @@
       targets = {
         tmux.enable = false;
         neovim.enable = false;
+        # GTK theming is meaningless on macOS (no GTK apps), and stylix's gtk
+        # target now sets gtk.gtk4.theme unconditionally, which conflicts.
+        gtk.enable = !pkgs.stdenv.isDarwin;
       };
     };
   };
