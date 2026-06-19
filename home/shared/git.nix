@@ -21,6 +21,7 @@
           email = "ojaskavathe@gmail.com";
         };
         pull.rebase = false;
+        merge.tool = "nvimdiff";
         alias = {
           a = "add";
           c = "commit";
