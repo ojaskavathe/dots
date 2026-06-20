@@ -5,6 +5,20 @@
   config,
   ...
 }:
+let
+  tmuxEqualizeNvim = pkgs.buildGoModule {
+    pname = "tmux-equalize-nvim";
+    version = "0.1.0";
+
+    src = ./tmux-equalize-nvim;
+    vendorHash = "sha256-/Bl4G5STa5lnNntZnMmt+BfES+N7ZYAwC9tzpuqUKcc=";
+
+    ldflags = [
+      "-X"
+      "main.tmuxPath=${pkgs.tmux}/bin/tmux"
+    ];
+  };
+in
 {
   options = {
     tmux = {
@@ -13,6 +27,8 @@
   };
 
   config = lib.mkIf config.tmux.enable {
+    home.packages = [ tmuxEqualizeNvim ];
+
     programs.tmux = {
       enable = true;
 
@@ -100,8 +116,8 @@
         bind % split-window -v -c "#{pane_current_path}"
         bind c new-window -c "#{pane_current_path}"
 
-        # equally space panes without changing the current layout
-        bind e select-layout -E
+        # equally space tmux panes and neovim splits in the current window
+        bind e run-shell -b '${tmuxEqualizeNvim}/bin/tmux-equalize-nvim'
 
         # restore clear with <prefix>C-l
         bind C-l send-keys 'C-l'
