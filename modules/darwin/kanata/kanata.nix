@@ -36,6 +36,7 @@
                 "/opt/homebrew/bin/kanata"
                 "--cfg"
                 (toString (pkgs.writeText "hrm.kbd" kanataConfig))
+                "--no-wait"
                 "-p"
                 "5829"
               ];

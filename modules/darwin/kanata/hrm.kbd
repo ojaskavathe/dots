@@ -1,4 +1,7 @@
 (defcfg
+  macos-dev-names-exclude (
+    "Zaopin Z2"
+  )
   process-unmapped-keys yes
 )
 
