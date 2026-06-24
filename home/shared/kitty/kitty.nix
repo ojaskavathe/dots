@@ -40,6 +40,9 @@
         "cmd+h" = "no_op";
         "cmd+l" = "no_op";
         "cmd+t" = "no_op";
+        "opt+s" = "send_key alt+s";
+        "opt+e" = "send_key alt+e";
+        "opt+g" = "send_key alt+g";
       };
     };
   };
