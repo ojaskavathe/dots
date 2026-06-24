@@ -6,8 +6,10 @@
 )
 
 (defsrc
-  esc    f1   f2   f3   f4   f5   f6   f7   f8   f9   f10   f11   f12
-  caps   a    s    d    f               j    k    l    ;
+  esc     f1    f2       f3    f4    f5      f6      f7       f8      f9      f10   f11   f12
+  1       2     3        4     5     6       7       8        9       0
+  tab     q     w        e     r     t       y       u        i       o       p
+  caps    a     s        d     f     h       j       k        l       ;
   fn
 )
 
@@ -28,21 +30,43 @@
 )
 
 (deflayer base
-  esc brdn  brup  _    _    _    _   prev  pp  next  mute  vold  volu
-  esc  @a  @s  @d  @f  @j  @k  @l  @;
+  esc     brdn  brup     _     _     _       _       prev     pp      next    mute  vold  volu
+  1       2     3        4     5     6       7       8        9       0
+  tab     q     w        e     r     t       y       u        i       o       p
+  @caps   @a    @s       @d    @f    h       @j      @k       @l      @;
   @fnl
 )
 
 (deflayer nomods
-  esc brdn  brup  _    _    _    _   prev  pp  next  mute  vold  volu
-  caps  a   s   d   f   j   k   l   ;
+  esc     brdn  brup     _     _     _       _       prev     pp      next    mute  vold  volu
+  1       2     3        4     5     6       7       8        9       0
+  tab     q     w        e     r     t       y       u        i       o       p
+  @caps   a     s        d     f     h       j       k        l       ;
   @fnl
 )
 
 (deflayer fn
-  @tl  f1   f2   f3   f4   f5   f6   f7   f8   f9   f10   f11   f12
-  caps _ _ _ _ _ _ _ _
+  @tl     f1    f2       f3    f4    f5      f6      f7       f8      f9      f10   f11   f12
+  1       2     3        4     5     6       7       8        9       0
+  tab     q     w        e     r     t       y       u        i       o       p
+  caps    _     _        _     _     _       _       _        _       _
   fn
+)
+
+(deflayer win
+  _       _     _        _     _     _       _       _        _       _       _     _     _
+  @m1     @m2   @m3      @m4   @m5   @m6     @m7     @m8      @m9     @m0
+  _       _     @winmon  _     _     _       _       _        _       _       _
+  _       _     _        _     _     @mv-h   @mv-j   @mv-k    @mv-l   _
+  _
+)
+
+(deflayer winmon
+  _       _     _        _     _     _       _       _        _       _       _     _     _
+  _       _     _        _     _     _       _       _        _       _
+  _       _     _        _     _     _       _       _        _       _       _
+  _       _     _        _     _     @mon-h  @mon-j  @mon-k   @mon-l  _
+  _
 )
 
 (deffakekeys
@@ -70,5 +94,28 @@
   l (tap-hold-release-keys $tap-time $hold-time (multi l @tap) ralt $right-hand-keys)
   ; (tap-hold-release-keys $tap-time $hold-time (multi ; @tap) rmet $right-hand-keys)
 
+  caps (tap-hold $tap-time $hold-time esc (layer-toggle win))
   fnl (tap-hold $tap-time $hold-time fn (layer-toggle fn))
+  winmon (layer-toggle winmon)
+
+  mv-h A-S-h
+  mv-j A-S-j
+  mv-k A-S-k
+  mv-l A-S-l
+
+  mon-h C-A-S-h
+  mon-j C-A-S-j
+  mon-k C-A-S-k
+  mon-l C-A-S-l
+
+  m1 A-S-1
+  m2 A-S-2
+  m3 A-S-3
+  m4 A-S-4
+  m5 A-S-5
+  m6 A-S-6
+  m7 A-S-7
+  m8 A-S-8
+  m9 A-S-9
+  m0 A-S-0
 )

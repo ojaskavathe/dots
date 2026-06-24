@@ -76,6 +76,11 @@
           alt-shift-k = "move up";
           alt-shift-l = "move right";
 
+          alt-ctrl-shift-h = "move-node-to-monitor --focus-follows-window left";
+          alt-ctrl-shift-j = "move-node-to-monitor --focus-follows-window down";
+          alt-ctrl-shift-k = "move-node-to-monitor --focus-follows-window up";
+          alt-ctrl-shift-l = "move-node-to-monitor --focus-follows-window right";
+
           alt-minus = "resize smart -50";
           alt-equal = "resize smart +50";
 
