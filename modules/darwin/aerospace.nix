@@ -13,7 +13,147 @@
     };
   };
 
-  config = lib.mkIf config.aerospace.enable {
+  config = lib.mkIf config.aerospace.enable (
+    let
+      aerospaceBin = "${config.services.aerospace.package}/bin/aerospace";
+
+      # One-shot: split workspaces 1..10 evenly across the connected monitors,
+      # built-in display first. Invoked by the display watcher on each change.
+      rebalanceWorkspaces = pkgs.writeShellScript "aerospace-rebalance-workspaces" ''
+        set -eu
+        export PATH=${pkgs.coreutils}/bin:$PATH
+
+        aerospace=${lib.escapeShellArg aerospaceBin}
+        jq=${lib.escapeShellArg "${pkgs.jq}/bin/jq"}
+        workspace_count=10
+
+        ids=$("$aerospace" list-monitors --json 2>/dev/null | "$jq" -c '
+          [.[] | select(."monitor-name" | test("Built-in"; "i"))]
+          + [.[] | select((."monitor-name" | test("Built-in"; "i")) | not)]
+          | map(."monitor-id")
+        ' 2>/dev/null || true)
+
+        [ -n "$ids" ] || exit 0
+        monitor_count=$(printf '%s' "$ids" | "$jq" 'length')
+        [ "$monitor_count" -gt 0 ] || exit 0
+
+        echo "$(date): rebalancing workspaces across monitors $ids"
+
+        # Desired assignment as "workspace:monitor_id" pairs, built-in first.
+        desired=""
+        base=$((workspace_count / monitor_count))
+        extra=$((workspace_count % monitor_count))
+        workspace=1
+        monitor_index=0
+        while [ "$monitor_index" -lt "$monitor_count" ]; do
+          monitor_id=$(printf '%s' "$ids" | "$jq" -r ".[$monitor_index]")
+          group_size="$base"
+          if [ "$monitor_index" -lt "$extra" ]; then
+            group_size=$((group_size + 1))
+          fi
+
+          assigned=0
+          while [ "$assigned" -lt "$group_size" ] && [ "$workspace" -le "$workspace_count" ]; do
+            desired="$desired $workspace:$monitor_id"
+            workspace=$((workspace + 1))
+            assigned=$((assigned + 1))
+          done
+
+          monitor_index=$((monitor_index + 1))
+        done
+
+        # Snapshot live membership as "workspace:monitor_id" pairs, one query
+        # per monitor (not per workspace).
+        current_pairs() {
+          for mid in $(printf '%s' "$ids" | "$jq" -r '.[]'); do
+            for ws in $("$aerospace" list-workspaces --monitor "$mid" 2>/dev/null); do
+              printf '%s:%s ' "$ws" "$mid"
+            done
+          done
+        }
+
+        # Move only the workspaces that aren't already on their target monitor.
+        apply_assignment() {
+          cur=" $(current_pairs) "
+          for pair in $desired; do
+            case "$cur" in
+              *" $pair "*) ;;
+              *)
+                ws=$(printf '%s' "$pair" | cut -d: -f1)
+                mon=$(printf '%s' "$pair" | cut -d: -f2)
+                "$aerospace" move-workspace-to-monitor --workspace "$ws" "$mon" || true
+                ;;
+            esac
+          done
+        }
+
+        # True when live membership already matches desired.
+        assignment_matches() {
+          cur=" $(current_pairs) "
+          for pair in $desired; do
+            case "$cur" in
+              *" $pair "*) ;;
+              *) return 1 ;;
+            esac
+          done
+          return 0
+        }
+
+        # AeroSpace restores its own remembered monitor assignment when a
+        # display reconnects, which races with and can clobber a single pass.
+        # Park focus off the workspaces being moved, then re-apply until the
+        # live layout matches desired and stays matched for two checks.
+        focused=$("$aerospace" list-workspaces --focused 2>/dev/null || true)
+        parked=0
+        if [ "$monitor_count" -gt 1 ] && [ -n "$focused" ]; then
+          temp=1
+          while [ "$temp" -le "$workspace_count" ] && [ "$temp" = "$focused" ]; do
+            temp=$((temp + 1))
+          done
+          "$aerospace" workspace "$temp" || true
+          parked=1
+        fi
+
+        attempt=0
+        ok_streak=0
+        while [ "$attempt" -lt 8 ]; do
+          apply_assignment
+          sleep 0.5
+          if assignment_matches; then
+            ok_streak=$((ok_streak + 1))
+            if [ "$ok_streak" -ge 2 ]; then
+              break
+            fi
+          else
+            ok_streak=0
+          fi
+          attempt=$((attempt + 1))
+        done
+        echo "$(date): settled (attempts=$attempt, ok_streak=$ok_streak)"
+
+        if [ "$parked" -eq 1 ]; then
+          "$aerospace" workspace "$focused" || true
+        fi
+      '';
+
+      # Event-driven watcher: blocks on a CoreGraphics run loop and runs the
+      # rebalance script only when displays are added/removed/reconfigured.
+      displayWatcher = pkgs.stdenv.mkDerivation {
+        pname = "aerospace-display-watcher";
+        version = "1.0";
+        dontUnpack = true;
+        nativeBuildInputs = [ pkgs.swift ];
+        buildPhase = ''
+          swiftc -O -framework AppKit -framework CoreGraphics -framework Foundation \
+            -o aerospace-display-watcher ${./aerospace-display-watcher.swift}
+        '';
+        installPhase = ''
+          mkdir -p $out/bin
+          cp aerospace-display-watcher $out/bin/
+        '';
+      };
+    in
+    {
     services.aerospace = {
       enable = true;
       settings = {
@@ -141,6 +281,19 @@
       };
     };
 
+    launchd.user.agents.aerospace-workspace-rebalance = {
+      serviceConfig = {
+        ProgramArguments = [
+          "${displayWatcher}/bin/aerospace-display-watcher"
+          (toString rebalanceWorkspaces)
+        ];
+        KeepAlive = true;
+        RunAtLoad = true;
+        StandardOutPath = "/tmp/aerospace_workspace_rebalance.out.log";
+        StandardErrorPath = "/tmp/aerospace_workspace_rebalance.err.log";
+      };
+    };
+
     services.jankyborders = lib.mkIf config.aerospace.borders {
       enable = true;
       active_color = "0xffe1e3e4";
@@ -149,5 +302,6 @@
     };
 
     system.defaults.spaces.spans-displays = false;
-  };
+    }
+  );
 }
