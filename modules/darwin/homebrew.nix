@@ -68,6 +68,7 @@
 
       masApps = {
         "Amphetamine" = 937984704;
+        "GoPro Quik" = 561350520;
       };
     };
   };
