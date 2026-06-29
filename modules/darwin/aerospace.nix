@@ -173,6 +173,12 @@
             "if".app-name-regex-substring = "quicktime";
             run = "layout floating";
           }
+          {
+            # Bitwarden extension popup opens as its own browser window
+            # titled "Bitwarden - ...". Float it across all browsers.
+            "if".window-title-regex-substring = "Bitwarden";
+            run = "layout floating";
+          }
           # {
           #   "if".app-id = "app.zen-browser.zen";
           #   "if".app-name-regex-substring = "Picture-in-Picture";
