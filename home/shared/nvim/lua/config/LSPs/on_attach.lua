@@ -16,6 +16,23 @@ return function(_, bufnr)
 	-- Core LSP keymaps
 	nmap("gD", vim.lsp.buf.declaration, "Goto declaration")
 	nmap("gd", vim.lsp.buf.definition, "Goto definition")
+	-- definition in a directional split (hjkl = side it opens on)
+	local function def_split(dir)
+		local split = {
+			h = "leftabove vsplit",
+			j = "rightbelow split",
+			k = "leftabove split",
+			l = "rightbelow vsplit",
+		}
+		return function()
+			vim.cmd(split[dir])
+			vim.lsp.buf.definition()
+		end
+	end
+	nmap("<leader>gdh", def_split("h"), "Goto definition (split left)")
+	nmap("<leader>gdj", def_split("j"), "Goto definition (split below)")
+	nmap("<leader>gdk", def_split("k"), "Goto definition (split above)")
+	nmap("<leader>gdl", def_split("l"), "Goto definition (split right)")
 	nmap("K", vim.lsp.buf.hover, "Hover documentation")
 	-- gi is kept as built-in (go to last insert position)
 	-- gI is mapped to LSP implementations via snacks picker below

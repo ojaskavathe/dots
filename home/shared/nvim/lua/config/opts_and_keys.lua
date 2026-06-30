@@ -116,6 +116,12 @@ vim.diagnostic.config({
 
 -- NOTE: Split movement handled by vim-tmux-navigator plugin (Ctrl+hjkl)
 
+-- Directional splits (s = split; hjkl = side the new split opens on)
+vim.keymap.set("n", "<leader>sh", "<cmd>leftabove vsplit<cr>", { desc = "Split left" })
+vim.keymap.set("n", "<leader>sj", "<cmd>rightbelow split<cr>", { desc = "Split below" })
+vim.keymap.set("n", "<leader>sk", "<cmd>leftabove split<cr>", { desc = "Split above" })
+vim.keymap.set("n", "<leader>sl", "<cmd>rightbelow vsplit<cr>", { desc = "Split right" })
+
 -- Search for visual selection with *
 vim.keymap.set("v", "*", 'y/\\V<C-R>"<CR>', { desc = "Search visual selection" })
 
