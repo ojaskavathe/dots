@@ -4,6 +4,8 @@
   pkgs,
   pkgs-stable,
   username,
+  inputs,
+  system,
   ...
 }:
 {
@@ -81,10 +83,24 @@
 
     programs.nvim = {
       enable = true;
+      # Dev variant (wrapRc = false): plugins/LSPs stay nix-managed, but the
+      # lua config is read live from ~/.config/nvim (symlinked below), so
+      # keybind/config edits need no rebuild — just relaunch nvim.
+      package = inputs.nvim.packages.${system}.nvim-live;
       aliases = [
         "vim"
         "vi"
       ];
+    };
+
+    # Point ~/.config/nvim at the live repo (out-of-store symlink) so lua
+    # edits apply immediately. Adding/removing plugins still needs an hms,
+    # since that changes the nix-built nvim-live wrapper (categories.nix).
+    xdg.configFile = {
+      "nvim/init.lua".source =
+        config.lib.file.mkOutOfStoreSymlink "${config.home.homeDirectory}/dots/home/shared/nvim/init.lua";
+      "nvim/lua".source =
+        config.lib.file.mkOutOfStoreSymlink "${config.home.homeDirectory}/dots/home/shared/nvim/lua";
     };
     kitty.enable = true;
 
