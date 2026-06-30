@@ -12,7 +12,7 @@ return {
 			{ "<leader>fb", desc = "Find buffers" },
 			{ "<leader>fs", desc = "Find symbols/icons" },
 			{ "<leader>gs", desc = "Git status" },
-			{ "<leader>go", desc = "Git: open in browser" },
+			{ "<leader>go", desc = "Git: open PR that introduced this line" },
 		},
 		after = function(_)
 			-- Two-tone borderless picker: search panel + preview share the
@@ -147,8 +147,44 @@ return {
 				Snacks.picker.git_status()
 			end, { desc = "Git status" })
 			vim.keymap.set({ "n", "x" }, "<leader>go", function()
-				Snacks.gitbrowse.open()
-			end, { desc = "Git: open in browser" })
+				local file = vim.fn.expand("%:p")
+				if file == "" then
+					vim.notify("No file for current buffer", vim.log.levels.WARN)
+					return
+				end
+				local dir = vim.fn.fnamemodify(file, ":h")
+				local line = vim.fn.line(".")
+
+				-- commit that last touched this line
+				local blame = vim.system({ "git", "blame", "-L", line .. "," .. line, "--porcelain", "--", file }, {
+					cwd = dir,
+					text = true,
+				}):wait()
+				if blame.code ~= 0 then
+					vim.notify("git blame failed: " .. (blame.stderr or ""), vim.log.levels.ERROR)
+					return
+				end
+				local sha = (blame.stdout or ""):match("^(%x+)")
+				if not sha or sha:match("^0+$") then
+					vim.notify("line is uncommitted", vim.log.levels.WARN)
+					return
+				end
+
+				-- PR that merged that commit
+				local pr = vim.system({
+					"gh",
+					"api",
+					"repos/{owner}/{repo}/commits/" .. sha .. "/pulls",
+					"--jq",
+					".[0].html_url",
+				}, { cwd = dir, text = true }):wait()
+				local url = vim.trim(pr.stdout or "")
+				if pr.code ~= 0 or url == "" then
+					vim.notify("no PR found for " .. sha:sub(1, 8), vim.log.levels.WARN)
+					return
+				end
+				vim.ui.open(url)
+			end, { desc = "Git: open PR that introduced this line" })
 		end,
 	},
 }

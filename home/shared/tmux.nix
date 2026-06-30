@@ -121,6 +121,15 @@ in
         bind % split-window -v -c "#{pane_current_path}"
         bind c new-window -c "#{pane_current_path}"
 
+        # directional splits (vim hjkl = side the new pane opens on)
+        bind h split-window -hb -c "#{pane_current_path}"
+        bind j split-window -v  -c "#{pane_current_path}"
+        bind k split-window -vb -c "#{pane_current_path}"
+        bind l split-window -h  -c "#{pane_current_path}"
+
+        # kill pane without the y/n confirmation
+        bind x kill-pane
+
         # equally space tmux panes and neovim splits in the current window
         bind e run-shell -b '${tmuxEqualizeNvim}/bin/tmux-equalize-nvim'
 
