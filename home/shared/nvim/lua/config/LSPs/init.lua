@@ -159,10 +159,14 @@ require("lze").load({
 	-- ==========================================================================
 
 	{
-		"elixirls",
+		"dexter",
 		lsp = {
-			filetypes = { "elixir", "eelixir" },
-			cmd = { "elixir-ls" },
+			filetypes = { "elixir", "eelixir", "heex" },
+			cmd = { "dexter", "lsp" },
+			root_markers = { ".dexter/dexter.db", ".dexter.db", ".git", "mix.exs" },
+			init_options = {
+				followDelegates = true,
+			},
 		},
 	},
 

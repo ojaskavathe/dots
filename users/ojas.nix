@@ -69,7 +69,6 @@
       dbeaver-bin
 
       nodejs
-      beamMinimal28Packages.elixir-ls
 
       ollama
 

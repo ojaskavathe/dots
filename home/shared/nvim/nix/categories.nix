@@ -126,7 +126,7 @@
       cmake-language-server
       pyright # Python LSP
       ruff # Python linter/formatter (used as LSP + conform)
-      elixir-ls
+      dexter # Elixir LSP
       ripgrep # Used by snacks picker and grug-far
       fd # Used by snacks picker for file finding
     ];
