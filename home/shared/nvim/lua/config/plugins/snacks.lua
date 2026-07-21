@@ -131,6 +131,12 @@ return {
 			vim.keymap.set("n", "<leader>ff", function()
 				Snacks.picker.files()
 			end, { desc = "Find files" })
+			vim.keymap.set("x", "<leader>ff", function()
+				-- pre-fill the files picker with the visual selection
+				local sel = Snacks.picker.util.visual()
+				local pattern = sel and sel.text:gsub("[\r\n].*$", "") or ""
+				Snacks.picker.files({ pattern = pattern })
+			end, { desc = "Find files (selection)" })
 			vim.keymap.set("n", "<leader>fg", function()
 				Snacks.picker.grep()
 			end, { desc = "Find by grep" })
