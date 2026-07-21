@@ -107,6 +107,7 @@
 
     claude.enable = true;
     codex.enable = true;
+    blender-mcp.enable = true;
 
     programs.fzf = {
       enable = true;

@@ -17,6 +17,7 @@
 
     ./claude.nix
     ./codex.nix
+    ./blender-mcp.nix
   ];
 
   zsh.enable = lib.mkDefault true;
@@ -31,6 +32,7 @@
 
   claude.enable = lib.mkDefault false;
   codex.enable = lib.mkDefault false;
+  blender-mcp.enable = lib.mkDefault false;
 
   sops-home.enable = lib.mkDefault false;
 }

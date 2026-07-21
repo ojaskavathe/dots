@@ -5,6 +5,23 @@
   ...
 }:
 let
+  jsonFormat = pkgs.formats.json { };
+
+  # home-manager's `programs.claude-code.mcpServers` doesn't write a plain MCP
+  # config: it synthesises a plugin and injects it with --plugin-dir, which
+  # namespaces everything as `plugin:claude-code-home-manager:<name>` and yields
+  # tool names like `mcp__plugin_claude-code-home-manager_blender__*`. Wiring
+  # --mcp-config ourselves keeps servers in the normal scope with clean
+  # `mcp__<name>__*` tools, and is just as declarative (config lives in the store).
+  #
+  # The `=` in --mcp-config= is load-bearing: the flag is variadic, so the
+  # space-separated form swallows following argv and `claude mcp list` dies with
+  # "MCP config file not found: .../list".
+  mcpConfig = jsonFormat.generate "claude-mcp-config.json" {
+    inherit (config.claude) mcpServers;
+  };
+  hasMcpServers = config.claude.mcpServers != { };
+
   data = lib.importJSON ./claude-version.json;
   suffix =
     {
@@ -38,6 +55,7 @@ let
         --set DISABLE_AUTOUPDATER 1 \
         --set DISABLE_INSTALLATION_CHECKS 1 \
         --set USE_BUILTIN_RIPGREP 0 \
+        ${lib.optionalString hasMcpServers "--add-flags '--mcp-config=${mcpConfig}'"} \
         --prefix PATH : ${
           lib.makeBinPath (
             [
@@ -85,6 +103,12 @@ in
   options = {
     claude = {
       enable = lib.mkEnableOption "Enable Claude Code";
+
+      mcpServers = lib.mkOption {
+        type = lib.types.attrsOf jsonFormat.type;
+        default = { };
+        description = "MCP servers, wired via --mcp-config rather than home-manager's plugin mechanism";
+      };
     };
   };
 
