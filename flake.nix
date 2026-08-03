@@ -11,7 +11,14 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    nix-homebrew.url = "github:zhaofengli-wip/nix-homebrew";
+    nix-homebrew = {
+      url = "github:zhaofengli-wip/nix-homebrew";
+      # nix-homebrew's own brew pin drifts out of sync with the homebrew-core
+      # /cask pins below and breaks `brew bundle` on formulae using newer DSL.
+      # track brew's default branch (what a normal `brew update` follows) so
+      # all three move together.
+      inputs.brew-src.url = "github:Homebrew/brew";
+    };
 
     homebrew-core = {
       url = "github:homebrew/homebrew-core";

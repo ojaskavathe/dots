@@ -64,7 +64,13 @@
 
       slack
       google-chrome
-      obsidian
+
+      # upstream pins sourceRoot = "Obsidian.app", but the dmg now nests the
+      # app inside a volume folder. drop once NixOS/nixpkgs#548462 lands.
+      # https://github.com/NixOS/nixpkgs/issues/548445
+      (obsidian.overrideAttrs (old: {
+        sourceRoot = "Obsidian ${old.version}-universal/Obsidian.app";
+      }))
 
       dbeaver-bin
 
