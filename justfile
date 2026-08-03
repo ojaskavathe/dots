@@ -17,6 +17,21 @@ check:
     find . -name '*.sh' | xargs shfmt -d -i 2
     find . -name '*.md' | xargs prettier --check --prose-wrap always
 
+# build system + home closures without activating, so drs/hms are store-hits
+prebuild:
+    #!/usr/bin/env bash
+    # --out-link keeps a gc root, so an intervening `nix store gc` can't undo the work
+    set -euo pipefail
+    host=$(hostname -s)
+    user=$(whoami)
+    case "$(uname -s)" in
+      Darwin) system=".#darwinConfigurations.${host}.system" ;;
+      Linux) system=".#nixosConfigurations.${host}.config.system.build.toplevel" ;;
+      *) echo "unsupported platform: $(uname -s)" >&2; exit 1 ;;
+    esac
+    nix build --out-link .result-system "$system"
+    nix build --out-link .result-home ".#homeConfigurations.\"${user}@${host}\".activationPackage"
+
 secrets-edit:
     sops secrets/hosts/common/secrets.yaml
 
