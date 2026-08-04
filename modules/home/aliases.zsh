@@ -24,10 +24,10 @@ for index ({1..9}) alias "$index"="cd +${index}"; unset index
 
 alias lg="lazygit"
 
-# v:  daily driver, hms-installed nvim-live. lua edits are live (no hms needed);
-#     only plugin/nix changes (categories.nix) require an hms.
-# nv: nix run of the baked (wrapRc=true) package — use to test nix-file changes
-#     before an hms, or to sanity-check the portable build.
+# v:  daily driver, the hms-installed nvim. config is baked into the nix build,
+#     so lua/plugin edits need an hms to take effect.
+# nv: nix run of the same package straight from the repo — handy to test changes
+#     before an hms, or to sanity-check the portable build on another machine.
 # sessions are auto-managed in stdpath("state") when opened with no args
 nv() { nix run $HOME/dots/modules/_nvim; }
 v() { nvim; }

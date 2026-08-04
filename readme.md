@@ -21,7 +21,7 @@ modules/
   darwin/   nix-darwin modules + base bundle
   nixos/    nixos modules + base bundle
   hosts/    host assemblies (camille, tuf, galio-wsl)
-  _nvim/    neovim (nixCats), a vendored subflake
+  _nvim/    neovim (nix-wrapper-modules), a vendored subflake
   flake-modules.nix   nixpkgs.nix   # shared bits
 ```
 
