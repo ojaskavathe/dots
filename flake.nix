@@ -111,6 +111,7 @@
           ;
         hm = config.flake.modules.homeManager;
         dm = config.flake.modules.darwin;
+        nm = config.flake.modules.nixos;
       in
       {
         # Converted flake-parts modules are listed explicitly during the
@@ -142,6 +143,11 @@
           ./modules/darwin/kanata/kanata.nix
           ./modules/darwin/base.nix
           ./modules/darwin/camille.nix
+          ./modules/nixos/nvidia.nix
+          ./modules/nixos/kanata.nix
+          ./modules/nixos/hyprland.nix
+          ./modules/nixos/base.nix
+          ./modules/nixos/galio-wsl.nix
         ];
 
         systems = [
@@ -168,39 +174,29 @@
 
           diskoConfigurations.nixos = import ./hosts/tuf/disko-configuration.nix;
 
-          nixosConfigurations =
-            let
+          nixosConfigurations = {
+
+            tuf = nixpkgs.lib.nixosSystem {
               system = "x86_64-linux";
-            in
-            {
-
-              tuf = nixpkgs.lib.nixosSystem {
-                inherit system;
-                specialArgs = {
-                  inherit inputs system;
-                };
-                modules = [
-                  ./hosts/tuf/configuration.nix
-                  ./modules/nixos
-                  disko.nixosModules.disko
-                  stylix.nixosModules.stylix
-                ];
-              };
-
-              galio-wsl = nixpkgs.lib.nixosSystem {
-                inherit system;
-                specialArgs = {
-                  inherit inputs system;
-                  primaryUser = "dingus";
-                };
-                modules = [
-                  inputs.nixos-wsl.nixosModules.default
-                  ./hosts/galio-wsl/configuration.nix
-                  stylix.nixosModules.stylix
-                ];
-              };
-
+              modules = [
+                ./hosts/tuf/configuration.nix
+                nm.base
+                disko.nixosModules.disko
+                stylix.nixosModules.stylix
+              ];
             };
+
+            galio-wsl = nixpkgs.lib.nixosSystem {
+              system = "x86_64-linux";
+              modules = [
+                inputs.nixos-wsl.nixosModules.default
+                nm.nixpkgs
+                nm.galio-wsl
+                stylix.nixosModules.stylix
+              ];
+            };
+
+          };
 
           darwinConfigurations = {
 
