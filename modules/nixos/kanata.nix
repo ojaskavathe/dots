@@ -24,7 +24,7 @@
                 "/dev/input/by-id/usb-0c45_2.4G_Dongle-event-kbd" # ak820 (USB dongle)
               ];
               extraDefCfg = "process-unmapped-keys yes";
-              config = builtins.readFile ../shared/kanata/hrm.kbd;
+              config = builtins.readFile ./hrm.kbd;
             };
           };
         };

@@ -77,7 +77,7 @@
     };
 
     nvim = {
-      url = "path:./home/shared/nvim";
+      url = "path:./modules/_nvim";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
@@ -139,14 +139,14 @@
 
         flake = {
 
-          diskoConfigurations.nixos = import ./hosts/tuf/disko-configuration.nix;
+          diskoConfigurations.nixos = import ./modules/hosts/_tuf/disko-configuration.nix;
 
           nixosConfigurations = {
 
             tuf = nixpkgs.lib.nixosSystem {
               system = "x86_64-linux";
               modules = [
-                ./hosts/tuf/configuration.nix
+                nm.tuf
                 nm.base
                 disko.nixosModules.disko
                 stylix.nixosModules.stylix

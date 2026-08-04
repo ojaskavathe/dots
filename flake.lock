@@ -489,11 +489,11 @@
         "plugins-lzextras": "plugins-lzextras"
       },
       "locked": {
-        "path": "./home/shared/nvim",
+        "path": "./modules/_nvim",
         "type": "path"
       },
       "original": {
-        "path": "./home/shared/nvim",
+        "path": "./modules/_nvim",
         "type": "path"
       },
       "parent": []

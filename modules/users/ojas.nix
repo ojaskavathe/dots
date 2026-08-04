@@ -89,9 +89,9 @@
       # since that changes the nix-built nvim-live wrapper (categories.nix).
       xdg.configFile = {
         "nvim/init.lua".source =
-          config.lib.file.mkOutOfStoreSymlink "${config.home.homeDirectory}/dots/home/shared/nvim/init.lua";
+          config.lib.file.mkOutOfStoreSymlink "${config.home.homeDirectory}/dots/modules/_nvim/init.lua";
         "nvim/lua".source =
-          config.lib.file.mkOutOfStoreSymlink "${config.home.homeDirectory}/dots/home/shared/nvim/lua";
+          config.lib.file.mkOutOfStoreSymlink "${config.home.homeDirectory}/dots/modules/_nvim/lua";
       };
       kitty.enable = true;
 
