@@ -1,37 +1,36 @@
-# Neovim configuration using nixCats
+# Neovim configuration, wrapped with nix-wrapper-modules.
 #
-# This is a standalone flake. It can be:
+# A standalone flake. It can be:
 #   1. Run directly:              nix run .
-#   2. Run from the dots repo:    nix run ~/dots/home/shared/nvim
-#   3. Run from GitHub:           nix run github:ojaskavathe/dots?dir=home/shared/nvim
-#   4. Integrated with home-mgr:  inputs.nvim.homeModule (see home-module.nix)
+#   2. Run from the dots repo:    nix run ~/dots/modules/_nvim
+#   3. Integrated with home-mgr:  inputs.nvim.homeModule (see nix/home-module.nix)
 #
-# How nixCats works:
-#   - categories.nix defines WHAT plugins/tools are available, grouped by category
-#   - packages.nix defines WHICH categories are enabled for a given build
-#   - lua/ contains the actual neovim config (init.lua, keymaps, plugin specs)
-#   - nixCats bakes it all into a single nix derivation (binary + config + plugins + LSPs)
+# How it works:
+#   - nix/module.nix defines the wrapper: which plugins load at startup vs lazily
+#     (config.specs.*) and which tools go on nvim's PATH (runtimePkgs).
+#   - lua/ + init.lua are the actual neovim config, baked into the derivation
+#     (config.settings.config_directory), so `nix run` works anywhere.
+#   - the lua talks to nix through the info plugin; a small shim in
+#     lua/config/init.lua keeps the old nixCats("cat") / for_cat calls working.
 #
-# The lua config can check nixCats("category.name") at runtime to know
-# which categories are enabled, so the same lua works for different builds.
-#
-# See: https://nixcats.org/
-
+# See: https://birdeehub.github.io/nix-wrapper-modules/wrapperModules/neovim.html
 {
-  description = "Neovim configuration with nixCats and lze lazy-loading";
+  description = "Neovim configuration wrapped with nix-wrapper-modules and lze lazy-loading";
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
-    nixCats.url = "github:BirdeeHub/nixCats-nvim";
 
-    # Inputs prefixed with "plugins-" are auto-detected by nixCats'
-    # standardPluginOverlay and made available as pkgs.neovimPlugins.*
+    wrappers.url = "github:BirdeeHub/nix-wrapper-modules";
+    wrappers.inputs.nixpkgs.follows = "nixpkgs";
+
+    # Fetched fresh (not via nixpkgs) so they track upstream. Auto-detected by
+    # the "plugins-" prefix and exposed as config.nvim-lib.neovimPlugins.<name>.
     "plugins-lze" = {
-      url = "github:BirdeeHub/lze"; # Lazy-loading engine
+      url = "github:BirdeeHub/lze"; # lazy-loading engine
       flake = false;
     };
     "plugins-lzextras" = {
-      url = "github:BirdeeHub/lzextras"; # Extra lze handlers (lsp, etc.)
+      url = "github:BirdeeHub/lzextras"; # extra lze handlers (lsp, etc.)
       flake = false;
     };
   };
@@ -40,85 +39,41 @@
     {
       self,
       nixpkgs,
-      nixCats,
+      wrappers,
       ...
     }@inputs:
     let
-      inherit (nixCats) utils;
-
-      # The root of the lua config. nixCats bundles this into the derivation
-      # when wrapRc = true (set in packages.nix)
-      luaPath = "${./.}";
-
-      forEachSystem = utils.eachSystem nixpkgs.lib.platforms.all;
-      extra_pkg_config = {
-        allowUnfree = true;
-      };
-
-      # standardPluginOverlay turns "plugins-*" inputs into neovim plugins
-      # accessible as pkgs.neovimPlugins.lze, pkgs.neovimPlugins.lzextras, etc.
-      dependencyOverlays = [ (utils.standardPluginOverlay inputs) ];
-
-      categoryDefinitions = import ./nix/categories.nix; # what's available
-      packageDefinitions = import ./nix/packages.nix; # what's enabled
-      defaultPackageName = "nvim"; # also the binary name
+      forAllSystems = nixpkgs.lib.genAttrs nixpkgs.lib.platforms.all;
+      # Pre-apply the flake inputs to the wrapper module, then evaluate it.
+      module = nixpkgs.lib.modules.importApply ./nix/module.nix inputs;
+      wrapper = wrappers.lib.evalModule module;
     in
+    {
+      # The evaluated wrapper — downstream can `.wrap { pkgs }` it.
+      wrapperModules.default = module;
+      wrappers.default = wrapper.config;
 
-    # Per-system outputs (packages, devShells)
-    forEachSystem (
-      system:
-      let
-        nixCatsBuilder = utils.baseBuilder luaPath {
-          inherit
-            nixpkgs
-            system
-            dependencyOverlays
-            extra_pkg_config
-            ;
-        } categoryDefinitions packageDefinitions;
+      packages = forAllSystems (
+        system:
+        let
+          pkgs = import nixpkgs {
+            inherit system;
+            config.allowUnfree = true;
+          };
+        in
+        rec {
+          nvim = wrapper.config.wrap { inherit pkgs; };
+          default = nvim;
+        }
+      );
 
-        defaultPackage = nixCatsBuilder defaultPackageName;
-        pkgs = import nixpkgs { inherit system; };
-      in
-      {
-        packages = utils.mkAllWithDefault defaultPackage;
-
-        devShells.default = pkgs.mkShell {
-          name = defaultPackageName;
-          packages = [
-            defaultPackage
-            pkgs.nil
-            pkgs.nixfmt
-            pkgs.lua-language-server
-          ];
-          shellHook = ''echo "Run 'nvim' to start neovim"'';
-        };
-      }
-    )
-    // {
-      # System-independent outputs
-
-      # Home-manager module: import in your home config to get programs.nvim options
+      # Home-manager module: programs.nvim (enable/package/aliases/defaultEditor).
       homeModule = import ./nix/home-module.nix { inherit self; };
 
-      # NixOS/nix-darwin module (alternative to home-manager)
-      nixosModules.default = utils.mkNixosModules {
-        inherit
-          defaultPackageName
-          dependencyOverlays
-          luaPath
-          categoryDefinitions
-          packageDefinitions
-          extra_pkg_config
-          nixpkgs
-          ;
+      # NixOS / nix-darwin install module (alternative to home-manager).
+      nixosModules.default = wrappers.lib.getInstallModule {
+        name = "nvim";
+        value = module;
       };
-
-      overlays = utils.makeOverlays luaPath {
-        inherit nixpkgs dependencyOverlays extra_pkg_config;
-      } categoryDefinitions packageDefinitions defaultPackageName;
-
-      inherit utils;
-      inherit (utils) templates;
     };
 }

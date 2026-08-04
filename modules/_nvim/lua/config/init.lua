@@ -2,6 +2,24 @@
 -- This file registers lze handlers and loads all plugin configurations
 
 -- ===========================================================================
+-- NIX BRIDGE
+-- ===========================================================================
+-- nix-wrapper-modules exposes settings through an info plugin
+-- (vim.g.nix_info_plugin_name). This shim keeps the old nixCats("cat") call
+-- sites and the `for_cat` lze handler working unchanged. There's a single baked
+-- build with every category on, so category lookups are always true; only
+-- `colorscheme` returns a real value from nix.
+if not _G.nixCats then
+	local info = require(vim.g.nix_info_plugin_name)
+	_G.nixCats = function(key)
+		if key == "colorscheme" then
+			return info("catppuccin", "settings", "colorscheme")
+		end
+		return true
+	end
+end
+
+-- ===========================================================================
 -- OPTIONS AND KEYMAPS
 -- ===========================================================================
 require("config.opts_and_keys")

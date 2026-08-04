@@ -37,7 +37,7 @@
 
       stylix-home.enable = true;
 
-      nvim.enable = true;
+      programs.nvim.enable = true;
       kitty.enable = true;
 
       hyprland.enable = true;

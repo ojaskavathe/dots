@@ -1,7 +1,7 @@
 # Home config for user `ojas` (camille / darwin). Sets which shared features are
-# on and the user-specific packages. `inputs` rides in via closure; `pkgs-stable`
-# via the shared nixpkgs module; allowUnfree likewise, so it's no longer set here.
-{ inputs, ... }:
+# on and the user-specific packages. `pkgs-stable` rides in via the shared
+# nixpkgs module; allowUnfree likewise, so it's no longer set here.
+{ ... }:
 {
   flake.modules.homeManager.ojas =
     {
@@ -74,24 +74,10 @@
 
       programs.nvim = {
         enable = true;
-        # Dev variant (wrapRc = false): plugins/LSPs stay nix-managed, but the
-        # lua config is read live from ~/.config/nvim (symlinked below), so
-        # keybind/config edits need no rebuild — just relaunch nvim.
-        package = inputs.nvim.packages.${pkgs.stdenv.hostPlatform.system}.nvim-live;
         aliases = [
           "vim"
           "vi"
         ];
-      };
-
-      # Point ~/.config/nvim at the live repo (out-of-store symlink) so lua
-      # edits apply immediately. Adding/removing plugins still needs an hms,
-      # since that changes the nix-built nvim-live wrapper (categories.nix).
-      xdg.configFile = {
-        "nvim/init.lua".source =
-          config.lib.file.mkOutOfStoreSymlink "${config.home.homeDirectory}/dots/modules/_nvim/init.lua";
-        "nvim/lua".source =
-          config.lib.file.mkOutOfStoreSymlink "${config.home.homeDirectory}/dots/modules/_nvim/lua";
       };
       kitty.enable = true;
 
