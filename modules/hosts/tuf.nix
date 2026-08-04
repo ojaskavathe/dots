@@ -79,7 +79,6 @@
       services = {
         asusd = {
           enable = true;
-          enableUserService = true;
         };
         supergfxd = {
           enable = true;
@@ -105,6 +104,7 @@
         cursor = {
           package = pkgs.bibata-cursors;
           name = "Bibata-Modern-Ice";
+          size = 22;
         };
 
         fonts = {
