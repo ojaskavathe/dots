@@ -35,6 +35,17 @@ nrs   # system rebuild — darwin or nixos, picked by host
 hms   # home-manager switch --flake .#<user>@<host>
 ```
 
+## neovim
+
+my neovim config is a self-contained package — run it anywhere, no clone:
+
+```
+nix run github:ojaskavathe/dots#nvim
+```
+
+config is baked into the build (it won't read your `~/.config/nvim`). that's
+what makes it portable.
+
 ## reinstall (nixos)
 
 ```
