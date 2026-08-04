@@ -18,7 +18,7 @@
       settings = {
         user = {
           name = "Ojas Kavathe";
-          email = "ojaskavathe@gmail.com";
+          email = "66531618+ojaskavathe@users.noreply.github.com";
         };
         pull.rebase = false;
         merge.tool = "nvimdiff";
