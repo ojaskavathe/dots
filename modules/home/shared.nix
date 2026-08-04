@@ -15,6 +15,7 @@ in
       hm.direnv
       hm.tmux
       hm.stylix
+      hm.nvim
       hm.kitty
       hm.zen
       hm.sops

@@ -1,4 +1,4 @@
-{ ... }:
+{ inputs, ... }:
 {
   flake.modules.homeManager.zen =
     {
@@ -8,6 +8,8 @@
       ...
     }:
     {
+      imports = [ inputs.zen-browser.homeModules.beta ];
+
       options = {
         zen = {
           enable = lib.mkEnableOption "Enable Zen Browser";

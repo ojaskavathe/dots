@@ -8,6 +8,8 @@
       ...
     }:
     {
+      imports = [ inputs.stylix.homeModules.stylix ];
+
       options = {
         stylix-home = {
           enable = lib.mkEnableOption "Enable Stylix";

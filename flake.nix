@@ -169,7 +169,6 @@
 
             camille = nix-darwin.lib.darwinSystem {
               modules = [
-                inputs.nix-homebrew.darwinModules.nix-homebrew
                 dm.nixpkgs
                 dm.base
                 dm.camille
@@ -183,8 +182,6 @@
             "dingus@tuf" = home-manager.lib.homeManagerConfiguration {
               pkgs = nixpkgs.legacyPackages."x86_64-linux";
               modules = [
-                inputs.plasma-manager.homeManagerModules.plasma-manager
-                stylix.homeModules.stylix
                 hm.shared
                 hm.linux
                 hm.dingus
@@ -194,9 +191,6 @@
             "dingus@galio-wsl" = home-manager.lib.homeManagerConfiguration {
               pkgs = nixpkgs.legacyPackages."x86_64-linux";
               modules = [
-                stylix.homeModules.stylix
-                inputs.zen-browser.homeModules.beta
-                inputs.nvim.homeModule
                 hm.shared
                 hm.dingus-wsl
               ];
@@ -205,9 +199,6 @@
             "ojas@camille" = home-manager.lib.homeManagerConfiguration {
               pkgs = nixpkgs.legacyPackages."aarch64-darwin";
               modules = [
-                stylix.homeModules.stylix
-                inputs.zen-browser.homeModules.beta
-                inputs.nvim.homeModule
                 hm.shared
                 hm.ojas
               ];
