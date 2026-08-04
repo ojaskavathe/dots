@@ -6,8 +6,16 @@ function get_flake_config() {
 }
 
 alias hms="home-manager switch --flake $NIX_CFG_PATH#$(get_flake_config)"
-alias nrs="sudo nixos-rebuild switch --flake $NIX_CFG_PATH#$(hostname -s)"
-alias drs="sudo darwin-rebuild switch --flake $NIX_CFG_PATH#$(hostname -s)"
+
+# system rebuild, host-agnostic: darwin on macos, nixos on linux
+nrs() {
+  local host="$(hostname -s)"
+  case "$(uname -s)" in
+    Darwin) sudo darwin-rebuild switch --flake "$NIX_CFG_PATH#$host" "$@" ;;
+    Linux) sudo nixos-rebuild switch --flake "$NIX_CFG_PATH#$host" "$@" ;;
+    *) echo "nrs: unsupported platform $(uname -s)" >&2; return 1 ;;
+  esac
+}
 
 alias ll="ls -la"
 
