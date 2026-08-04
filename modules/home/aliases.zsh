@@ -21,5 +21,5 @@ alias lg="lazygit"
 # nv: nix run of the baked (wrapRc=true) package — use to test nix-file changes
 #     before an hms, or to sanity-check the portable build.
 # sessions are auto-managed in stdpath("state") when opened with no args
-nv() { nix run $NIX_CFG_PATH/modules/_nvim; }
+nv() { nix run $HOME/dots/modules/_nvim; }
 v() { nvim; }
