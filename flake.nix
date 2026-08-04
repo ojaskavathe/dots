@@ -111,6 +111,14 @@
           ;
       in
       {
+        # Converted flake-parts modules are listed explicitly during the
+        # migration so unconverted files under ./modules stay untouched. Phase 5
+        # swaps this whole list for `inputs.import-tree ./modules`.
+        imports = [
+          ./modules/flake/modules-option.nix
+          ./modules/lib/nixpkgs.nix
+        ];
+
         systems = [
           "aarch64-darwin"
           "x86_64-linux"
