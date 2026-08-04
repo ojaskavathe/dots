@@ -99,7 +99,7 @@
   outputs =
     inputs:
     inputs.flake-parts.lib.mkFlake { inherit inputs; } (
-      { ... }:
+      { config, ... }:
       let
         inherit (inputs)
           disko
@@ -109,6 +109,7 @@
           home-manager
           stylix
           ;
+        hm = config.flake.modules.homeManager;
       in
       {
         # Converted flake-parts modules are listed explicitly during the
@@ -117,6 +118,24 @@
         imports = [
           ./modules/flake/modules-option.nix
           ./modules/lib/nixpkgs.nix
+          ./modules/home/git.nix
+          ./modules/home/zsh.nix
+          ./modules/home/direnv.nix
+          ./modules/home/tmux.nix
+          ./modules/home/stylix.nix
+          ./modules/home/kitty.nix
+          ./modules/home/zen.nix
+          ./modules/home/sops.nix
+          ./modules/home/claude.nix
+          ./modules/home/codex.nix
+          ./modules/home/blender-mcp.nix
+          ./modules/home/kde.nix
+          ./modules/home/hyprland.nix
+          ./modules/home/shared.nix
+          ./modules/home/linux.nix
+          ./modules/home/ojas.nix
+          ./modules/home/dingus-wsl.nix
+          ./modules/home/dingus.nix
         ];
 
         systems = [
@@ -217,102 +236,38 @@
 
           homeConfigurations = {
 
-            "dingus@tuf" =
-              let
-                system = "x86_64-linux";
-              in
-              home-manager.lib.homeManagerConfiguration {
-                pkgs = nixpkgs.legacyPackages.${system}; # Home-manager requires 'pkgs' instance
-                extraSpecialArgs =
-                  let
-                    pkgs-stable = import nixpkgs-stable {
-                      inherit system;
-                      config = {
-                        allowUnfree = true;
-                        allowUnfreePredicate = (_: true);
-                      };
-                    };
-                  in
-                  {
-                    inherit pkgs-stable inputs system;
-                  };
-                modules = [
-                  inputs.plasma-manager.homeManagerModules.plasma-manager
-                  stylix.homeModules.stylix
-                  ./home/shared
-                  ./home/nixos
-                  ./users/dingus.nix
-                ];
-              };
+            "dingus@tuf" = home-manager.lib.homeManagerConfiguration {
+              pkgs = nixpkgs.legacyPackages."x86_64-linux";
+              modules = [
+                inputs.plasma-manager.homeManagerModules.plasma-manager
+                stylix.homeModules.stylix
+                hm.shared
+                hm.linux
+                hm.dingus
+              ];
+            };
 
-            "dingus@galio-wsl" =
-              let
-                system = "x86_64-linux";
-                username = "dingus";
-              in
-              home-manager.lib.homeManagerConfiguration {
-                pkgs = nixpkgs.legacyPackages.${system};
-                extraSpecialArgs =
-                  let
-                    pkgs-stable = import nixpkgs-stable {
-                      inherit system;
-                      config = {
-                        allowUnfree = true;
-                        allowUnfreePredicate = (_: true);
-                      };
-                    };
-                  in
-                  {
-                    inherit
-                      pkgs-stable
-                      inputs
-                      system
-                      username
-                      ;
-                  };
-                modules = [
-                  stylix.homeModules.stylix
-                  inputs.zen-browser.homeModules.beta
-                  inputs.nvim.homeModule
-                  ./home/shared
-                  ./users/dingus-wsl.nix
-                ];
-              };
+            "dingus@galio-wsl" = home-manager.lib.homeManagerConfiguration {
+              pkgs = nixpkgs.legacyPackages."x86_64-linux";
+              modules = [
+                stylix.homeModules.stylix
+                inputs.zen-browser.homeModules.beta
+                inputs.nvim.homeModule
+                hm.shared
+                hm.dingus-wsl
+              ];
+            };
 
-            "ojas@camille" =
-              let
-                system = "aarch64-darwin";
-                username = "ojas";
-              in
-              home-manager.lib.homeManagerConfiguration {
-                pkgs = nixpkgs.legacyPackages."aarch64-darwin"; # Home-manager requires 'pkgs' instance
-                extraSpecialArgs =
-                  let
-                    pkgs-stable = import nixpkgs-stable {
-                      inherit system;
-                      config = {
-                        allowUnfree = true;
-                        allowUnfreePredicate = (_: true);
-                      };
-                    };
-                  in
-                  {
-                    inherit
-                      pkgs-stable
-                      inputs
-                      system
-                      username
-                      ;
-                  };
-                modules = [
-                  stylix.homeModules.stylix
-                  inputs.zen-browser.homeModules.beta
-                  inputs.nvim.homeModule
-                  ./home/shared
-                  ./home/darwin
-                  ./users/ojas.nix
-                ];
-              };
+            "ojas@camille" = home-manager.lib.homeManagerConfiguration {
+              pkgs = nixpkgs.legacyPackages."aarch64-darwin";
+              modules = [
+                stylix.homeModules.stylix
+                inputs.zen-browser.homeModules.beta
+                inputs.nvim.homeModule
+                hm.shared
+                hm.ojas
+              ];
+            };
 
           };
 
