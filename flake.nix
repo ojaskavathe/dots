@@ -110,6 +110,7 @@
           stylix
           ;
         hm = config.flake.modules.homeManager;
+        dm = config.flake.modules.darwin;
       in
       {
         # Converted flake-parts modules are listed explicitly during the
@@ -136,6 +137,11 @@
           ./modules/home/ojas.nix
           ./modules/home/dingus-wsl.nix
           ./modules/home/dingus.nix
+          ./modules/darwin/aerospace.nix
+          ./modules/darwin/homebrew.nix
+          ./modules/darwin/kanata/kanata.nix
+          ./modules/darwin/base.nix
+          ./modules/darwin/camille.nix
         ];
 
         systems = [
@@ -175,7 +181,6 @@
                 };
                 modules = [
                   ./hosts/tuf/configuration.nix
-                  ./modules/shared
                   ./modules/nixos
                   disko.nixosModules.disko
                   stylix.nixosModules.stylix
@@ -191,48 +196,24 @@
                 modules = [
                   inputs.nixos-wsl.nixosModules.default
                   ./hosts/galio-wsl/configuration.nix
-                  ./modules/shared
                   stylix.nixosModules.stylix
                 ];
               };
 
             };
 
-          darwinConfigurations =
-            let
-              system = "aarch64-darwin";
-              primaryUser = "ojas"; # single-user
-            in
-            {
+          darwinConfigurations = {
 
-              camille = nix-darwin.lib.darwinSystem {
-                specialArgs =
-                  let
-                    pkgs-stable = import nixpkgs-stable {
-                      inherit system;
-                      config = {
-                        allowUnfree = true;
-                        allowUnfreePredicate = (_: true);
-                      };
-                    };
-                  in
-                  {
-                    inherit
-                      inputs
-                      system
-                      pkgs-stable
-                      primaryUser
-                      ;
-                  };
-                modules = [
-                  inputs.nix-homebrew.darwinModules.nix-homebrew
-                  ./hosts/camille/configuration.nix
-                  ./modules/shared
-                  ./modules/darwin
-                ];
-              };
-
+            camille = nix-darwin.lib.darwinSystem {
+              modules = [
+                inputs.nix-homebrew.darwinModules.nix-homebrew
+                dm.nixpkgs
+                dm.base
+                dm.camille
+              ];
             };
+
+          };
 
           homeConfigurations = {
 

@@ -1,9 +1,0 @@
-{
-  lib,
-  config,
-  ...
-}:
-{
-  imports = [
-  ];
-}

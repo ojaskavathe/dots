@@ -1,75 +1,78 @@
+{ inputs, ... }:
 {
-  lib,
-  config,
-  inputs,
-  pkgs,
-  primaryUser,
-  ...
-}:
-{
-  options = {
-    nix-hb = {
-      enable = lib.mkEnableOption "Enable Homebrew";
-    };
-  };
-
-  config = lib.mkIf config.nix-hb.enable {
-    nix-homebrew = {
-      enable = true;
-      enableRosetta = true; # arch -x86_64 brew
-
-      user = primaryUser;
-
-      taps = {
-        "homebrew/homebrew-core" = inputs.homebrew-core;
-        "homebrew/homebrew-cask" = inputs.homebrew-cask;
-        "homebrew/homebrew-bundle" = inputs.homebrew-bundle;
+  flake.modules.darwin.homebrew =
+    {
+      lib,
+      config,
+      pkgs,
+      primaryUser,
+      ...
+    }:
+    {
+      options = {
+        nix-hb = {
+          enable = lib.mkEnableOption "Enable Homebrew";
+        };
       };
 
-      # taps can no longer be added imperatively with `brew tap`.
-      mutableTaps = false;
-    };
+      config = lib.mkIf config.nix-hb.enable {
+        nix-homebrew = {
+          enable = true;
+          enableRosetta = true; # arch -x86_64 brew
 
-    homebrew = {
-      enable = true;
-      onActivation.cleanup = "zap";
-      onActivation.autoUpdate = true;
-      onActivation.upgrade = true;
+          user = primaryUser;
 
-      # https://github.com/zhaofengli/nix-homebrew/issues/5#issuecomment-1878798641
-      taps = builtins.attrNames config.nix-homebrew.taps;
+          taps = {
+            "homebrew/homebrew-core" = inputs.homebrew-core;
+            "homebrew/homebrew-cask" = inputs.homebrew-cask;
+            "homebrew/homebrew-bundle" = inputs.homebrew-bundle;
+          };
 
-      brews = [
-        "cowsay"
-        "kanata"
-        "mas" # cli for mas app ids
-      ];
-      casks = [
-        "ghostty"
-        "spotify"
-        "cursor"
-        "discord"
-        "steam"
-        "epic-games"
-        "porting-kit"
-        "msty"
-        "multiviewer"
-        "clocker"
-        "whisky"
-        "crossover"
-        "obs"
-        "parsec"
-        "trex"
-        "whatsapp"
-        "android-file-transfer"
-        "protonvpn"
-        "osquery"
-      ];
+          # taps can no longer be added imperatively with `brew tap`.
+          mutableTaps = false;
+        };
 
-      masApps = {
-        "Amphetamine" = 937984704;
-        "GoPro Quik" = 561350520;
+        homebrew = {
+          enable = true;
+          onActivation.cleanup = "zap";
+          onActivation.autoUpdate = true;
+          onActivation.upgrade = true;
+
+          # https://github.com/zhaofengli/nix-homebrew/issues/5#issuecomment-1878798641
+          taps = builtins.attrNames config.nix-homebrew.taps;
+
+          brews = [
+            "cowsay"
+            "kanata"
+            "mas" # cli for mas app ids
+          ];
+          casks = [
+            "ghostty"
+            "spotify"
+            "cursor"
+            "discord"
+            "steam"
+            "epic-games"
+            "porting-kit"
+            "msty"
+            "multiviewer"
+            "clocker"
+            "whisky"
+            "crossover"
+            "obs"
+            "parsec"
+            "trex"
+            "whatsapp"
+            "android-file-transfer"
+            "protonvpn"
+            "osquery"
+          ];
+
+          masApps = {
+            "Amphetamine" = 937984704;
+            "GoPro Quik" = 561350520;
+          };
+        };
       };
     };
-  };
 }
