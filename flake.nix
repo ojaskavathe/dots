@@ -92,10 +92,10 @@
     };
   };
 
-  # Migration to the dendritic pattern (flake-parts + import-tree) is in
-  # progress. Phase 0: everything still lives verbatim in the `flake` block
-  # below; only the outer scaffolding changed. Later phases move each config
-  # into per-feature flake-parts modules under ./modules.
+  # Dendritic pattern: every .nix under ./modules (except paths containing /_)
+  # is a flake-parts module, auto-imported by import-tree. Each contributes to
+  # the flake.modules.<class>.<name> namespace; the assemblies in the `flake`
+  # block below select those pieces by name.
   outputs =
     inputs:
     inputs.flake-parts.lib.mkFlake { inherit inputs; } (
@@ -104,7 +104,6 @@
         inherit (inputs)
           disko
           nixpkgs
-          nixpkgs-stable
           nix-darwin
           home-manager
           stylix
@@ -114,40 +113,8 @@
         nm = config.flake.modules.nixos;
       in
       {
-        # Converted flake-parts modules are listed explicitly during the
-        # migration so unconverted files under ./modules stay untouched. Phase 5
-        # swaps this whole list for `inputs.import-tree ./modules`.
         imports = [
-          ./modules/flake/modules-option.nix
-          ./modules/lib/nixpkgs.nix
-          ./modules/home/git.nix
-          ./modules/home/zsh.nix
-          ./modules/home/direnv.nix
-          ./modules/home/tmux.nix
-          ./modules/home/stylix.nix
-          ./modules/home/kitty.nix
-          ./modules/home/zen.nix
-          ./modules/home/sops.nix
-          ./modules/home/claude.nix
-          ./modules/home/codex.nix
-          ./modules/home/blender-mcp.nix
-          ./modules/home/kde.nix
-          ./modules/home/hyprland.nix
-          ./modules/home/shared.nix
-          ./modules/home/linux.nix
-          ./modules/home/ojas.nix
-          ./modules/home/dingus-wsl.nix
-          ./modules/home/dingus.nix
-          ./modules/darwin/aerospace.nix
-          ./modules/darwin/homebrew.nix
-          ./modules/darwin/kanata/kanata.nix
-          ./modules/darwin/base.nix
-          ./modules/darwin/camille.nix
-          ./modules/nixos/nvidia.nix
-          ./modules/nixos/kanata.nix
-          ./modules/nixos/hyprland.nix
-          ./modules/nixos/base.nix
-          ./modules/nixos/galio-wsl.nix
+          (inputs.import-tree ./modules)
         ];
 
         systems = [
