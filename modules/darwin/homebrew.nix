@@ -9,6 +9,8 @@
       ...
     }:
     {
+      imports = [ inputs.nix-homebrew.darwinModules.nix-homebrew ];
+
       options = {
         nix-hb = {
           enable = lib.mkEnableOption "Enable Homebrew";

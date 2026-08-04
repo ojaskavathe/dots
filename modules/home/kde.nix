@@ -1,4 +1,4 @@
-{ ... }:
+{ inputs, ... }:
 {
   flake.modules.homeManager.kde =
     {
@@ -7,6 +7,7 @@
       ...
     }:
     {
+      imports = [ inputs.plasma-manager.homeManagerModules.plasma-manager ];
 
       options = {
         kde = {
