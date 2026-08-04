@@ -1,179 +1,74 @@
-# NixOS and Darwin Configuration
+# dots
 
-This repository contains my Nix configurations for both NixOS and Darwin (macOS)
-systems, managed through Nix flakes. It includes home-manager configurations and
-various system modules.
+my nix config for macos (nix-darwin) and nixos, plus home-manager. built with
+[flake-parts] + [import-tree] in the [dendritic] style: every file under
+`modules/` is a flake-parts module, and each reusable piece is exposed as
+`flake.modules.<class>.<name>` — so a downstream flake can pull them in and
+build on top (that's what my private `dotdot` does).
 
-## System Configurations
+## hosts
 
-### NixOS (TUF)
+- `camille` — macbook pro (aarch64-darwin)
+- `tuf` — asus tuf a15 (nixos)
+- `galio-wsl` — nixos on wsl
 
-The NixOS configuration was designed for my Asus TUF A15 (tuf) and includes:
-
-- Disko-based disk partitioning and formatting
-- System-wide configurations in `hosts/tuf/`
-- Shared and NixOS-specific modules
-
-### Darwin (Camille)
-
-The Darwin configuration is designed for an M4 Max Macbook Pro (camille) and
-includes:
-
-- System-wide configurations in `hosts/camille/`
-- Shared and Darwin-specific modules
-- Homebrew integration through nix-homebrew
-
-## Nixos/Darwin Modules
+## layout
 
 ```
 modules/
-├── shared/
-│   └── default.nix
-├── nixos/
-│   ├── default.nix
-│   ├── hyprland.nix
-│   ├── kanata.nix
-│   └── nvidia.nix
-└── darwin/
-    ├── default.nix
-    ├── aerospace.nix
-    ├── homebrew.nix
-    └── kanata/
+  home/     home-manager feature modules (git, zsh, tmux, stylix, ...)
+  users/    per-user home configs (ojas, dingus)
+  darwin/   nix-darwin modules + base bundle
+  nixos/    nixos modules + base bundle
+  hosts/    host assemblies (camille, tuf, galio-wsl)
+  _nvim/    neovim (nixCats), a vendored subflake
+  flake-modules.nix   nixpkgs.nix   # shared bits
 ```
 
-## Home Manager Modules
+paths with a `_` component are ignored by import-tree — subflakes (`_nvim`),
+host hardware (`hosts/_tuf`), and non-module helpers (`home/_hyprland`).
+
+## use
 
 ```
-home/
-├── shared/
-│   ├── default.nix
-│   ├── git.nix
-│   ├── stylix-home.nix
-│   ├── tmux.nix
-│   ├── kitty/
-│   │   ├── kitty.nix
-│   │   └── kitty.app.png
-│   ├── nvim/
-│   │   ├── nvim.nix
-│   │   ├── diagnostics.lua
-│   │   ├── keymap.lua
-│   │   ├── options.lua
-│   │   ├── statuscol.lua
-│   │   ├── avante.nvim/
-│   │   └── plugins/
-│   └── shell/
-│       ├── zsh.nix
-│       ├── aliases.zsh
-│       ├── completions.zsh
-│       └── direnv.nix
-├── darwin/
-│   └── default.nix
-└── nixos/
-    ├── default.nix
-    └── desktop/
-        ├── hyprland/
-        └── kde.nix
+drs   # darwin-rebuild switch --flake .#camille
+nrs   # nixos-rebuild  switch --flake .#tuf
+hms   # home-manager   switch --flake .#<user>@<host>
 ```
 
-## User Configurations
+## reinstall (nixos)
 
-User-specific configurations are stored in the `users/` directory:
-
-- `dingus.nix`: Configuration for the dingus user on NixOS
-- `ojas.nix`: Configuration for the ojas user on Darwin
-
-## Installation
-
-### NixOS Installation
-
-1. Clone the repository in `/tmp`:
-
-   ```bash
-   git clone <repository-url> /tmp/nixos-config
-   ```
-
-2. Partition and format using disko:
-
-   ```bash
-   sudo nix --experimental-features "nix-command flakes" run github:nix-community/disko -- --mode disko --argstr target <device-name> /tmp/nixos-config/nixos/disko-configuration.nix
-   ```
-
-3. Generate and set up configuration:
-
-   ```bash
-   sudo nixos-generate-config --no-filesystems --root /mnt
-   sudo rm /mnt/etc/nixos/configuration.nix
-   sudo mv /tmp/nixos-config/* /mnt/etc/nixos
-   sudo mv /mnt/etc/nixos/hardware-configuration /mnt/etc/nixos/nixos
-   ```
-
-4. Install NixOS:
-   ```bash
-   sudo nixos-install -v --show-trace --no-root-passwd --root /mnt --flake /mnt/etc/nixos#nixos
-   ```
-
-### Darwin Installation
-
-1. Install nix-darwin:
-
-   ```bash
-   nix-build https://github.com/LnL7/nix-darwin/archive/master.tar.gz -A installer
-   ./result/bin/darwin-installer
-   ```
-
-2. Clone the repository and switch to the configuration:
-   ```bash
-   git clone <repository-url> ~/.config/nixpkgs
-   darwin-rebuild switch --flake ~/.config/nixpkgs#camille
-   ```
-
-## Home Manager
-
-To apply home-manager configurations:
-
-### NixOS
-
-```bash
-home-manager switch --flake .#dingus@nixos
+```
+sudo nix run github:nix-community/disko -- --mode disko \
+  --argstr target /dev/nvme0n1 ./modules/hosts/_tuf/disko-configuration.nix
+sudo nixos-install --flake .#tuf
 ```
 
-### Darwin
+## kanata on macos
 
-```bash
-home-manager switch --flake .#ojas@camille
-```
-
-- Install home-manager using `nix shell nixpkgs#home-manager`.
-
-### Windows (Kanata only)
-
-From an elevated PowerShell:
-
-```powershell
-irm https://raw.githubusercontent.com/ojaskavathe/dots/master/windows/setup.ps1 | iex
-```
-
-This installs kanata, fetches the latest keyboard config, and sets it to run at
-login. Re-run to update.
-
-## Misc
-
-### Kanata on MacOS
-
-Install Karabiner-DriverKit-VirtualHIDDevice from
-[here](https://github.com/pqrs-org/Karabiner-DriverKit-VirtualHIDDevice/tree/main/dist).
-
-Then run:
+install [Karabiner-DriverKit-VirtualHIDDevice] and activate it:
 
 ```
 /Applications/.Karabiner-VirtualHIDDevice-Manager.app/Contents/MacOS/Karabiner-VirtualHIDDevice-Manager activate
 ```
 
-Then go to Settings > General > Driver Extensions and enable the
-VirtualHIDDevice.
+enable it under Settings > General > Login Items & Extensions > Driver
+Extensions. a launchd daemon then runs kanata on boot (logs in `/tmp`). add
+kanata, tmux, and kitty to Settings > Privacy & Security > Input Monitoring
+(from their `~/.nix-profile/bin` symlinks).
 
-On restart, the launchctl daemon should run an instance of kanata. For errors,
-check in `/tmp`.
+## windows (kanata only)
 
-Also, add kanata, tmux, and the default terminal(kitty) to Settings > Privacy
-and Security > Input monitoring, from their symlinks in `~/.nix-profile/bin`
+from an elevated powershell:
+
+```
+irm https://raw.githubusercontent.com/ojaskavathe/dots/master/windows/setup.ps1 | iex
+```
+
+installs kanata, fetches the latest keyboard config, runs it at login. re-run to
+update.
+
+[flake-parts]: https://flake.parts
+[import-tree]: https://github.com/vic/import-tree
+[dendritic]: https://github.com/mightyiam/dendritic
+[Karabiner-DriverKit-VirtualHIDDevice]: https://github.com/pqrs-org/Karabiner-DriverKit-VirtualHIDDevice/tree/main/dist
