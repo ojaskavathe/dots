@@ -13,4 +13,10 @@
     default = { };
     description = "Reusable modules grouped by class (nixos, darwin, homeManager).";
   };
+
+  # Export just this option declaration as a flakeModule so a downstream flake
+  # (e.g. a private wrapper) can `imports = [ dots.flakeModules.default ]` to get
+  # the `flake.modules` namespace, then define its own entries in it — while
+  # consuming public's evaluated pieces via `dots.modules.<class>.<name>`.
+  config.flake.flakeModules.default = ./flake-modules.nix;
 }
