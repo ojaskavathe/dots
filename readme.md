@@ -31,9 +31,8 @@ host hardware (`hosts/_tuf`), and non-module helpers (`home/_hyprland`).
 ## use
 
 ```
-drs   # darwin-rebuild switch --flake .#camille
-nrs   # nixos-rebuild  switch --flake .#tuf
-hms   # home-manager   switch --flake .#<user>@<host>
+nrs   # system rebuild — darwin or nixos, picked by host
+hms   # home-manager switch --flake .#<user>@<host>
 ```
 
 ## reinstall (nixos)
