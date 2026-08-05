@@ -21,6 +21,7 @@ in
       hm.sops
       hm.claude
       hm.codex
+      hm.grok
       hm.blender-mcp
     ];
 
@@ -36,6 +37,7 @@ in
 
     claude.enable = lib.mkDefault false;
     codex.enable = lib.mkDefault false;
+    grok.enable = lib.mkDefault false;
     blender-mcp.enable = lib.mkDefault false;
 
     sops-home.enable = lib.mkDefault false;
