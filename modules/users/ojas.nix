@@ -11,6 +11,22 @@
       pkgs-stable,
       ...
     }:
+    let
+      # Put real file *references* on the macOS clipboard (not just path text),
+      # so ⌘V in Finder pastes the files themselves. pbcopy can't do this;
+      # NSPasteboard via JXA can. Handles multiple selected files.
+      yaziClip = pkgs.writeShellScript "yazi-clip" ''
+        osascript -l JavaScript -e '
+        ObjC.import("AppKit");
+        function run(argv) {
+          const pb = $.NSPasteboard.generalPasteboard;
+          pb.clearContents;
+          const arr = $.NSMutableArray.alloc.init;
+          argv.forEach(p => arr.addObject($.NSURL.fileURLWithPath(p)));
+          pb.writeObjects(arr);
+        }' "$@"
+      '';
+    in
     {
       home = {
         username = "ojas";
@@ -100,6 +116,32 @@
         enable = true;
         enableZshIntegration = true;
         shellWrapperName = "y";
+
+        # yank (y): copy the selected/hovered files to the macOS clipboard as
+        # real file references (⌘V pastes the files in Finder), then yank inside
+        # yazi as usual (so `p` still pastes within yazi).
+        keymap.mgr.prepend_keymap = [
+          {
+            on = "y";
+            run = [
+              "shell -- ${yaziClip} %s"
+              "yank"
+            ];
+            desc = "Copy files to clipboard, then yank";
+          }
+        ];
+
+        # show a symlink's target in the status bar
+        initLua = ''
+          Status:children_add(function(self)
+            local h = self._current.hovered
+            if h and h.link_to then
+              return " -> " .. tostring(h.link_to)
+            else
+              return ""
+            end
+          end, 3300, Status.LEFT)
+        '';
       };
 
       programs.awscli = {
