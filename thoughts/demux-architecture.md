@@ -168,23 +168,21 @@ previews — capture-pane already returns a rendered screen.
   mapping)
 - kill/spawn follow the same path (`kill-pane`, `split-window` for "new agent
   here", worktree-aware spawn later)
-- the sidebar is a REAL PANE in user windows (the spike's final, user-confirmed
-  UX: it makes room, it is not an overlay). two hard-won rules make that safe:
-  - `select-layout` is BANNED: it assigns geometry to panes by index order and
-    ignores the pane ids in the layout string, and `join-pane -b` desyncs index
-    order from geometric order — any layout-string restore shuffles user
-    splits. width give-back uses `resize-pane` only (content-safe, targets
-    ids).
-  - width baselines must be LIVE, not snapshots: the daemon keeps them from
-    `%layout-change` (own session) and re-queries the target window's layout
-    over the control connection immediately before each join (cross-session
-    geometry emits no events — see notification coverage). commands on the
-    control connection are serialized by tmux, so a pre-join query cannot race
-    the join.
-  (the frame — outer chrome tmux server — was built and works, but nesting
-  unwraps one layer of kitty-graphics passthrough, degrading yazi/image
-  previews; kept as `demux up`, deprecated. the popup overlay is kept as
-  `demux popup`.)
+- the browse surface is a PERSISTENT DEMUX-OWNED WINDOW in a hidden `_demux`
+  session: a 40-col list pane + a full-size preview canvas (choose-tree
+  mechanics, custom UI). M-s = `switch-client` to it; j/k paints captured
+  frames into the canvas (no debounce — nothing in user windows moves);
+  Enter = `switch-client` to the target; q returns to origin. previews stay
+  LIVE via a capture stream (10fps while browsing, frames dropped when
+  content is unchanged) — the only universal source, since cross-session
+  panes emit no `%output`. user windows are never joined into, resized, or
+  renamed: the sidebar-as-joined-pane design (and its whole baseline/restore
+  problem class) was built, worked, and was retired for scrub latency — every
+  preview join reflowed the target window's apps via SIGWINCH (git history:
+  f2538c2). still-load-bearing rules from that era: `select-layout` stays
+  BANNED (positional; corrupts layouts); sequences abort at first error
+  (critical commands first); all switching client-explicit (`-c`);
+  per-client truth via list-clients rows, never `display-message -c`.
 
 ## language
 
