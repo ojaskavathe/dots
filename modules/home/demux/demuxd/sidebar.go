@@ -3,10 +3,12 @@ package main
 import (
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Daemon-side sidebar mechanics. The UX contract comes from the sh spike
@@ -59,16 +61,44 @@ type daemon struct {
 }
 
 func (d *daemon) handleCmd(ctl *control, env cmdEnvelope) {
+	// Coalesce a preview backlog: scrubbing can queue previews faster than
+	// tmux can reflow windows; only the newest target matters.
+	if env.msg.Cmd == "preview" {
+		for {
+			select {
+			case next := <-d.h.cmds:
+				if next.msg.Cmd == "preview" {
+					d.h.send(env.sub, marshalLine(replyMsg{Type: "reply", OK: true}))
+					env = next
+					continue
+				}
+				d.runCmd(ctl, env)
+				env = next
+			default:
+			}
+			break
+		}
+	}
+	d.runCmd(ctl, env)
+}
+
+func (d *daemon) runCmd(ctl *control, env cmdEnvelope) {
+	start := time.Now()
 	var err error
 	switch env.msg.Cmd {
 	case "toggle":
 		err = d.toggle(ctl, env.msg.Client)
 	case "preview":
 		err = d.preview(ctl, env.msg.Window)
-	case "commit", "close":
-		err = d.closeSidebar(ctl)
+	case "commit":
+		err = d.closeSidebar(ctl, env.msg.Window)
+	case "close":
+		err = d.closeSidebar(ctl, "")
 	default:
 		err = fmt.Errorf("unknown cmd %q", env.msg.Cmd)
+	}
+	if dur := time.Since(start); dur > 25*time.Millisecond {
+		log.Printf("%s took %s", env.msg.Cmd, dur)
 	}
 	r := replyMsg{Type: "reply", OK: err == nil}
 	if err != nil {
@@ -98,7 +128,7 @@ func (d *daemon) toggle(ctl *control, client string) error {
 		_, err := ctl.run("select-pane -t " + q(d.sb.pane))
 		return err
 	}
-	return d.closeSidebar(ctl)
+	return d.closeSidebar(ctl, "")
 }
 
 // clientView asks tmux (not the model) where the client is right now: the
@@ -134,7 +164,6 @@ func (d *daemon) summon(ctl *control, client, sid, wid, pid string) error {
 	// automatic-rename goes off before the split lands, in the same
 	// sequence: once the sidebar is the active pane tmux would rename the
 	// window to "demuxd".
-	autoRename := d.queryAutoRename(ctl, wid)
 	lines, err := ctl.runSeq(
 		"set-option -wq -t "+q(wid)+" automatic-rename off",
 		fmt.Sprintf("split-window -hbf -l %d -t %s -P -F '#{pane_id}' %s",
@@ -151,7 +180,7 @@ func (d *daemon) summon(ctl *control, client, sid, wid, pid string) error {
 	_, _ = ctl.runSeq(
 		"set-option -p -t "+q(sb)+" @demux_sidebar 1",
 		"select-pane -t "+q(sb))
-	d.sb = &sidebarState{pane: sb, client: client, window: wid, session: sid, baseline: base, autoRename: autoRename}
+	d.sb = &sidebarState{pane: sb, client: client, window: wid, session: sid, baseline: base.entries, autoRename: base.autoRename}
 	return nil
 }
 
@@ -173,7 +202,6 @@ func (d *daemon) join(ctl *control, sid, wid string, mode joinMode) error {
 	if err != nil {
 		return err
 	}
-	autoRename := d.queryAutoRename(ctl, wid)
 	oldWin, oldBase, oldAR := d.sb.window, d.sb.baseline, d.sb.autoRename
 	cmds := []string{
 		"set-option -wq -t " + q(wid) + " automatic-rename off",
@@ -197,7 +225,7 @@ func (d *daemon) join(ctl *control, sid, wid string, mode joinMode) error {
 		d.resync(ctl)
 		return err
 	}
-	d.sb.window, d.sb.session, d.sb.baseline, d.sb.autoRename = wid, sid, base, autoRename
+	d.sb.window, d.sb.session, d.sb.baseline, d.sb.autoRename = wid, sid, base.entries, base.autoRename
 	return nil
 }
 
@@ -222,30 +250,58 @@ func (d *daemon) preview(ctl *control, wid string) error {
 }
 
 // closeSidebar kills the sidebar pane and gives the freed width back in the
-// same sequence — one reflow, not two (spike rule).
-func (d *daemon) closeSidebar(ctl *control) error {
+// same sequence — one reflow, not two (spike rule). A non-empty jumpTo also
+// moves the client there first (commit = jump + close, independent of
+// whether a debounced preview ever fired for that selection).
+func (d *daemon) closeSidebar(ctl *control, jumpTo string) error {
 	if d.sb == nil {
 		return nil
 	}
-	cmds := append([]string{"kill-pane -t " + q(d.sb.pane)}, d.restoreCmds(d.sb.window, d.sb.baseline)...)
+	var cmds []string
+	if jumpTo != "" && jumpTo != d.sb.window {
+		for _, w := range d.h.getWorld().Windows {
+			if w.ID == jumpTo {
+				cmds = append(cmds,
+					"select-window -t "+q(jumpTo),
+					"switch-client -c "+q(d.sb.client)+" -t "+q(w.SessionID))
+				break
+			}
+		}
+	}
+	cmds = append(cmds, "kill-pane -t "+q(d.sb.pane))
+	cmds = append(cmds, d.restoreCmds(d.sb.window, d.sb.baseline)...)
 	cmds = append(cmds, autoRenameRestoreCmd(d.sb.window, d.sb.autoRename))
 	_, err := ctl.runSeq(cmds...)
 	d.sb = nil
 	return err
 }
 
-// freshBaseline records the target window's pane geometry right before a
-// join, ordered by position. Live by construction: this query and the join
-// that follows are serialized on the same connection.
-func (d *daemon) freshBaseline(ctl *control, wid string) ([]baseEntry, error) {
-	lines, err := ctl.run("list-panes -t " + q(wid) + " -F " + f("#{pane_id}", "#{pane_left}", "#{pane_top}", "#{pane_width}"))
+// baselineInfo is everything join/summon must know about a window before
+// entering it, captured in ONE round trip.
+type baselineInfo struct {
+	entries    []baseEntry
+	autoRename string // window-level automatic-rename ("" = unset)
+}
+
+// freshBaseline records the target window's pane geometry (ordered by
+// position) and its automatic-rename setting right before a join. Live by
+// construction: this query and the join that follows are serialized on the
+// same connection. The two commands share one sequence; pane lines carry
+// four separator-delimited fields, the option value (if any) has none.
+func (d *daemon) freshBaseline(ctl *control, wid string) (baselineInfo, error) {
+	var info baselineInfo
+	lines, err := ctl.runSeq(
+		"list-panes -t "+q(wid)+" -F "+f("#{pane_id}", "#{pane_left}", "#{pane_top}", "#{pane_width}"),
+		"show-options -wqv -t "+q(wid)+" automatic-rename")
 	if err != nil {
-		return nil, err
+		return info, err
 	}
-	var base []baseEntry
 	for _, ln := range lines {
 		p := strings.Split(ln, sep)
 		if len(p) != 4 {
+			if v := strings.TrimSpace(ln); v != "" {
+				info.autoRename = v
+			}
 			continue
 		}
 		if d.sb != nil && p[0] == d.sb.pane {
@@ -257,15 +313,15 @@ func (d *daemon) freshBaseline(ctl *control, wid string) ([]baseEntry, error) {
 		if err != nil {
 			continue
 		}
-		base = append(base, baseEntry{id: p[0], left: left, top: top, width: width})
+		info.entries = append(info.entries, baseEntry{id: p[0], left: left, top: top, width: width})
 	}
-	sort.Slice(base, func(i, j int) bool {
-		if base[i].left != base[j].left {
-			return base[i].left < base[j].left
+	sort.Slice(info.entries, func(i, j int) bool {
+		if info.entries[i].left != info.entries[j].left {
+			return info.entries[i].left < info.entries[j].left
 		}
-		return base[i].top < base[j].top
+		return info.entries[i].top < info.entries[j].top
 	})
-	return base, nil
+	return info, nil
 }
 
 // restoreCmds builds resize-pane commands, in baseline (positional) order,
@@ -290,16 +346,6 @@ func (d *daemon) restoreCmds(wid string, base []baseEntry) []string {
 		cmds = append(cmds, fmt.Sprintf("resize-pane -t %s -x %d", q(e.id), e.width))
 	}
 	return cmds
-}
-
-// queryAutoRename reads a window's own automatic-rename setting ("" when the
-// window inherits the global value).
-func (d *daemon) queryAutoRename(ctl *control, wid string) string {
-	lines, err := ctl.run("show-options -wqv -t " + q(wid) + " automatic-rename")
-	if err != nil || len(lines) == 0 {
-		return ""
-	}
-	return strings.TrimSpace(lines[0])
 }
 
 func autoRenameRestoreCmd(wid, val string) string {

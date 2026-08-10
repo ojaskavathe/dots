@@ -187,17 +187,46 @@ func cmdTui(tmuxSock, demuxSock string) {
 		b, _ := json.Marshal(m)
 		conn.Write(append(b, '\n'))
 	}
-	leave := func(cmd string) {
-		send(cmdMsg{Cmd: cmd})
-		// The daemon kills this pane (batched with the width restore). If
-		// that somehow never comes, don't haunt the pane forever.
-		time.AfterFunc(2*time.Second, func() { os.Exit(0) })
-	}
 
 	st := &store{}
 	sel := 0
 	esc := 0 // escape-sequence state for arrow keys
 	var rows []row
+
+	// Previews are debounced: every selection change on a scrub would
+	// otherwise join+switch — a window-wide reflow (every pane in the target
+	// gets resized and its app reflows on SIGWINCH). Only the selection you
+	// rest on for a beat is previewed; Enter carries its own target so a
+	// commit never depends on the preview having fired.
+	const previewDelay = 60 * time.Millisecond
+	var previewTimer *time.Timer
+	previewDue := make(chan struct{}, 1)
+	armPreview := func() {
+		if previewTimer != nil {
+			previewTimer.Stop()
+		}
+		previewTimer = time.AfterFunc(previewDelay, func() {
+			select {
+			case previewDue <- struct{}{}:
+			default:
+			}
+		})
+	}
+	target := func() string {
+		if sel >= 0 && sel < len(rows) {
+			return rows[sel].window
+		}
+		return ""
+	}
+	leave := func(cmd string) {
+		if previewTimer != nil {
+			previewTimer.Stop()
+		}
+		send(cmdMsg{Cmd: cmd, Window: target()})
+		// The daemon kills this pane (batched with the width restore). If
+		// that somehow never comes, don't haunt the pane forever.
+		time.AfterFunc(2*time.Second, func() { os.Exit(0) })
+	}
 
 	repaint := func() {
 		rows = st.rows()
@@ -208,11 +237,6 @@ func cmdTui(tmuxSock, demuxSock string) {
 			sel = 0
 		}
 		paint(rows, sel)
-	}
-	preview := func() {
-		if sel >= 0 && sel < len(rows) && rows[sel].window != "" {
-			send(cmdMsg{Cmd: "preview", Window: rows[sel].window})
-		}
 	}
 	move := func(delta int) {
 		if len(rows) == 0 {
@@ -230,7 +254,7 @@ func cmdTui(tmuxSock, demuxSock string) {
 		}
 		sel = next
 		paint(rows, sel)
-		preview()
+		armPreview()
 	}
 
 	for {
@@ -242,6 +266,10 @@ func cmdTui(tmuxSock, demuxSock string) {
 			if m.Type == "snapshot" || m.Type == "diff" {
 				st.apply(m)
 				repaint()
+			}
+		case <-previewDue:
+			if w := target(); w != "" {
+				send(cmdMsg{Cmd: "preview", Window: w})
 			}
 		case b, ok := <-keys:
 			if !ok {
