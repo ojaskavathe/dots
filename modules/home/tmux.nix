@@ -30,18 +30,21 @@
         );
       };
 
-      # inner-server events that change what the demux sidebar shows
+      # events that change what the demux sidebar shows
       demuxRefreshHooks = [
         "session-created"
         "session-closed"
         "session-renamed"
         "client-attached"
         "client-detached"
-        "client-session-changed"
-        "session-window-changed"
         "window-linked"
         "window-unlinked"
         "window-renamed"
+      ];
+      # events that move the client elsewhere: the sidebar follows
+      demuxFollowHooks = [
+        "client-session-changed"
+        "session-window-changed"
       ];
     in
     {
@@ -125,14 +128,15 @@
             set -g status-interval 15
             set -g status-position top
 
-            # Cycle windows
-            bind -n M-h previous-window
-            bind -n M-l next-window
+            # Cycle windows; with the demux sidebar open, route through demux
+            # so the sidebar moves in the same batch (no reflow jitter)
+            bind -n M-h if-shell -F '#{@demux_open}' 'run-shell -b "${demux}/bin/demux nav prev \"#{window_id}\""' 'previous-window'
+            bind -n M-l if-shell -F '#{@demux_open}' 'run-shell -b "${demux}/bin/demux nav next \"#{window_id}\""' 'next-window'
 
-            # demux popup sidebar: overlay over the real tmux, no nesting, so
-            # images/passthrough are untouched. under the demux frame, M-s is
-            # intercepted by the outer server instead and this never fires.
-            bind -n M-s display-popup -E -B -x 0 -y 0 -w 34 -h 100% '${demux}/bin/demux popup'
+            # demux sidebar (real pane): M-s opens / focuses / closes.
+            # width restore on leave uses resize-pane only — never
+            # select-layout (positional; corrupts splits)
+            bind -n M-s run-shell -b '${demux}/bin/demux focus "#{pane_id}"'
             bind -n M-e run-shell -b '${tmuxEqualizeNvim}/bin/tmux-equalize-nvim'
             bind -n M-g send-keys C-l \; run-shell -b -d 0.05 -C 'clear-history -t "#{pane_id}"'
 
@@ -166,10 +170,13 @@
             # restore clear with <prefix>C-l
             bind C-l send-keys 'C-l'
 
-            # demux (frame spike): these hooks keep the frame's sidebar live
+            # demux hooks: repaint on changes; follow the client on switches
             ${lib.concatMapStrings (h: ''
               set-hook -g ${h} 'run-shell -b "${demux}/bin/demux refresh"'
             '') demuxRefreshHooks}
+            ${lib.concatMapStrings (h: ''
+              set-hook -g ${h} 'run-shell -b "${demux}/bin/demux follow"'
+            '') demuxFollowHooks}
           '';
         };
       };
