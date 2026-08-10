@@ -69,8 +69,8 @@ one per tmux server socket. owns everything:
 
 - **ingest**: control-mode notifications + agent events on the unix socket
 - **reducer**: events → state mutations → diffs
-- **pub/sub**: clients connect to `$XDG_RUNTIME_DIR/demux/<server>.sock`, receive
-  a full snapshot then diffs (NDJSON)
+- **pub/sub**: clients connect to `$XDG_RUNTIME_DIR/demux/<server>.sock`,
+  receive a full snapshot then diffs (NDJSON)
 - **timers**: the only time-based logic allowed — debounce `%output` bursts,
   classify "no output for Ns" as idle for unhooked agents. these are internal
   state-machine timers, not polls of tmux.
@@ -105,15 +105,15 @@ by design.
   herdr-look achievable pixel for pixel.
 - **statusline bridge** — on diff:
   `tmux set -g @demux_status "…" ; refresh-client -S`. the status line stays a
-  dumb `#{@demux_status}` format reference: zero-cost render, instant updates, no
-  `#()`.
+  dumb `#{@demux_status}` format reference: zero-cost render, instant updates,
+  no `#()`.
 - **notifier** — on working→blocked: `tmux display-message`, bell, or
   terminal-notifier. policy lives here, not in the daemon.
 - **demux CLI** — `demux ls`, `demux jump <target>`, `demux emit …`, scripting
   surface for everything else (and the hook entrypoint).
 
-one binary, subcommands (`demux daemon`, `demux sidebar`, `demux emit`, …) — single
-nix package, shared model/protocol code.
+one binary, subcommands (`demux daemon`, `demux sidebar`, `demux emit`, …) —
+single nix package, shared model/protocol code.
 
 ## data model
 
@@ -168,11 +168,17 @@ previews — capture-pane already returns a rendered screen.
   mapping)
 - kill/spawn follow the same path (`kill-pane`, `split-window` for "new agent
   here", worktree-aware spawn later)
-- sidebar panes: per-session, spawned by the same toggle (layout
-  snapshot/restore mechanics carry over from the spike unchanged). selection
-  state is local to each sidebar process; world state is shared through the
-  daemon. a later "mission control" full-window client is just another
-  subscriber with a bigger canvas.
+- the sidebar lives in a FRAME, not in user windows. hard-won spike finding:
+  `select-layout` assigns geometry to panes by index order and ignores the pane
+  ids in the layout string, and `join-pane -b` desyncs index order from
+  geometric order — so any sidebar-as-pane-in-user-windows design corrupts
+  layouts (shuffled splits, flipped orientations). instead, an outer chrome tmux
+  server (no prefix, no status, nesting defaults flipped: escape-time 0,
+  set-clipboard, allow-passthrough, RGB) hosts two panes: the sidebar and a
+  nested client attached to the real server. user layouts are untouchable by
+  construction; the sidebar never moves; previews are one `switch-client` on the
+  inner server. a later "mission control" full-window client is just another
+  subscriber with a bigger canvas inside the frame.
 
 ## language
 
@@ -182,8 +188,8 @@ capable — choose go purely for repo consistency and iteration speed.
 
 ## nix / deployment
 
-- flake package `demux` (buildGoModule) — its own repo once it stabilizes; starts
-  life under `modules/home/demux/`
+- flake package `demux` (buildGoModule) — its own repo once it stabilizes;
+  starts life under `modules/home/demux/`
 - hm module wires: toggle keybind (`prefix b` →
   `demux sidebar --toggle "#{pane_id}"`), claude code hook entries pointing at
   `demux emit`, statusline format reference, launchd/systemd user service
