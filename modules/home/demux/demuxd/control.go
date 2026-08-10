@@ -24,7 +24,7 @@ type control struct {
 
 	mu      sync.Mutex
 	hello   bool // the unsolicited %begin/%end block from attach is still owed
-	pending []chan cmdReply
+	pending []*pendingCmd
 
 	done    chan struct{} // closed when the reader exits (connection over)
 	exitErr error
@@ -33,6 +33,17 @@ type control struct {
 type cmdReply struct {
 	lines []string
 	err   error
+}
+
+// pendingCmd tracks one sent line. A line holding a "a ; b ; c" sequence gets
+// one %begin/%end block PER command, and an %error ABORTS the rest of the
+// sequence (verified: the blocks after a failing command never arrive) — so a
+// reply is complete at n blocks or at the first %error, whichever comes first.
+type pendingCmd struct {
+	n     int
+	got   int
+	lines []string
+	ch    chan cmdReply
 }
 
 // dialControl attaches a control-mode client to the tmux server. The attach
@@ -119,8 +130,8 @@ func (c *control) read(stdout io.Reader) {
 		c.exitErr = err
 	}
 	c.mu.Lock()
-	for _, ch := range c.pending {
-		ch <- cmdReply{err: errors.New("control connection closed")}
+	for _, p := range c.pending {
+		p.ch <- cmdReply{err: errors.New("control connection closed")}
 	}
 	c.pending = nil
 	c.mu.Unlock()
@@ -142,28 +153,41 @@ func (c *control) deliver(lines []string, isErr bool) {
 		c.mu.Unlock()
 		return
 	}
-	ch := c.pending[0]
+	p := c.pending[0]
+	p.lines = append(p.lines, lines...)
+	p.got++
+	if !isErr && p.got < p.n {
+		c.mu.Unlock()
+		return
+	}
 	c.pending = c.pending[1:]
 	c.mu.Unlock()
-	r := cmdReply{lines: lines}
+	r := cmdReply{lines: p.lines}
 	if isErr {
 		r.err = fmt.Errorf("tmux: %s", strings.Join(lines, " "))
 	}
-	ch <- r
+	p.ch <- r
 }
 
 // run sends one tmux command down the connection and waits for its reply.
 func (c *control) run(command string) ([]string, error) {
-	ch := make(chan cmdReply, 1)
+	return c.runSeq(command)
+}
+
+// runSeq sends the commands as one "a ; b ; c" line: a single client command
+// list, contiguous in tmux's queue — nothing from another client can land
+// between them, and an error in one aborts the rest (order critical-first).
+func (c *control) runSeq(commands ...string) ([]string, error) {
+	p := &pendingCmd{n: len(commands), ch: make(chan cmdReply, 1)}
 	c.mu.Lock()
-	c.pending = append(c.pending, ch)
-	_, err := io.WriteString(c.stdin, command+"\n")
+	c.pending = append(c.pending, p)
+	_, err := io.WriteString(c.stdin, strings.Join(commands, " ; ")+"\n")
 	c.mu.Unlock()
 	if err != nil {
 		return nil, err
 	}
 	select {
-	case r := <-ch:
+	case r := <-p.ch:
 		return r.lines, r.err
 	case <-c.done:
 		return nil, errors.New("control connection closed")

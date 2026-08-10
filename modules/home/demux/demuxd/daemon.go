@@ -21,6 +21,7 @@ func runDaemon(tmuxSock, demuxSock string) {
 	log.SetFlags(log.Ltime | log.Lmicroseconds)
 
 	h := newHub()
+	d := &daemon{tmuxSock: tmuxSock, h: h}
 	var ln net.Listener
 
 	sig := make(chan os.Signal, 1)
@@ -67,7 +68,7 @@ func runDaemon(tmuxSock, demuxSock string) {
 			log.Printf("reattached to %s", tmuxSock)
 		}
 
-		if !consume(ctl, h, w, tmuxSock, sig) {
+		if !consume(d, ctl, w, sig) {
 			ctl.close()
 			h.closeAll()
 			return
@@ -79,9 +80,12 @@ func runDaemon(tmuxSock, demuxSock string) {
 	}
 }
 
-// consume runs the event loop for one control connection. Returns true if the
-// connection ended but the daemon should try to reattach, false on shutdown.
-func consume(ctl *control, h *hub, w world, tmuxSock string, sig chan os.Signal) bool {
+// consume runs the event loop for one control connection: re-lists, client
+// commands, and sidebar upkeep all execute here, single-threaded — the
+// serialization that makes the sh spike's race classes unrepresentable.
+// Returns true if the connection ended but the daemon should reattach, false
+// on shutdown.
+func consume(d *daemon, ctl *control, w world, sig chan os.Signal) bool {
 	var timer *time.Timer
 	var fire <-chan time.Time
 	for {
@@ -100,7 +104,10 @@ func consume(ctl *control, h *hub, w world, tmuxSock string, sig chan os.Signal)
 			}
 			ops := diffWorlds(w, next)
 			w = next
-			h.setWorld(w, ops, false, tmuxSock)
+			d.h.setWorld(w, ops, false, d.tmuxSock)
+			d.checkSidebar(ctl, w)
+		case env := <-d.h.cmds:
+			d.handleCmd(ctl, env)
 		case <-ctl.done:
 			if timer != nil {
 				timer.Stop()
