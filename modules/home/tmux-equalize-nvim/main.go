@@ -329,7 +329,7 @@ func largestRemainderIndex(raw []float64, sizes []int) int {
 	return index
 }
 
-func assign(n *node, left, top, width, height int, counts map[string]map[string]int, fixed map[string]bool) {
+func assign(n *node, left, top, width, height int, counts map[string]map[string]int) {
 	n.left = left
 	n.top = top
 	n.width = width
