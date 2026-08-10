@@ -127,9 +127,10 @@
             set -g status-interval 15
             set -g status-position top
 
-            # Cycle windows
-            bind -n M-h previous-window
-            bind -n M-l next-window
+            # Cycle windows; with the demux sidebar open, route through demux
+            # so the sidebar moves in the same batch (no reflow jitter)
+            bind -n M-h if-shell -F '#{@demux_open}' 'run-shell -b "${demuxSidebar}/bin/demux-sidebar nav prev \"#{window_id}\""' 'previous-window'
+            bind -n M-l if-shell -F '#{@demux_open}' 'run-shell -b "${demuxSidebar}/bin/demux-sidebar nav next \"#{window_id}\""' 'next-window'
 
             # common tmux actions without prefix
             bind -n M-s choose-tree -Zs

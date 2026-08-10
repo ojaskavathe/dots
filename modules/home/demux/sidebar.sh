@@ -42,8 +42,10 @@ SEL=0
 MYWID=""
 
 build() {
-  local width mysession prev
-  local sname attached wcount widx wid wactive wpath scolor dot dotchar mark wcolor smax wmax
+  local width mysession
+  local sname attached wcount widx wid wactive pactive issb ppath
+  local scolor dot dotchar mark wcolor smax wmax
+  local prev_s sess_idx cur_wid cur_widx cur_wactive cur_sname cur_label label_locked
   # MYWID re-read here because follow mode moves this pane between windows
   IFS='|' read -r width mysession MYWID < <(tmux display-message -p -t "$TMUX_PANE" '#{pane_width}|#{session_name}|#{window_id}')
   smax=$((width - 8))
@@ -52,10 +54,35 @@ build() {
   ITEM_PLAIN=()
   ITEM_KIND=()
   ITEM_ARG=()
-  prev=""
-  while IFS='|' read -r sname attached wcount widx wid wactive wpath; do
-    if [[ $sname != "$prev" ]]; then
-      prev=$sname
+  prev_s=""
+  sess_idx=-1
+  cur_wid=""
+
+  # window entries flush after their panes are seen, so the label can skip
+  # sidebar panes (else focusing the sidebar relabels the window to its cwd)
+  flush_window() {
+    [[ -n $cur_wid ]] || return 0
+    mark=" "
+    wcolor=$C_DIM
+    if [[ $cur_wactive == 1 ]]; then
+      mark="▸"
+      wcolor=$R
+    fi
+    ITEM_TEXT+=("   ${C_DIM}${cur_widx}${R} ${wcolor}${mark}${cur_label:0:wmax}${R}")
+    ITEM_PLAIN+=("   ${cur_widx} ${mark}${cur_label:0:wmax}")
+    ITEM_KIND+=("window")
+    ITEM_ARG+=("${cur_wid}|${cur_sname}")
+    # session items jump to the session's active window; patch it in
+    if [[ $cur_wactive == 1 ]] && ((sess_idx >= 0)); then
+      ITEM_ARG[sess_idx]="${cur_sname}|${cur_wid}"
+    fi
+    cur_wid=""
+  }
+
+  while IFS='|' read -r sname attached wcount widx wid wactive pactive issb ppath; do
+    if [[ $sname != "$prev_s" ]]; then
+      flush_window
+      prev_s=$sname
       scolor=$C_SES
       [[ $sname == "$mysession" ]] && scolor=$C_SES_ME
       dotchar="○"
@@ -69,19 +96,28 @@ build() {
       ITEM_TEXT+=(" ${dot}${R} ${scolor}${sname:0:smax}${R} ${C_DIM}${wcount}${R}")
       ITEM_PLAIN+=(" ${dotchar} ${sname:0:smax} ${wcount}")
       ITEM_KIND+=("session")
-      ITEM_ARG+=("$sname")
+      ITEM_ARG+=("${sname}|")
+      sess_idx=$((${#ITEM_KIND[@]} - 1))
     fi
-    mark=" "
-    wcolor=$C_DIM
-    if [[ $wactive == 1 ]]; then
-      mark="▸"
-      wcolor=$R
+    if [[ $wid != "$cur_wid" ]]; then
+      flush_window
+      cur_wid=$wid
+      cur_widx=$widx
+      cur_wactive=$wactive
+      cur_sname=$sname
+      cur_label=""
+      label_locked=0
     fi
-    ITEM_TEXT+=("   ${C_DIM}${widx}${R} ${wcolor}${mark}${wpath:0:wmax}${R}")
-    ITEM_PLAIN+=("   ${widx} ${mark}${wpath:0:wmax}")
-    ITEM_KIND+=("window")
-    ITEM_ARG+=("${wid}|${sname}")
-  done < <(tmux list-windows -a -F '#{session_name}|#{session_attached}|#{session_windows}|#{window_index}|#{window_id}|#{window_active}|#{b:pane_current_path}')
+    if [[ $issb != 1 ]]; then
+      if [[ $pactive == 1 ]]; then
+        cur_label=$ppath
+        label_locked=1
+      elif [[ -z $cur_label && $label_locked == 0 ]]; then
+        cur_label=$ppath
+      fi
+    fi
+  done < <(tmux list-panes -a -F '#{session_name}|#{session_attached}|#{session_windows}|#{window_index}|#{window_id}|#{window_active}|#{pane_active}|#{@demux_sidebar}|#{b:pane_current_path}')
+  flush_window
   clamp_sel
 }
 
@@ -135,22 +171,51 @@ sel_move() {
   paint
 }
 
+# move the sidebar (if open) into window $1 and run the remaining args as a
+# trailing tmux command, ALL in one server batch: the client redraws once,
+# with the sidebar already in place — no visible reflow
+move_with() {
+  local twid=$1
+  shift
+  local sb="" sbwid="" oldlayout newlayout
+  IFS=' ' read -r sb sbwid < <(tmux list-panes -a -f '#{==:#{@demux_sidebar},1}' -F '#{pane_id} #{window_id}') || true
+  local cmd=()
+  if [[ -n $sb && $sbwid != "$twid" ]]; then
+    oldlayout=$(tmux show-options -wqv -t "$sbwid" @demux_saved_layout)
+    newlayout=$(tmux display-message -p -t "$twid" '#{window_layout}')
+    cmd+=(join-pane -hbdf -l "$WIDTH" -s "$sb" -t "$twid" ";")
+    if [[ -n $oldlayout ]]; then
+      cmd+=(select-layout -t "$sbwid" "$oldlayout" ";" set-option -wu -t "$sbwid" @demux_saved_layout ";")
+    fi
+    cmd+=(set-option -w -t "$twid" @demux_saved_layout "$newlayout" ";")
+  fi
+  cmd+=("$@")
+  tmux "${cmd[@]}" 2>/dev/null || true
+}
+
 jump() {
   local n=${#ITEM_KIND[@]}
   ((n == 0)) && return
   case "${ITEM_KIND[$SEL]}" in
   session)
-    tmux switch-client -t "=${ITEM_ARG[$SEL]}" 2>/dev/null || true
+    local sname awid
+    sname=${ITEM_ARG[$SEL]%%|*}
+    awid=${ITEM_ARG[$SEL]#*|}
+    if [[ -n $awid ]]; then
+      move_with "$awid" switch-client -t "=$sname"
+    else
+      tmux switch-client -t "=$sname" 2>/dev/null || true
+    fi
     ;;
   window)
     local wid sname
     wid=${ITEM_ARG[$SEL]%%|*}
     sname=${ITEM_ARG[$SEL]#*|}
-    tmux switch-client -t "=$sname" 2>/dev/null || true
-    tmux select-window -t "$wid" 2>/dev/null || true
-    # jumping to our own window: move focus off the sidebar
     if [[ $wid == "$MYWID" ]]; then
+      # jumping to our own window: just move focus off the sidebar
       tmux last-pane -t "$MYWID" 2>/dev/null || true
+    else
+      move_with "$wid" switch-client -t "=$sname" ";" select-window -t "$wid"
     fi
     ;;
   esac
@@ -227,10 +292,10 @@ close_pane() {
   local pane=$1 wid=$2 layout
   layout=$(tmux show-options -wqv -t "$wid" @demux_saved_layout)
   if [[ -n $layout ]]; then
-    tmux kill-pane -t "$pane" \; select-layout -t "$wid" "$layout" \; set-option -wu -t "$wid" @demux_saved_layout 2>/dev/null ||
+    tmux kill-pane -t "$pane" \; select-layout -t "$wid" "$layout" \; set-option -wu -t "$wid" @demux_saved_layout \; set-option -gu @demux_open 2>/dev/null ||
       tmux kill-pane -t "$pane" 2>/dev/null || true
   else
-    tmux kill-pane -t "$pane" 2>/dev/null || true
+    tmux kill-pane -t "$pane" \; set-option -gu @demux_open 2>/dev/null || true
   fi
 }
 
@@ -248,14 +313,14 @@ toggle() {
   wid=$(tmux display-message -p -t "$target" '#{window_id}')
   layout=$(tmux display-message -p -t "$wid" '#{window_layout}')
   pane=$(tmux split-window -hbdf -l "$WIDTH" -t "$target" -P -F '#{pane_id}' "exec bash '$SELF' run")
-  tmux set-option -w -t "$wid" @demux_saved_layout "$layout"
-  tmux set-option -p -t "$pane" @demux_sidebar 1
+  tmux set-option -w -t "$wid" @demux_saved_layout "$layout" \; set-option -p -t "$pane" @demux_sidebar 1 \; set-option -g @demux_open 1
 }
 
 # ensure the sidebar lives in the attached client's active window; wired to
-# window/session switch hooks. single-client assumption, like jump().
+# window/session switch hooks as the fallback for switches demux didn't make
+# itself (jump/nav are batched and don't need this). single-client assumption.
 follow() {
-  local sb sbwid csess cwid oldlayout newlayout
+  local sb sbwid csess cwid
   sb=""
   IFS=' ' read -r sb sbwid < <(tmux list-panes -a -f '#{==:#{@demux_sidebar},1}' -F '#{pane_id} #{window_id}') || true
   [[ -n $sb ]] || return 0
@@ -263,20 +328,31 @@ follow() {
   IFS=' ' read -r csess < <(tmux list-clients -F '#{client_session}') || true
   [[ -n $csess ]] || return 0
   cwid=$(tmux display-message -p -t "=$csess" '#{window_id}')
-  if [[ $cwid != "$sbwid" ]]; then
-    oldlayout=$(tmux show-options -wqv -t "$sbwid" @demux_saved_layout)
-    newlayout=$(tmux display-message -p -t "$cwid" '#{window_layout}')
-    if [[ -n $oldlayout ]]; then
-      tmux join-pane -hbdf -l "$WIDTH" -s "$sb" -t "$cwid" \; \
-        select-layout -t "$sbwid" "$oldlayout" \; \
-        set-option -wu -t "$sbwid" @demux_saved_layout \; \
-        set-option -w -t "$cwid" @demux_saved_layout "$newlayout" 2>/dev/null || return 0
-    else
-      tmux join-pane -hbdf -l "$WIDTH" -s "$sb" -t "$cwid" \; \
-        set-option -w -t "$cwid" @demux_saved_layout "$newlayout" 2>/dev/null || return 0
-    fi
-  fi
+  [[ $cwid != "$sbwid" ]] && move_with "$cwid"
   refresh
+}
+
+# window cycling that carries the sidebar along in the same batch; bound to
+# M-h/M-l only while the sidebar is open (see @demux_open)
+nav() {
+  local dir=$1 cw=${2:-} csess wids=() i n target
+  [[ -n $cw ]] || return 0
+  csess=$(tmux display-message -p -t "$cw" '#{session_name}')
+  while read -r i; do wids+=("$i"); done < <(tmux list-windows -t "=$csess" -F '#{window_id}')
+  n=${#wids[@]}
+  ((n > 1)) || return 0
+  target=""
+  for i in "${!wids[@]}"; do
+    if [[ ${wids[$i]} == "$cw" ]]; then
+      case "$dir" in
+      next) target=${wids[$(((i + 1) % n))]} ;;
+      prev) target=${wids[$(((i - 1 + n) % n))]} ;;
+      esac
+      break
+    fi
+  done
+  [[ -n $target ]] || return 0
+  move_with "$target" select-window -t "$target"
 }
 
 case "${1:-run}" in
@@ -284,8 +360,9 @@ run) run ;;
 toggle) toggle "${2:-}" ;;
 refresh) refresh ;;
 follow) follow ;;
+nav) nav "${2:?next|prev}" "${3:-}" ;;
 *)
-  echo "usage: demux-sidebar {run|toggle [pane]|refresh|follow}" >&2
+  echo "usage: demux-sidebar {run|toggle [pane]|refresh|follow|nav next|prev [window]}" >&2
   exit 2
   ;;
 esac
