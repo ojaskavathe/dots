@@ -1,45 +1,31 @@
-# demux-sidebar (spike): event-driven, navigable session sidebar for tmux
+# demux (frame spike): sidebar chrome AROUND your real tmux, not inside it.
 #
-#   toggle [pane]   spawn/kill the sidebar pane in [pane]'s window; the
-#                   keybind passes "#{pane_id}" (run-shell's env has no
-#                   reliable TMUX_PANE)
-#   run             the sidebar process itself (spawned by toggle)
-#   refresh         signal all running sidebars to repaint (wired to hooks)
+#   up [inner-socket]   launch/attach the frame (default subcommand)
+#   ensure [socket]     build the frame without attaching (used by tests)
+#   run                 the sidebar process (lives in the outer frame)
+#   refresh             signal sidebars to repaint (wire inner hooks to this)
+#   frame-focus [pane]  M-s: open the sidebar / focus it / close if focused
 #
-# No polling anywhere: hooks fire `refresh`, which SIGUSR1s the sidebar
-# processes; each rebuilds from one tmux call and goes back to blocking
-# on keyboard input.
+# The outer frame server owns exactly two panes: the sidebar and a nested
+# client attached to your real tmux. Your windows never contain the sidebar,
+# so no demux operation can rearrange your splits — the entire class of
+# select-layout/join-pane corruption is structurally gone.
 #
-# Keys: j/k or arrows move, Enter jumps (session or window), g/G first/last,
-# q closes. Jumping assumes the common single-client case; a multi-client
-# setup would need explicit -c targeting (daemon's job, later).
+# Sidebar keys: j/k or arrows preview (switches the inner client live),
+# g/G first/last, Enter commits focus into your tmux, q closes the sidebar.
 
 set -euo pipefail
 
 SELF="${BASH_SOURCE[0]}"
 STATE_DIR="${XDG_RUNTIME_DIR:-$HOME/.cache}/demux"
 WIDTH="${DEMUX_WIDTH:-32}"
+FRAME_CONF="${DEMUX_FRAME_CONF:-@frameconf@}"
+FRAME_SOCKET="${DEMUX_FRAME_SOCKET:-demux-frame}"
 mkdir -p "$STATE_DIR"
 
-# every mutator (toggle/follow/nav/jump/close) is a separate process racing
-# the others via hooks; serialize them or concurrent read-then-batch cycles
-# snapshot layouts with the sidebar still inside (=> stale restores, panes
-# drifting wide). the daemon owns this properly later; a lock does for now.
-lock() {
-  local i=0
-  until mkdir "$STATE_DIR/lock" 2>/dev/null; do
-    if ((++i >= 40)); then
-      # holder likely died mid-flight; steal
-      rmdir "$STATE_DIR/lock" 2>/dev/null || true
-    fi
-    ((i >= 45)) && return 0
-    sleep 0.01
-  done
-}
-
-unlock() {
-  rmdir "$STATE_DIR/lock" 2>/dev/null || true
-}
+# inner = your real tmux server; DEMUX_INNER is its socket path, stored in
+# the frame server's global environment by `up`
+itmux() { tmux -S "${DEMUX_INNER:?DEMUX_INNER not set (run inside the demux frame)}" "$@"; }
 
 # 256-color, roughly catppuccin mocha
 C_TITLE=$'\033[1;38;5;183m'
@@ -57,60 +43,42 @@ NOREV=$'\033[27m'
 ITEM_TEXT=()  # colored line
 ITEM_PLAIN=() # uncolored line (used when selected, so reverse video survives)
 ITEM_KIND=()  # session | window | sep
-ITEM_ARG=()   # session name, or "window_id|session_name"
+ITEM_ARG=()   # "session|active_window_id" or "window_id|session"
 SEL=0
-MYWID=""
+MYSESSION=""
+CURWID=""
+
+inner_client() {
+  local s=""
+  IFS=' ' read -r s < <(itmux list-clients -F '#{client_session}' 2>/dev/null) || true
+  MYSESSION=$s
+  CURWID=""
+  [[ -n $s ]] && CURWID=$(itmux display-message -p -t "=$s" '#{window_id}' 2>/dev/null) || true
+}
 
 build() {
-  local width mysession
-  local sname attached wcount widx wid wactive pactive issb ppath
-  local scolor dot dotchar mark wcolor smax wmax
-  local prev_s sess_idx cur_wid cur_widx cur_wactive cur_sname cur_label label_locked
-  # MYWID re-read here: follow/nav move this pane between windows
-  IFS='|' read -r width mysession MYWID < <(tmux display-message -p -t "$TMUX_PANE" '#{pane_width}|#{session_name}|#{window_id}')
-  # self-heal: whatever resizes us (stale layout restore, manual drag) gets
-  # corrected on the next event; the resize itself re-renders via WINCH
+  local width prev sess_idx
+  local sname attached wcount widx wid wactive wpath scolor dot dotchar mark wcolor smax wmax
+  width=$(tmux display-message -p -t "$TMUX_PANE" '#{pane_width}')
+  # self-heal our width; the frame layout is trivial so this is always safe
   if ((width != WIDTH)); then
     tmux resize-pane -t "$TMUX_PANE" -x "$WIDTH" 2>/dev/null || true
     width=$WIDTH
   fi
+  inner_client
   smax=$((width - 8))
   wmax=$((width - 7))
   ITEM_TEXT=()
   ITEM_PLAIN=()
   ITEM_KIND=()
   ITEM_ARG=()
-  prev_s=""
+  prev=""
   sess_idx=-1
-  cur_wid=""
-
-  # window entries flush after their panes are seen, so the label can skip
-  # sidebar panes (else focusing the sidebar relabels the window to its cwd)
-  flush_window() {
-    [[ -n $cur_wid ]] || return 0
-    mark=" "
-    wcolor=$C_DIM
-    if [[ $cur_wactive == 1 ]]; then
-      mark="▸"
-      wcolor=$R
-    fi
-    ITEM_TEXT+=("   ${C_DIM}${cur_widx}${R} ${wcolor}${mark}${cur_label:0:wmax}${R}")
-    ITEM_PLAIN+=("   ${cur_widx} ${mark}${cur_label:0:wmax}")
-    ITEM_KIND+=("window")
-    ITEM_ARG+=("${cur_wid}|${cur_sname}")
-    # session items jump to the session's active window; patch it in
-    if [[ $cur_wactive == 1 ]] && ((sess_idx >= 0)); then
-      ITEM_ARG[sess_idx]="${cur_sname}|${cur_wid}"
-    fi
-    cur_wid=""
-  }
-
-  while IFS='|' read -r sname attached wcount widx wid wactive pactive issb ppath; do
-    if [[ $sname != "$prev_s" ]]; then
-      flush_window
-      prev_s=$sname
+  while IFS='|' read -r sname attached wcount widx wid wactive wpath; do
+    if [[ $sname != "$prev" ]]; then
+      prev=$sname
       scolor=$C_SES
-      [[ $sname == "$mysession" ]] && scolor=$C_SES_ME
+      [[ $sname == "$MYSESSION" ]] && scolor=$C_SES_ME
       dotchar="○"
       [[ $attached -gt 0 ]] && dotchar="●"
       dot="${C_OFF}${dotchar}"
@@ -125,25 +93,18 @@ build() {
       ITEM_ARG+=("${sname}|")
       sess_idx=$((${#ITEM_KIND[@]} - 1))
     fi
-    if [[ $wid != "$cur_wid" ]]; then
-      flush_window
-      cur_wid=$wid
-      cur_widx=$widx
-      cur_wactive=$wactive
-      cur_sname=$sname
-      cur_label=""
-      label_locked=0
+    mark=" "
+    wcolor=$C_DIM
+    if [[ $wactive == 1 ]]; then
+      mark="▸"
+      wcolor=$R
+      ((sess_idx >= 0)) && ITEM_ARG[sess_idx]="${sname}|${wid}"
     fi
-    if [[ $issb != 1 ]]; then
-      if [[ $pactive == 1 ]]; then
-        cur_label=$ppath
-        label_locked=1
-      elif [[ -z $cur_label && $label_locked == 0 ]]; then
-        cur_label=$ppath
-      fi
-    fi
-  done < <(tmux list-panes -a -F '#{session_name}|#{session_attached}|#{session_windows}|#{window_index}|#{window_id}|#{window_active}|#{pane_active}|#{@demux_sidebar}|#{b:pane_current_path}')
-  flush_window
+    ITEM_TEXT+=("   ${C_DIM}${widx}${R} ${wcolor}${mark}${wpath:0:wmax}${R}")
+    ITEM_PLAIN+=("   ${widx} ${mark}${wpath:0:wmax}")
+    ITEM_KIND+=("window")
+    ITEM_ARG+=("${wid}|${sname}")
+  done < <(itmux list-windows -a -F '#{session_name}|#{session_attached}|#{session_windows}|#{window_index}|#{window_id}|#{window_active}|#{b:pane_current_path}' 2>/dev/null)
   clamp_sel
 }
 
@@ -155,7 +116,6 @@ clamp_sel() {
   }
   ((SEL >= n)) && SEL=$((n - 1))
   ((SEL < 0)) && SEL=0
-  # never rest on a separator
   while ((SEL < n - 1)) && [[ ${ITEM_KIND[$SEL]} == "sep" ]]; do SEL=$((SEL + 1)); done
   while ((SEL > 0)) && [[ ${ITEM_KIND[$SEL]} == "sep" ]]; do SEL=$((SEL - 1)); done
 }
@@ -178,9 +138,8 @@ paint() {
   printf '\033[H%s\033[0J' "$buf"
 }
 
-# signal-safe render: bash runs traps between commands, so a USR1 landing
-# mid-build would otherwise resume the interrupted build on top of the
-# trap's fresh arrays -> duplicated entries. never nest; coalesce instead.
+# signal-safe render: never nest (bash runs traps between commands, and a
+# nested build duplicates entries); coalesce instead
 IN_RENDER=0
 PENDING=0
 render() {
@@ -213,78 +172,43 @@ sel_move() {
   preview
 }
 
-# NO select-layout anywhere: tmux assigns layout geometry to panes by index
-# order, ignoring the pane ids embedded in the string. once join-pane -b has
-# desynced index order from geometric order (it inserts at the active pane's
-# list position), any restore shuffles pane contents between splits. the
-# price of dropping restores: when the sidebar leaves a window, its 32
-# columns go to the adjacent pane instead of the exact previous widths.
-preview_move() {
-  local twid=$1
-  shift
-  tmux join-pane -hbdf -l "$WIDTH" -s "$TMUX_PANE" -t "$twid" ";" "$@" 2>/dev/null || true
-  MYWID=$twid
-}
-
-# the sidebar is a previewer: moving the selection immediately shows that
-# session/window, sidebar riding along and keeping focus
+# the sidebar is a previewer: moving the selection switches the INNER client
+# immediately. one itmux call; the sidebar itself never moves.
 preview() {
-  local n=${#ITEM_KIND[@]} twid sname awid
+  local n=${#ITEM_KIND[@]} twid sname
   ((n == 0)) && return
-  lock
-  # fresh under the lock: external movers (follow/nav) can't race us here
-  MYWID=$(tmux display-message -p -t "$TMUX_PANE" '#{window_id}')
   case "${ITEM_KIND[$SEL]}" in
   session)
     sname=${ITEM_ARG[$SEL]%%|*}
-    awid=${ITEM_ARG[$SEL]#*|}
-    if [[ -n $awid && $awid != "$MYWID" ]]; then
-      preview_move "$awid" switch-client -t "=$sname" ";" select-pane -t "$TMUX_PANE"
+    if [[ -n $sname && $sname != "$MYSESSION" ]]; then
+      itmux switch-client -t "=$sname" 2>/dev/null || true
+      MYSESSION=$sname
     fi
     ;;
   window)
     twid=${ITEM_ARG[$SEL]%%|*}
     sname=${ITEM_ARG[$SEL]#*|}
-    if [[ $twid != "$MYWID" ]]; then
-      preview_move "$twid" switch-client -t "=$sname" ";" select-window -t "$twid" ";" select-pane -t "$TMUX_PANE"
+    if [[ $twid != "$CURWID" ]]; then
+      itmux switch-client -t "=$sname" \; select-window -t "$twid" 2>/dev/null || true
+      MYSESSION=$sname
+      CURWID=$twid
     fi
     ;;
   esac
-  unlock
 }
 
-# move the sidebar (if open) into window $1 and run the remaining args as a
-# trailing tmux command, ALL in one server batch: the client redraws once,
-# with the sidebar already in place — no visible reflow
-move_with() {
-  local twid=$1
-  shift
-  local sb="" sbwid=""
-  IFS=' ' read -r sb sbwid < <(tmux list-panes -a -f '#{==:#{@demux_sidebar},1}' -F '#{pane_id} #{window_id}') || true
-  local cmd=()
-  if [[ -n $sb && $sbwid != "$twid" ]]; then
-    cmd+=(join-pane -hbdf -l "$WIDTH" -s "$sb" -t "$twid" ";")
-  fi
-  cmd+=("$@")
-  tmux "${cmd[@]}" 2>/dev/null || true
-}
-
-# enter commits: preview already switched the view, so just move focus off
-# the sidebar into the work pane
+# enter commits: the view already switched; move focus into your tmux
 land() {
-  tmux last-pane -t "$MYWID" 2>/dev/null || true
+  tmux last-pane 2>/dev/null || tmux select-pane -t :.+ 2>/dev/null || true
 }
 
-# no lock here: the close batch kills our own process, so unlock would never
-# run; a stale lock costs every later mutator its 400ms steal timeout
 close_self() {
-  close_pane "$TMUX_PANE" "$MYWID"
+  tmux kill-pane -t "$TMUX_PANE" 2>/dev/null || true
 }
 
 run() {
   : "${TMUX_PANE:?must run inside a tmux pane}"
-  local pidfile key rest
-  MYWID=$(tmux display-message -p -t "$TMUX_PANE" '#{window_id}')
+  local pidfile key rest i
   pidfile="$STATE_DIR/pid.$$"
   echo "$$" >"$pidfile"
   trap 'rm -f "$pidfile"' EXIT
@@ -292,10 +216,9 @@ run() {
   trap 'render' USR1 WINCH
   printf '\033[?25l\033[2J'
   render
-  # start the selection on the current window so opening never yanks the view
-  local i
+  # start the selection on the inner client's current window
   for i in "${!ITEM_KIND[@]}"; do
-    if [[ ${ITEM_KIND[$i]} == "window" && ${ITEM_ARG[$i]%%|*} == "$MYWID" ]]; then
+    if [[ ${ITEM_KIND[$i]} == "window" && ${ITEM_ARG[$i]%%|*} == "$CURWID" ]]; then
       SEL=$i
       paint
       break
@@ -353,111 +276,60 @@ refresh() {
   done
 }
 
-# close one sidebar pane: kill + restore its window's layout + unset, all in
-# one batch so the neighbour pane never sees the intermediate full-width size
-close_pane() {
-  local pane=$1 wid=$2
-  # also clear snapshot options a previous demux version may have left
-  tmux kill-pane -t "$pane" \; set-option -wu -t "$wid" @demux_saved_layout \; set-option -wu -t "$wid" @demux_saved_panes \; set-option -gu @demux_open 2>/dev/null || true
-}
-
-open_at() {
-  local target=$1 pane
-  # no -d: opening the sidebar focuses it, ready for j/k/enter
-  pane=$(tmux split-window -hbf -l "$WIDTH" -t "$target" -P -F '#{pane_id}' "exec bash '$SELF' run")
-  tmux set-option -p -t "$pane" @demux_sidebar 1 \; set-option -g @demux_open 1
-}
-
-# the sidebar is global: toggle closes it wherever it lives, or opens it here
-toggle() {
-  local target sb sbwid found
-  target="${1:-${TMUX_PANE:?no pane: pass one or run inside tmux}}"
-  lock
-  found=0
-  while read -r sb sbwid; do
-    [[ -n $sb ]] || continue
-    found=1
-    close_pane "$sb" "$sbwid"
-  done < <(tmux list-panes -a -f '#{==:#{@demux_sidebar},1}' -F '#{pane_id} #{window_id}')
-  ((found)) || open_at "$target"
-  unlock
-}
-
-# summon cycle: closed -> open focused; open but unfocused -> pull here and
-# focus; already focused (keybind's active pane IS the sidebar) -> close
-focus() {
-  local target sb sbwid cwid
-  target="${1:-${TMUX_PANE:?no pane: pass one or run inside tmux}}"
-  lock
-  sb=""
-  IFS=' ' read -r sb sbwid < <(tmux list-panes -a -f '#{==:#{@demux_sidebar},1}' -F '#{pane_id} #{window_id}') || true
+# M-s in the frame: open the sidebar / focus it / close if already focused.
+# runs via the OUTER server's run-shell, so plain tmux talks to the frame.
+frame_focus() {
+  local active sb pane
+  active="${1:-}"
+  sb=$(tmux list-panes -f '#{==:#{@demux_sidebar},1}' -F '#{pane_id}')
   if [[ -z $sb ]]; then
-    open_at "$target"
-  elif [[ $target == "$sb" ]]; then
-    close_pane "$sb" "$sbwid"
+    pane=$(tmux split-window -hbf -l "$WIDTH" -P -F '#{pane_id}' "exec bash '$SELF' run")
+    tmux set-option -p -t "$pane" @demux_sidebar 1
+  elif [[ $active == "$sb" ]]; then
+    tmux kill-pane -t "$sb"
   else
-    cwid=$(tmux display-message -p -t "$target" '#{window_id}')
-    if [[ $sbwid != "$cwid" ]]; then
-      move_with "$cwid" select-pane -t "$sb"
-    else
-      tmux select-pane -t "$sb" 2>/dev/null || true
-    fi
+    tmux select-pane -t "$sb"
   fi
-  unlock
 }
 
-# ensure the sidebar lives in the attached client's active window; wired to
-# window/session switch hooks as the fallback for switches demux didn't make
-# itself (jump/nav are batched and don't need this). single-client assumption.
-follow() {
-  local sb sbwid csess cwid
-  sb=""
-  IFS=' ' read -r sb sbwid < <(tmux list-panes -a -f '#{==:#{@demux_sidebar},1}' -F '#{pane_id} #{window_id}') || true
-  [[ -n $sb ]] || return 0
-  csess=""
-  IFS=' ' read -r csess < <(tmux list-clients -F '#{client_session}') || true
-  [[ -n $csess ]] || return 0
-  lock
-  cwid=$(tmux display-message -p -t "=$csess" '#{window_id}')
-  [[ $cwid != "$sbwid" ]] && move_with "$cwid"
-  unlock
-  refresh
-}
-
-# window cycling that carries the sidebar along in the same batch; bound to
-# M-h/M-l only while the sidebar is open (see @demux_open)
-nav() {
-  local dir=$1 cw=${2:-} csess wids=() i n target
-  [[ -n $cw ]] || return 0
-  csess=$(tmux display-message -p -t "$cw" '#{session_name}')
-  while read -r i; do wids+=("$i"); done < <(tmux list-windows -t "=$csess" -F '#{window_id}')
-  n=${#wids[@]}
-  ((n > 1)) || return 0
-  target=""
-  for i in "${!wids[@]}"; do
-    if [[ ${wids[$i]} == "$cw" ]]; then
-      case "$dir" in
-      next) target=${wids[$(((i + 1) % n))]} ;;
-      prev) target=${wids[$(((i - 1 + n) % n))]} ;;
-      esac
-      break
+frame_ensure() {
+  local inner_sock=${1:-}
+  if [[ -z $inner_sock ]]; then
+    if ! env -u TMUX -u TMUX_PANE tmux has-session 2>/dev/null; then
+      env -u TMUX -u TMUX_PANE tmux new-session -d -s main
     fi
-  done
-  [[ -n $target ]] || return 0
-  lock
-  move_with "$target" select-window -t "$target"
-  unlock
+    inner_sock=$(env -u TMUX -u TMUX_PANE tmux display-message -p '#{socket_path}')
+  fi
+  local F=(tmux -L "$FRAME_SOCKET")
+  if ! "${F[@]}" has-session -t frame 2>/dev/null; then
+    tmux -L "$FRAME_SOCKET" -f "$FRAME_CONF" new-session -d -s frame -n frame \
+      "exec env -u TMUX -u TMUX_PANE tmux -S '$inner_sock' attach"
+    "${F[@]}" set-environment -g DEMUX_INNER "$inner_sock"
+    "${F[@]}" bind -n M-s run-shell -b "bash '$SELF' frame-focus '#{pane_id}'"
+    # frame starts with the sidebar open
+    DEMUX_INNER=$inner_sock frame_focus_in_frame "$inner_sock"
+  fi
 }
 
-case "${1:-run}" in
+frame_focus_in_frame() {
+  local inner_sock=$1 pane
+  pane=$(tmux -L "$FRAME_SOCKET" split-window -hbf -l "$WIDTH" -t frame -P -F '#{pane_id}' "exec bash '$SELF' run")
+  tmux -L "$FRAME_SOCKET" set-option -p -t "$pane" @demux_sidebar 1
+}
+
+up() {
+  frame_ensure "${1:-}"
+  exec env -u TMUX -u TMUX_PANE tmux -L "$FRAME_SOCKET" attach -t frame
+}
+
+case "${1:-up}" in
+up) up "${2:-}" ;;
+ensure) frame_ensure "${2:-}" ;;
 run) run ;;
-toggle) toggle "${2:-}" ;;
-focus) focus "${2:-}" ;;
 refresh) refresh ;;
-follow) follow ;;
-nav) nav "${2:?next|prev}" "${3:-}" ;;
+frame-focus) frame_focus "${2:-}" ;;
 *)
-  echo "usage: demux-sidebar {run|toggle [pane]|focus [pane]|refresh|follow|nav next|prev [window]}" >&2
+  echo "usage: demux {up [inner-socket]|run|refresh|frame-focus [pane]}" >&2
   exit 2
   ;;
 esac

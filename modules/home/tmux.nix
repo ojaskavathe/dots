@@ -22,28 +22,26 @@
         ];
       };
 
-      demuxSidebar = pkgs.writeShellApplication {
-        name = "demux-sidebar";
+      demux = pkgs.writeShellApplication {
+        name = "demux";
         runtimeInputs = [ pkgs.tmux ];
-        text = builtins.readFile ./demux/sidebar.sh;
+        text = builtins.replaceStrings [ "@frameconf@" ] [ "${./demux/frame.conf}" ] (
+          builtins.readFile ./demux/sidebar.sh
+        );
       };
 
-      # events that change what the sidebar shows
+      # inner-server events that change what the demux sidebar shows
       demuxRefreshHooks = [
         "session-created"
         "session-closed"
         "session-renamed"
         "client-attached"
         "client-detached"
+        "client-session-changed"
+        "session-window-changed"
         "window-linked"
         "window-unlinked"
         "window-renamed"
-      ];
-      # events that move the client to another window/session: the sidebar
-      # follows (join-pane into the new window, restore the old one)
-      demuxFollowHooks = [
-        "client-session-changed"
-        "session-window-changed"
       ];
     in
     {
@@ -56,7 +54,7 @@
       config = lib.mkIf config.tmux.enable {
         home.packages = [
           tmuxEqualizeNvim
-          demuxSidebar
+          demux
         ];
 
         programs.tmux = {
@@ -127,13 +125,14 @@
             set -g status-interval 15
             set -g status-position top
 
-            # Cycle windows; with the demux sidebar open, route through demux
-            # so the sidebar moves in the same batch (no reflow jitter)
-            bind -n M-h if-shell -F '#{@demux_open}' 'run-shell -b "${demuxSidebar}/bin/demux-sidebar nav prev \"#{window_id}\""' 'previous-window'
-            bind -n M-l if-shell -F '#{@demux_open}' 'run-shell -b "${demuxSidebar}/bin/demux-sidebar nav next \"#{window_id}\""' 'next-window'
+            # Cycle windows
+            bind -n M-h previous-window
+            bind -n M-l next-window
 
-            # common tmux actions without prefix
-            bind -n M-s run-shell -b '${demuxSidebar}/bin/demux-sidebar focus "#{pane_id}"'
+            # common tmux actions without prefix. under the demux frame, M-s
+            # is intercepted by the outer server (sidebar); this fallback only
+            # fires in a bare tmux
+            bind -n M-s choose-tree -Zs
             bind -n M-e run-shell -b '${tmuxEqualizeNvim}/bin/tmux-equalize-nvim'
             bind -n M-g send-keys C-l \; run-shell -b -d 0.05 -C 'clear-history -t "#{pane_id}"'
 
@@ -167,14 +166,10 @@
             # restore clear with <prefix>C-l
             bind C-l send-keys 'C-l'
 
-            # demux sidebar (spike): toggle with <prefix>b; hooks repaint it live
-            bind b run-shell -b '${demuxSidebar}/bin/demux-sidebar toggle "#{pane_id}"'
+            # demux (frame spike): these hooks keep the frame's sidebar live
             ${lib.concatMapStrings (h: ''
-              set-hook -g ${h} 'run-shell -b "${demuxSidebar}/bin/demux-sidebar refresh"'
+              set-hook -g ${h} 'run-shell -b "${demux}/bin/demux refresh"'
             '') demuxRefreshHooks}
-            ${lib.concatMapStrings (h: ''
-              set-hook -g ${h} 'run-shell -b "${demuxSidebar}/bin/demux-sidebar follow"'
-            '') demuxFollowHooks}
           '';
         };
       };
