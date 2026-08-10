@@ -21,6 +21,30 @@
           "main.tmuxPath=${pkgs.tmux}/bin/tmux"
         ];
       };
+
+      demuxSidebar = pkgs.writeShellApplication {
+        name = "demux-sidebar";
+        runtimeInputs = [ pkgs.tmux ];
+        text = builtins.readFile ./demux/sidebar.sh;
+      };
+
+      # events that change what the sidebar shows
+      demuxRefreshHooks = [
+        "session-created"
+        "session-closed"
+        "session-renamed"
+        "client-attached"
+        "client-detached"
+        "window-linked"
+        "window-unlinked"
+        "window-renamed"
+      ];
+      # events that move the client to another window/session: the sidebar
+      # follows (join-pane into the new window, restore the old one)
+      demuxFollowHooks = [
+        "client-session-changed"
+        "session-window-changed"
+      ];
     in
     {
       options = {
@@ -30,7 +54,10 @@
       };
 
       config = lib.mkIf config.tmux.enable {
-        home.packages = [ tmuxEqualizeNvim ];
+        home.packages = [
+          tmuxEqualizeNvim
+          demuxSidebar
+        ];
 
         programs.tmux = {
           enable = true;
@@ -138,6 +165,15 @@
 
             # restore clear with <prefix>C-l
             bind C-l send-keys 'C-l'
+
+            # demux sidebar (spike): toggle with <prefix>b; hooks repaint it live
+            bind b run-shell -b '${demuxSidebar}/bin/demux-sidebar toggle "#{pane_id}"'
+            ${lib.concatMapStrings (h: ''
+              set-hook -g ${h} 'run-shell -b "${demuxSidebar}/bin/demux-sidebar refresh"'
+            '') demuxRefreshHooks}
+            ${lib.concatMapStrings (h: ''
+              set-hook -g ${h} 'run-shell -b "${demuxSidebar}/bin/demux-sidebar follow"'
+            '') demuxFollowHooks}
           '';
         };
       };
