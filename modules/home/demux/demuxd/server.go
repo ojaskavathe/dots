@@ -1,0 +1,130 @@
+package main
+
+import (
+	"encoding/json"
+	"net"
+	"sync"
+)
+
+// hub owns the published world and fans messages out to subscribers.
+// Subscribers that stall get dropped (buffered channel, non-blocking send) —
+// the daemon must never block on a slow client.
+type hub struct {
+	mu    sync.Mutex
+	world world
+	subs  map[*subscriber]struct{}
+}
+
+type subscriber struct {
+	conn net.Conn
+	ch   chan []byte
+}
+
+func newHub() *hub {
+	return &hub{subs: map[*subscriber]struct{}{}}
+}
+
+type snapshotMsg struct {
+	V    int    `json:"v"`
+	Type string `json:"type"` // snapshot
+	Tmux string `json:"tmux"` // tmux server socket path
+	world
+}
+
+type diffMsg struct {
+	Type string `json:"type"` // diff
+	Ops  []op   `json:"ops"`
+}
+
+// setWorld replaces the world and broadcasts: a diff when ops are known, or a
+// fresh snapshot after a reconnect (resync=true) since diffs across a gap lie.
+func (h *hub) setWorld(w world, ops []op, resync bool, tmuxSock string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.world = w
+	var payload []byte
+	if resync {
+		payload = marshalLine(snapshotMsg{V: 1, Type: "snapshot", Tmux: tmuxSock, world: w})
+	} else {
+		if len(ops) == 0 {
+			return
+		}
+		payload = marshalLine(diffMsg{Type: "diff", Ops: ops})
+	}
+	for s := range h.subs {
+		select {
+		case s.ch <- payload:
+		default:
+			delete(h.subs, s)
+			close(s.ch)
+		}
+	}
+}
+
+// add registers a subscriber and queues its initial snapshot atomically with
+// respect to setWorld, so no diff can slip between snapshot and subscription.
+func (h *hub) add(conn net.Conn, tmuxSock string) *subscriber {
+	s := &subscriber{conn: conn, ch: make(chan []byte, 256)}
+	h.mu.Lock()
+	s.ch <- marshalLine(snapshotMsg{V: 1, Type: "snapshot", Tmux: tmuxSock, world: h.world})
+	h.subs[s] = struct{}{}
+	h.mu.Unlock()
+	return s
+}
+
+func (h *hub) remove(s *subscriber) {
+	h.mu.Lock()
+	if _, ok := h.subs[s]; ok {
+		delete(h.subs, s)
+		close(s.ch)
+	}
+	h.mu.Unlock()
+}
+
+func (h *hub) closeAll() {
+	h.mu.Lock()
+	for s := range h.subs {
+		delete(h.subs, s)
+		close(s.ch)
+	}
+	h.mu.Unlock()
+}
+
+func marshalLine(v any) []byte {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return []byte(`{"type":"error","error":"marshal"}` + "\n")
+	}
+	return append(b, '\n')
+}
+
+// serve accepts subscribers. Input from clients is drained and ignored in
+// milestone 1 (commands arrive here in milestone 2).
+func serve(ln net.Listener, h *hub, tmuxSock string) {
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		go func(conn net.Conn) {
+			s := h.add(conn, tmuxSock)
+			go func() {
+				buf := make([]byte, 4096)
+				for {
+					if _, err := conn.Read(buf); err != nil {
+						h.remove(s)
+						conn.Close()
+						return
+					}
+				}
+			}()
+			for msg := range s.ch {
+				if _, err := conn.Write(msg); err != nil {
+					h.remove(s)
+					break
+				}
+			}
+			conn.Close()
+		}(conn)
+	}
+}

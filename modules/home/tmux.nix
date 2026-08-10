@@ -22,6 +22,22 @@
         ];
       };
 
+      # milestone 1 of thoughts/demux-architecture.md: the world-model daemon
+      # (control-mode ingest -> reducer -> NDJSON snapshot+diff pub/sub).
+      # the sh sidebar below still owns the UX until the TUI lands.
+      demuxd = pkgs.buildGoModule {
+        pname = "demuxd";
+        version = "0.1.0";
+
+        src = ./demux/demuxd;
+        vendorHash = null;
+
+        ldflags = [
+          "-X"
+          "main.tmuxPath=${pkgs.tmux}/bin/tmux"
+        ];
+      };
+
       demux = pkgs.writeShellApplication {
         name = "demux";
         runtimeInputs = [ pkgs.tmux ];
@@ -58,6 +74,7 @@
         home.packages = [
           tmuxEqualizeNvim
           demux
+          demuxd
         ];
 
         programs.tmux = {

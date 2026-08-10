@@ -168,17 +168,23 @@ previews — capture-pane already returns a rendered screen.
   mapping)
 - kill/spawn follow the same path (`kill-pane`, `split-window` for "new agent
   here", worktree-aware spawn later)
-- the sidebar lives in a FRAME, not in user windows. hard-won spike finding:
-  `select-layout` assigns geometry to panes by index order and ignores the pane
-  ids in the layout string, and `join-pane -b` desyncs index order from
-  geometric order — so any sidebar-as-pane-in-user-windows design corrupts
-  layouts (shuffled splits, flipped orientations). instead, an outer chrome tmux
-  server (no prefix, no status, nesting defaults flipped: escape-time 0,
-  set-clipboard, allow-passthrough, RGB) hosts two panes: the sidebar and a
-  nested client attached to the real server. user layouts are untouchable by
-  construction; the sidebar never moves; previews are one `switch-client` on the
-  inner server. a later "mission control" full-window client is just another
-  subscriber with a bigger canvas inside the frame.
+- the sidebar is a REAL PANE in user windows (the spike's final, user-confirmed
+  UX: it makes room, it is not an overlay). two hard-won rules make that safe:
+  - `select-layout` is BANNED: it assigns geometry to panes by index order and
+    ignores the pane ids in the layout string, and `join-pane -b` desyncs index
+    order from geometric order — any layout-string restore shuffles user
+    splits. width give-back uses `resize-pane` only (content-safe, targets
+    ids).
+  - width baselines must be LIVE, not snapshots: the daemon keeps them from
+    `%layout-change` (own session) and re-queries the target window's layout
+    over the control connection immediately before each join (cross-session
+    geometry emits no events — see notification coverage). commands on the
+    control connection are serialized by tmux, so a pre-join query cannot race
+    the join.
+  (the frame — outer chrome tmux server — was built and works, but nesting
+  unwraps one layer of kitty-graphics passthrough, degrading yazi/image
+  previews; kept as `demux up`, deprecated. the popup overlay is kept as
+  `demux popup`.)
 
 ## language
 
@@ -219,11 +225,33 @@ capable — choose go purely for repo consistency and iteration speed.
 each milestone is independently useful; stop anywhere and the previous
 milestones keep working.
 
+## notification coverage (verified, tmux 3.7b, 2026-08-10)
+
+measured with a single control client attached to one session while mutating
+others:
+
+- **topology crosses sessions**: `%unlinked-window-add` / `-close` /
+  `-renamed`, `%session-window-changed`, `%session-renamed $id`,
+  `%sessions-changed`, `%window-pane-changed` all arrive for changes in any
+  session
+- **geometry does not**: `%layout-change` is own-session only; `resize-pane`
+  in another session emits *nothing*; `refresh-client -B` subscriptions with
+  `%*` only evaluate panes of the attached session
+- `%output` is own-session only by default
+- killing the attached session emits `%exit` while the server lives
+  (detach-on-destroy) — the daemon reattaches, republishing a snapshot
+- the attach itself produces one unsolicited `%begin/%end` block that must be
+  discarded before reply correlation starts
+
+consequence, implemented in demuxd: notifications are dirty-triggers only;
+each trigger debounces (15ms) into one whole-world re-list over the same
+connection. that self-heals the geometry gap at every event. anything acting
+on another session's *current* layout (the sidebar, right before a join) must
+re-query at point-of-use — which the daemon does over the live connection,
+serialized, so the answer cannot be stale.
+
 ## open questions
 
-- exact `%output` semantics across detached sessions on tmux 3.5 (verify
-  `refresh-client -A` covers panes in sessions no client is attached to;
-  fallback: a throwaway control-mode attach per session — still events)
 - diff granularity: per-field ops vs whole-entity replacement (start with
   whole-entity, measure)
 - whether the sidebar should also host the "blocked queue" herdr shows, or that
