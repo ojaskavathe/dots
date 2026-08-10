@@ -214,22 +214,31 @@ sel_move() {
   preview
 }
 
-# hot-path move for previews: ONE tmux client spawn per keypress. we are the
-# sidebar (no list-panes needed), the target layout snapshot happens
-# server-side via set-option -F (atomic, no pre-read), the old layout comes
-# from our cache (we wrote it), and the trailing display-message returns the
-# new snapshot to keep the cache warm for the next move.
+# hot-path move for previews: two tmux client spawns per keypress — a fresh
+# state read under the lock, then one batch. the layout AND its pane set are
+# snapshotted server-side on entry; restore on leave happens only if the
+# pane set is unchanged (exact widths back). if the user split/killed panes
+# while the sidebar was there, restoring the stale layout would force the
+# wrong structure onto the window (verticals turning horizontal) — skip it
+# and let the neighbour absorb the width instead.
 SAVED_LAYOUT=""
+SAVED_PANES=""
+CUR_PANES=""
 preview_move() {
   local twid=$1
   shift
-  local cmd=(set-option -Fw -t "$twid" @demux_saved_layout '#{window_layout}' ";"
-    join-pane -hbdf -l "$WIDTH" -s "$TMUX_PANE" -t "$twid" ";")
-  if [[ -n $SAVED_LAYOUT ]]; then
-    cmd+=(select-layout -t "$MYWID" "$SAVED_LAYOUT" ";" set-option -wu -t "$MYWID" @demux_saved_layout ";")
+  local mypanes=${CUR_PANES//"$TMUX_PANE,"/}
+  local restore=()
+  if [[ -n $SAVED_LAYOUT && $mypanes == "$SAVED_PANES" ]]; then
+    restore=(select-layout -t "$MYWID" "$SAVED_LAYOUT" ";")
   fi
-  cmd+=("$@" ";" display-message -p -t "$twid" '#{@demux_saved_layout}')
-  SAVED_LAYOUT=$(tmux "${cmd[@]}" 2>/dev/null) || SAVED_LAYOUT=""
+  tmux set-option -Fw -t "$twid" @demux_saved_layout '#{window_layout}' ";" \
+    set-option -Fw -t "$twid" @demux_saved_panes '#{P:#{pane_id},}' ";" \
+    join-pane -hbdf -l "$WIDTH" -s "$TMUX_PANE" -t "$twid" ";" \
+    "${restore[@]}" \
+    set-option -wu -t "$MYWID" @demux_saved_layout ";" \
+    set-option -wu -t "$MYWID" @demux_saved_panes ";" \
+    "$@" 2>/dev/null || true
   MYWID=$twid
 }
 
@@ -239,6 +248,8 @@ preview() {
   local n=${#ITEM_KIND[@]} twid sname awid
   ((n == 0)) && return
   lock
+  # fresh under the lock: external movers (follow/nav) can't race us here
+  IFS='|' read -r MYWID SAVED_LAYOUT SAVED_PANES CUR_PANES < <(tmux display-message -p -t "$TMUX_PANE" '#{window_id}|#{@demux_saved_layout}|#{@demux_saved_panes}|#{P:#{pane_id},}')
   case "${ITEM_KIND[$SEL]}" in
   session)
     sname=${ITEM_ARG[$SEL]%%|*}
@@ -264,17 +275,21 @@ preview() {
 move_with() {
   local twid=$1
   shift
-  local sb="" sbwid="" oldlayout
+  local sb="" sbwid="" oldlayout oldpanes curpanes
   IFS=' ' read -r sb sbwid < <(tmux list-panes -a -f '#{==:#{@demux_sidebar},1}' -F '#{pane_id} #{window_id}') || true
   local cmd=()
   if [[ -n $sb && $sbwid != "$twid" ]]; then
-    oldlayout=$(tmux show-options -wqv -t "$sbwid" @demux_saved_layout)
-    # snapshot the target's pre-join layout server-side, atomically in-batch
+    IFS='|' read -r oldlayout oldpanes curpanes < <(tmux display-message -p -t "$sb" '#{@demux_saved_layout}|#{@demux_saved_panes}|#{P:#{pane_id},}')
+    # snapshot the target's pre-join layout + pane set server-side, in-batch
     cmd+=(set-option -Fw -t "$twid" @demux_saved_layout '#{window_layout}' ";")
+    cmd+=(set-option -Fw -t "$twid" @demux_saved_panes '#{P:#{pane_id},}' ";")
     cmd+=(join-pane -hbdf -l "$WIDTH" -s "$sb" -t "$twid" ";")
-    if [[ -n $oldlayout ]]; then
-      cmd+=(select-layout -t "$sbwid" "$oldlayout" ";" set-option -wu -t "$sbwid" @demux_saved_layout ";")
+    # exact restore only while the pane set is unchanged; else the stale
+    # layout would force the wrong structure onto the window
+    if [[ -n $oldlayout && ${curpanes//"$sb,"/} == "$oldpanes" ]]; then
+      cmd+=(select-layout -t "$sbwid" "$oldlayout" ";")
     fi
+    cmd+=(set-option -wu -t "$sbwid" @demux_saved_layout ";" set-option -wu -t "$sbwid" @demux_saved_panes ";")
   fi
   cmd+=("$@")
   tmux "${cmd[@]}" 2>/dev/null || true
@@ -367,23 +382,22 @@ refresh() {
 # close one sidebar pane: kill + restore its window's layout + unset, all in
 # one batch so the neighbour pane never sees the intermediate full-width size
 close_pane() {
-  local pane=$1 wid=$2 layout
-  layout=$(tmux show-options -wqv -t "$wid" @demux_saved_layout)
-  if [[ -n $layout ]]; then
-    tmux kill-pane -t "$pane" \; select-layout -t "$wid" "$layout" \; set-option -wu -t "$wid" @demux_saved_layout \; set-option -gu @demux_open 2>/dev/null ||
+  local pane=$1 wid=$2 layout panes cur
+  IFS='|' read -r layout panes cur < <(tmux display-message -p -t "$pane" '#{@demux_saved_layout}|#{@demux_saved_panes}|#{P:#{pane_id},}')
+  if [[ -n $layout && ${cur//"$pane,"/} == "$panes" ]]; then
+    tmux kill-pane -t "$pane" \; select-layout -t "$wid" "$layout" \; set-option -wu -t "$wid" @demux_saved_layout \; set-option -wu -t "$wid" @demux_saved_panes \; set-option -gu @demux_open 2>/dev/null ||
       tmux kill-pane -t "$pane" 2>/dev/null || true
   else
-    tmux kill-pane -t "$pane" \; set-option -gu @demux_open 2>/dev/null || true
+    tmux kill-pane -t "$pane" \; set-option -wu -t "$wid" @demux_saved_layout \; set-option -wu -t "$wid" @demux_saved_panes \; set-option -gu @demux_open 2>/dev/null || true
   fi
 }
 
 open_at() {
-  local target=$1 pane wid layout
-  wid=$(tmux display-message -p -t "$target" '#{window_id}')
-  layout=$(tmux display-message -p -t "$wid" '#{window_layout}')
+  local target=$1 pane wid layout panes
+  IFS='|' read -r wid layout panes < <(tmux display-message -p -t "$target" '#{window_id}|#{window_layout}|#{P:#{pane_id},}')
   # no -d: opening the sidebar focuses it, ready for j/k/enter
   pane=$(tmux split-window -hbf -l "$WIDTH" -t "$target" -P -F '#{pane_id}' "exec bash '$SELF' run")
-  tmux set-option -w -t "$wid" @demux_saved_layout "$layout" \; set-option -p -t "$pane" @demux_sidebar 1 \; set-option -g @demux_open 1
+  tmux set-option -w -t "$wid" @demux_saved_layout "$layout" \; set-option -w -t "$wid" @demux_saved_panes "$panes" \; set-option -p -t "$pane" @demux_sidebar 1 \; set-option -g @demux_open 1
 }
 
 # the sidebar is global: toggle closes it wherever it lives, or opens it here
