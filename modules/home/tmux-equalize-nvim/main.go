@@ -341,29 +341,15 @@ func assign(n *node, left, top, width, height int, counts map[string]map[string]
 
 	separators := len(n.children) - 1
 	if n.kind == '{' {
-		// fixed-width leaves (demux sidebar) keep their size; the rest share
-		fixedWidths := map[int]int{}
-		avail := width - separators
 		weights := make([]int, 0, len(n.children))
-		for i, child := range n.children {
-			if child.kind == 'l' && fixed[child.pane] {
-				fixedWidths[i] = child.width
-				avail -= child.width
-			} else {
-				weights = append(weights, visualWeight(child, "x", counts))
-			}
+		for _, child := range n.children {
+			weights = append(weights, visualWeight(child, "x", counts))
 		}
-		widths := allocate(avail, weights)
+		widths := allocate(width-separators, weights)
 		childLeft := left
-		flex := 0
 		for i, child := range n.children {
-			w, ok := fixedWidths[i]
-			if !ok {
-				w = widths[flex]
-				flex++
-			}
-			assign(child, childLeft, top, w, height, counts, fixed)
-			childLeft += w + 1
+			assign(child, childLeft, top, widths[i], height, counts)
+			childLeft += widths[i] + 1
 		}
 		return
 	}
@@ -375,7 +361,7 @@ func assign(n *node, left, top, width, height int, counts map[string]map[string]
 	heights := allocate(height-separators, weights)
 	childTop := top
 	for i, child := range n.children {
-		assign(child, left, childTop, width, heights[i], counts, fixed)
+		assign(child, left, childTop, width, heights[i], counts)
 		childTop += heights[i] + 1
 	}
 }
@@ -475,6 +461,15 @@ func run() error {
 	}
 
 	panes := currentPanes(currentWindow)
+	// select-layout assigns geometry by pane index order, not by the pane
+	// ids in the string; with a demux sidebar joined in, index order and
+	// geometric order diverge and equalizing would shuffle pane contents.
+	// refuse instead.
+	for _, pane := range panes {
+		if pane.fixed {
+			return nil
+		}
+	}
 	counts, clients := nvimLayoutCounts(panes)
 	defer func() {
 		for _, client := range clients {
@@ -482,14 +477,7 @@ func run() error {
 		}
 	}()
 
-	fixed := map[string]bool{}
-	for paneID, pane := range panes {
-		if pane.fixed {
-			fixed[paneID] = true
-		}
-	}
-
-	assign(root, root.left, root.top, root.width, root.height, counts, fixed)
+	assign(root, root.left, root.top, root.width, root.height, counts)
 	body = render(root)
 	if !tmuxOK("select-layout", "-t", currentWindow, checksum(body)+","+body) {
 		tmuxOK("select-layout", "-t", currentWindow, "-E")
