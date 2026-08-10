@@ -66,8 +66,9 @@ build() {
   local sname attached wcount widx wid wactive pactive issb ppath
   local scolor dot dotchar mark wcolor smax wmax
   local prev_s sess_idx cur_wid cur_widx cur_wactive cur_sname cur_label label_locked
-  # MYWID re-read here because follow mode moves this pane between windows
-  IFS='|' read -r width mysession MYWID < <(tmux display-message -p -t "$TMUX_PANE" '#{pane_width}|#{session_name}|#{window_id}')
+  # MYWID + layout cache re-read here: follow/nav move this pane between
+  # windows and rewrite @demux_saved_layout from outside this process
+  IFS='|' read -r width mysession MYWID SAVED_LAYOUT < <(tmux display-message -p -t "$TMUX_PANE" '#{pane_width}|#{session_name}|#{window_id}|#{@demux_saved_layout}')
   # self-heal: whatever resizes us (stale layout restore, manual drag) gets
   # corrected on the next event; the resize itself re-renders via WINCH
   if ((width != WIDTH)); then
@@ -198,6 +199,25 @@ sel_move() {
   preview
 }
 
+# hot-path move for previews: ONE tmux client spawn per keypress. we are the
+# sidebar (no list-panes needed), the target layout snapshot happens
+# server-side via set-option -F (atomic, no pre-read), the old layout comes
+# from our cache (we wrote it), and the trailing display-message returns the
+# new snapshot to keep the cache warm for the next move.
+SAVED_LAYOUT=""
+preview_move() {
+  local twid=$1
+  shift
+  local cmd=(set-option -Fw -t "$twid" @demux_saved_layout '#{window_layout}' ";"
+    join-pane -hbdf -l "$WIDTH" -s "$TMUX_PANE" -t "$twid" ";")
+  if [[ -n $SAVED_LAYOUT ]]; then
+    cmd+=(select-layout -t "$MYWID" "$SAVED_LAYOUT" ";" set-option -wu -t "$MYWID" @demux_saved_layout ";")
+  fi
+  cmd+=("$@" ";" display-message -p -t "$twid" '#{@demux_saved_layout}')
+  SAVED_LAYOUT=$(tmux "${cmd[@]}" 2>/dev/null) || SAVED_LAYOUT=""
+  MYWID=$twid
+}
+
 # the sidebar is a previewer: moving the selection immediately shows that
 # session/window, sidebar riding along and keeping focus
 preview() {
@@ -209,16 +229,14 @@ preview() {
     sname=${ITEM_ARG[$SEL]%%|*}
     awid=${ITEM_ARG[$SEL]#*|}
     if [[ -n $awid && $awid != "$MYWID" ]]; then
-      move_with "$awid" switch-client -t "=$sname" ";" select-pane -t "$TMUX_PANE"
-      MYWID=$awid
+      preview_move "$awid" switch-client -t "=$sname" ";" select-pane -t "$TMUX_PANE"
     fi
     ;;
   window)
     twid=${ITEM_ARG[$SEL]%%|*}
     sname=${ITEM_ARG[$SEL]#*|}
     if [[ $twid != "$MYWID" ]]; then
-      move_with "$twid" switch-client -t "=$sname" ";" select-window -t "$twid" ";" select-pane -t "$TMUX_PANE"
-      MYWID=$twid
+      preview_move "$twid" switch-client -t "=$sname" ";" select-window -t "$twid" ";" select-pane -t "$TMUX_PANE"
     fi
     ;;
   esac
@@ -231,17 +249,17 @@ preview() {
 move_with() {
   local twid=$1
   shift
-  local sb="" sbwid="" oldlayout newlayout
+  local sb="" sbwid="" oldlayout
   IFS=' ' read -r sb sbwid < <(tmux list-panes -a -f '#{==:#{@demux_sidebar},1}' -F '#{pane_id} #{window_id}') || true
   local cmd=()
   if [[ -n $sb && $sbwid != "$twid" ]]; then
     oldlayout=$(tmux show-options -wqv -t "$sbwid" @demux_saved_layout)
-    newlayout=$(tmux display-message -p -t "$twid" '#{window_layout}')
+    # snapshot the target's pre-join layout server-side, atomically in-batch
+    cmd+=(set-option -Fw -t "$twid" @demux_saved_layout '#{window_layout}' ";")
     cmd+=(join-pane -hbdf -l "$WIDTH" -s "$sb" -t "$twid" ";")
     if [[ -n $oldlayout ]]; then
       cmd+=(select-layout -t "$sbwid" "$oldlayout" ";" set-option -wu -t "$sbwid" @demux_saved_layout ";")
     fi
-    cmd+=(set-option -w -t "$twid" @demux_saved_layout "$newlayout" ";")
   fi
   cmd+=("$@")
   tmux "${cmd[@]}" 2>/dev/null || true
