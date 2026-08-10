@@ -21,6 +21,26 @@ STATE_DIR="${XDG_RUNTIME_DIR:-$HOME/.cache}/demux"
 WIDTH="${DEMUX_WIDTH:-32}"
 mkdir -p "$STATE_DIR"
 
+# every mutator (toggle/follow/nav/jump/close) is a separate process racing
+# the others via hooks; serialize them or concurrent read-then-batch cycles
+# snapshot layouts with the sidebar still inside (=> stale restores, panes
+# drifting wide). the daemon owns this properly later; a lock does for now.
+lock() {
+  local i=0
+  until mkdir "$STATE_DIR/lock" 2>/dev/null; do
+    if ((++i >= 40)); then
+      # holder likely died mid-flight; steal
+      rmdir "$STATE_DIR/lock" 2>/dev/null || true
+    fi
+    ((i >= 45)) && return 0
+    sleep 0.01
+  done
+}
+
+unlock() {
+  rmdir "$STATE_DIR/lock" 2>/dev/null || true
+}
+
 # 256-color, roughly catppuccin mocha
 C_TITLE=$'\033[1;38;5;183m'
 C_SES=$'\033[1;38;5;189m'
@@ -48,6 +68,12 @@ build() {
   local prev_s sess_idx cur_wid cur_widx cur_wactive cur_sname cur_label label_locked
   # MYWID re-read here because follow mode moves this pane between windows
   IFS='|' read -r width mysession MYWID < <(tmux display-message -p -t "$TMUX_PANE" '#{pane_width}|#{session_name}|#{window_id}')
+  # self-heal: whatever resizes us (stale layout restore, manual drag) gets
+  # corrected on the next event; the resize itself re-renders via WINCH
+  if ((width != WIDTH)); then
+    tmux resize-pane -t "$TMUX_PANE" -x "$WIDTH" 2>/dev/null || true
+    width=$WIDTH
+  fi
   smax=$((width - 8))
   wmax=$((width - 7))
   ITEM_TEXT=()
@@ -196,13 +222,15 @@ move_with() {
 jump() {
   local n=${#ITEM_KIND[@]}
   ((n == 0)) && return
+  lock
   case "${ITEM_KIND[$SEL]}" in
   session)
     local sname awid
     sname=${ITEM_ARG[$SEL]%%|*}
     awid=${ITEM_ARG[$SEL]#*|}
     if [[ -n $awid ]]; then
-      move_with "$awid" switch-client -t "=$sname"
+      # keep the sidebar focused so navigation can continue
+      move_with "$awid" switch-client -t "=$sname" ";" select-pane -t "$TMUX_PANE"
     else
       tmux switch-client -t "=$sname" 2>/dev/null || true
     fi
@@ -212,15 +240,18 @@ jump() {
     wid=${ITEM_ARG[$SEL]%%|*}
     sname=${ITEM_ARG[$SEL]#*|}
     if [[ $wid == "$MYWID" ]]; then
-      # jumping to our own window: just move focus off the sidebar
+      # jumping to our own window: move focus off the sidebar, into the work
       tmux last-pane -t "$MYWID" 2>/dev/null || true
     else
-      move_with "$wid" switch-client -t "=$sname" ";" select-window -t "$wid"
+      move_with "$wid" switch-client -t "=$sname" ";" select-window -t "$wid" ";" select-pane -t "$TMUX_PANE"
     fi
     ;;
   esac
+  unlock
 }
 
+# no lock here: the close batch kills our own process, so unlock would never
+# run; a stale lock costs every later mutator its 400ms steal timeout
 close_self() {
   close_pane "$TMUX_PANE" "$MYWID"
 }
@@ -303,17 +334,23 @@ close_pane() {
 toggle() {
   local target pane wid layout sb sbwid found
   target="${1:-${TMUX_PANE:?no pane: pass one or run inside tmux}}"
+  lock
   found=0
   while read -r sb sbwid; do
     [[ -n $sb ]] || continue
     found=1
     close_pane "$sb" "$sbwid"
   done < <(tmux list-panes -a -f '#{==:#{@demux_sidebar},1}' -F '#{pane_id} #{window_id}')
-  ((found)) && return 0
+  if ((found)); then
+    unlock
+    return 0
+  fi
   wid=$(tmux display-message -p -t "$target" '#{window_id}')
   layout=$(tmux display-message -p -t "$wid" '#{window_layout}')
-  pane=$(tmux split-window -hbdf -l "$WIDTH" -t "$target" -P -F '#{pane_id}' "exec bash '$SELF' run")
+  # no -d: opening the sidebar focuses it, ready for j/k/enter
+  pane=$(tmux split-window -hbf -l "$WIDTH" -t "$target" -P -F '#{pane_id}' "exec bash '$SELF' run")
   tmux set-option -w -t "$wid" @demux_saved_layout "$layout" \; set-option -p -t "$pane" @demux_sidebar 1 \; set-option -g @demux_open 1
+  unlock
 }
 
 # ensure the sidebar lives in the attached client's active window; wired to
@@ -327,8 +364,10 @@ follow() {
   csess=""
   IFS=' ' read -r csess < <(tmux list-clients -F '#{client_session}') || true
   [[ -n $csess ]] || return 0
+  lock
   cwid=$(tmux display-message -p -t "=$csess" '#{window_id}')
   [[ $cwid != "$sbwid" ]] && move_with "$cwid"
+  unlock
   refresh
 }
 
@@ -352,7 +391,9 @@ nav() {
     fi
   done
   [[ -n $target ]] || return 0
+  lock
   move_with "$target" select-window -t "$target"
+  unlock
 }
 
 case "${1:-run}" in
