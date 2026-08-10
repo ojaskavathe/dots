@@ -46,6 +46,16 @@ POPUP="${DEMUX_POPUP:-}"
 PANEMODE=""
 ORIG_SESSION=""
 ORIG_WID=""
+# the client this sidebar serves. NEVER rely on tmux's "current client"
+# resolution: with a second client attached (another terminal, a nested
+# frame), implicit switch-client acts on the wrong one.
+CLIENT=""
+
+# switch-client args targeting our client explicitly when known
+sw_args() {
+  SW=(switch-client)
+  [[ -n $CLIENT ]] && SW+=(-c "$CLIENT")
+}
 
 # pane-mode movers run as concurrent processes (hooks + keybinds); serialize
 lock() {
@@ -342,19 +352,20 @@ close_pane() {
 }
 
 open_at() {
-  local target=$1 pane rec wid
+  local target=$1 client=${2:-} pane rec wid
   wid=$(itmux display-message -p -t "$target" '#{window_id}')
   rec=$(itmux list-panes -t "$wid" -F '#{pane_id}=#{pane_width}' 2>/dev/null | tr '\n' ' ')
   rec=${rec% }
   # no -d: opening the sidebar focuses it, ready for j/k/enter
   pane=$(itmux split-window -hbf -l "$WIDTH" -t "$target" -P -F '#{pane_id}' "exec bash '$SELF' run")
-  itmux set-option -w -t "$wid" @demux_widths "$rec" \; set-option -p -t "$pane" @demux_sidebar 1 \; set-option -g @demux_open 1
+  itmux set-option -w -t "$wid" @demux_widths "$rec" \; set-option -p -t "$pane" @demux_sidebar 1 \; set-option -p -t "$pane" @demux_client "$client" \; set-option -g @demux_open 1
 }
 
 # the sidebar is global: toggle closes it wherever it lives, or opens here
 toggle() {
-  local target sb sbwid found
+  local target client sb sbwid found
   target="${1:-${TMUX_PANE:?no pane: pass one or run inside tmux}}"
+  client="${2:-}"
   lock
   found=0
   while read -r sb sbwid; do
@@ -362,20 +373,21 @@ toggle() {
     found=1
     close_pane "$sb" "$sbwid"
   done < <(itmux list-panes -a -f '#{==:#{@demux_sidebar},1}' -F '#{pane_id} #{window_id}')
-  ((found)) || open_at "$target"
+  ((found)) || open_at "$target" "$client"
   unlock
 }
 
 # summon cycle: closed -> open focused; open but unfocused -> pull here and
 # focus; already focused (keybind's active pane IS the sidebar) -> close
 focus() {
-  local target sb sbwid cwid
+  local target client sb sbwid cwid
   target="${1:-${TMUX_PANE:?no pane: pass one or run inside tmux}}"
+  client="${2:-}"
   lock
   sb=""
   IFS=' ' read -r sb sbwid < <(itmux list-panes -a -f '#{==:#{@demux_sidebar},1}' -F '#{pane_id} #{window_id}') || true
   if [[ -z $sb ]]; then
-    open_at "$target"
+    open_at "$target" "$client"
   elif [[ $target == "$sb" ]]; then
     close_pane "$sb" "$sbwid"
   else
@@ -389,18 +401,24 @@ focus() {
   unlock
 }
 
-# hook fallback for switches demux didn't make itself
+# hook fallback for switches demux didn't make itself. follows the CLIENT
+# the sidebar was opened for, never "some client".
 follow() {
-  local sb sbwid csess cwid
+  local sb sbwid sbclient cwid
   sb=""
-  IFS=' ' read -r sb sbwid < <(itmux list-panes -a -f '#{==:#{@demux_sidebar},1}' -F '#{pane_id} #{window_id}') || true
+  IFS='|' read -r sb sbwid sbclient < <(itmux list-panes -a -f '#{==:#{@demux_sidebar},1}' -F '#{pane_id}|#{window_id}|#{@demux_client}') || true
   [[ -n $sb ]] || return 0
-  csess=""
-  IFS=' ' read -r csess < <(itmux list-clients -F '#{client_session}') || true
-  [[ -n $csess ]] || return 0
   lock
-  cwid=$(itmux display-message -p -t "=$csess" '#{window_id}')
-  [[ $cwid != "$sbwid" ]] && move_with "$cwid"
+  cwid=""
+  if [[ -n $sbclient ]]; then
+    cwid=$(itmux display-message -p -c "$sbclient" '#{window_id}' 2>/dev/null) || cwid=""
+  fi
+  if [[ -z $cwid ]]; then
+    local csess=""
+    IFS=' ' read -r csess < <(itmux list-clients -F '#{client_session}') || true
+    [[ -n $csess ]] && cwid=$(itmux display-message -p -t "=$csess" '#{window_id}' 2>/dev/null) || true
+  fi
+  [[ -n $cwid && $cwid != "$sbwid" ]] && move_with "$cwid"
   unlock
   refresh
 }
@@ -435,6 +453,8 @@ nav() {
 preview() {
   local n=${#ITEM_KIND[@]} twid sname
   ((n == 0)) && return
+  local SW
+  sw_args
   if [[ -n $PANEMODE ]]; then
     lock
     MYWID=$(tmux display-message -p -t "$TMUX_PANE" '#{window_id}')
@@ -443,14 +463,14 @@ preview() {
       sname=${ITEM_ARG[$SEL]%%|*}
       twid=${ITEM_ARG[$SEL]#*|}
       if [[ -n $twid && $twid != "$MYWID" ]]; then
-        preview_move "$twid" switch-client -t "=$sname" ";" select-pane -t "$TMUX_PANE"
+        preview_move "$twid" "${SW[@]}" -t "=$sname" ";" select-pane -t "$TMUX_PANE"
       fi
       ;;
     window)
       twid=${ITEM_ARG[$SEL]%%|*}
       sname=${ITEM_ARG[$SEL]#*|}
       if [[ $twid != "$MYWID" ]]; then
-        preview_move "$twid" switch-client -t "=$sname" ";" select-window -t "$twid" ";" select-pane -t "$TMUX_PANE"
+        preview_move "$twid" "${SW[@]}" -t "=$sname" ";" select-window -t "$twid" ";" select-pane -t "$TMUX_PANE"
       fi
       ;;
     esac
@@ -462,7 +482,7 @@ preview() {
   session)
     sname=${ITEM_ARG[$SEL]%%|*}
     if [[ -n $sname && $sname != "$MYSESSION" ]]; then
-      itmux switch-client -t "=$sname" 2>/dev/null || true
+      itmux "${SW[@]}" -t "=$sname" 2>/dev/null || true
       MYSESSION=$sname
     fi
     ;;
@@ -470,7 +490,7 @@ preview() {
     twid=${ITEM_ARG[$SEL]%%|*}
     sname=${ITEM_ARG[$SEL]#*|}
     if [[ $twid != "$CURWID" ]]; then
-      itmux switch-client -t "=$sname" \; select-window -t "$twid" 2>/dev/null || true
+      itmux "${SW[@]}" -t "=$sname" \; select-window -t "$twid" 2>/dev/null || true
       MYSESSION=$sname
       CURWID=$twid
     fi
@@ -490,7 +510,9 @@ land() {
 close_self() {
   if [[ -n $POPUP ]]; then
     if [[ -n $ORIG_SESSION ]]; then
-      itmux switch-client -t "=$ORIG_SESSION" 2>/dev/null || true
+      local SW
+      sw_args
+      itmux "${SW[@]}" -t "=$ORIG_SESSION" 2>/dev/null || true
       [[ -n $ORIG_WID ]] && itmux select-window -t "$ORIG_WID" 2>/dev/null || true
     fi
     exit 0
@@ -510,6 +532,13 @@ run() {
     exit 1
   }
   [[ -z $POPUP && -z ${DEMUX_INNER:-} && -n ${TMUX_PANE:-} ]] && PANEMODE=1
+  # resolve the client we serve (set by open_at for pane mode; the popup
+  # runs in its client's context; frame's nested client is the only one)
+  if [[ -n $PANEMODE ]]; then
+    CLIENT=$(tmux display-message -p -t "$TMUX_PANE" '#{@demux_client}' 2>/dev/null) || CLIENT=""
+  elif [[ -n $POPUP ]]; then
+    CLIENT=$(tmux display-message -p '#{client_name}' 2>/dev/null) || CLIENT=""
+  fi
   local pidfile key rest i
   pidfile="$STATE_DIR/pid.$$"
   echo "$$" >"$pidfile"
@@ -632,8 +661,8 @@ up() {
 }
 
 case "${1:-focus}" in
-focus) focus "${2:-}" ;;
-toggle) toggle "${2:-}" ;;
+focus) focus "${2:-}" "${3:-}" ;;
+toggle) toggle "${2:-}" "${3:-}" ;;
 follow) follow ;;
 nav) nav "${2:?next|prev}" "${3:-}" ;;
 popup)
