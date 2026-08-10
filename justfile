@@ -43,7 +43,7 @@ update-claude:
     set -euo pipefail
     base="https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases"
     version=$(curl -sf "$base/latest")
-    current=$(jq -r '.version' home/shared/claude-version.json)
+    current=$(jq -r '.version' modules/home/claude-version.json)
     if [[ "$version" == "$current" ]]; then
       echo "already up to date ($version)"
       exit 0
@@ -54,7 +54,7 @@ update-claude:
     linux=$(hex_to_sri "$(echo "$manifest" | jq -r '.platforms."linux-x64".checksum')")
     jq -n --arg v "$version" --arg d "$darwin" --arg l "$linux" \
       '{version: $v, hashes: {"aarch64-darwin": $d, "x86_64-linux": $l}}' \
-      > home/shared/claude-version.json
+      > modules/home/claude-version.json
     echo "updated $current -> $version"
 
 update-codex:
@@ -62,7 +62,7 @@ update-codex:
     set -euo pipefail
     tag=$(curl -sf https://api.github.com/repos/openai/codex/releases/latest | jq -r .tag_name)
     version="${tag#rust-v}"
-    current=$(jq -r '.version' home/shared/codex-version.json)
+    current=$(jq -r '.version' modules/home/codex-version.json)
     if [[ "$version" == "$current" ]]; then
       echo "already up to date ($version)"
       exit 0
@@ -73,5 +73,27 @@ update-codex:
     linux=$(sri "${base}/codex-x86_64-unknown-linux-musl.tar.gz")
     jq -n --arg v "$version" --arg d "$darwin" --arg l "$linux" \
       '{version: $v, hashes: {"aarch64-darwin": $d, "x86_64-linux": $l}}' \
-      > home/shared/codex-version.json
+      > modules/home/codex-version.json
     echo "updated $current -> $version"
+
+update-grok:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    base="https://storage.googleapis.com/grok-build-public-artifacts/cli"
+    # the bucket has no release index; `stable` holds the current version string
+    version=$(curl -sf "$base/stable")
+    current=$(jq -r '.version' modules/home/grok-version.json)
+    if [[ "$version" == "$current" ]]; then
+      echo "already up to date ($version)"
+      exit 0
+    fi
+    sri() { nix hash convert --hash-algo sha256 --to sri "$(nix-prefetch-url --type sha256 "$1" 2>/dev/null | tail -1)"; }
+    darwin=$(sri "${base}/grok-${version}-macos-aarch64")
+    linux=$(sri "${base}/grok-${version}-linux-x86_64")
+    jq -n --arg v "$version" --arg d "$darwin" --arg l "$linux" \
+      '{version: $v, hashes: {"aarch64-darwin": $d, "x86_64-linux": $l}}' \
+      > modules/home/grok-version.json
+    echo "updated $current -> $version"
+
+# bump every pinned coding-agent CLI
+update-agents: update-claude update-codex update-grok
