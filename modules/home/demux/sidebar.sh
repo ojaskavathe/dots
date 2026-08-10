@@ -57,20 +57,21 @@ sw_args() {
   [[ -n $CLIENT ]] && SW+=(-c "$CLIENT")
 }
 
-# pane-mode movers run as concurrent processes (hooks + keybinds); serialize
+# pane-mode movers run as concurrent processes (hooks + keybinds);
+# serialize. noclobber redirection = atomic create with zero forks.
 lock() {
   local i=0
-  until mkdir "$STATE_DIR/lock" 2>/dev/null; do
-    if ((++i >= 40)); then
-      rmdir "$STATE_DIR/lock" 2>/dev/null || true
-    fi
+  while ! { set -C && : >"$STATE_DIR/lock.f"; } 2>/dev/null; do
+    set +C
+    ((++i >= 40)) && rm -f "$STATE_DIR/lock.f" 2>/dev/null
     ((i >= 45)) && return 0
     sleep 0.01
   done
+  set +C
 }
 
 unlock() {
-  rmdir "$STATE_DIR/lock" 2>/dev/null || true
+  rm -f "$STATE_DIR/lock.f" 2>/dev/null || true
 }
 
 # 256-color, roughly catppuccin mocha
@@ -117,8 +118,9 @@ build() {
     fi
   fi
   if [[ -n $PANEMODE ]]; then
-    # follow moves this pane between windows; re-read where we are
-    IFS='|' read -r MYSESSION MYWID < <(tmux display-message -p -t "$TMUX_PANE" '#{session_name}|#{window_id}')
+    # follow moves this pane between windows; re-read where we are (and
+    # rewarm the width-record cache for the next leave, same call)
+    IFS='|' read -r MYSESSION MYWID WREC < <(tmux display-message -p -t "$TMUX_PANE" '#{session_name}|#{window_id}|#{@demux_widths}')
     CURWID=$MYWID
   else
     inner_client
@@ -265,6 +267,7 @@ sel_move() {
 
 TARGET_WIDTHS=""
 OLD_WIDTHS=""
+WREC="" # cached width record of the window we're currently in
 
 # one client call: target window's current widths + old window's record +
 # old window's LIVE panes. tmux ABORTS a command sequence at the first
@@ -300,17 +303,47 @@ resize_args() { # appends resize-pane commands for record "$1" to CMD
 
 # hot path: sidebar (us) moves itself to $1, runs trailing commands in the
 # same batch. two tmux spawns per keypress.
+# restore a left-behind window's widths from its record; runs async off the
+# keypress path. filters against live panes (sequences abort on error).
+restore_widths() {
+  local wid=$1 rec=$2 line live=" " kv
+  if [[ -z $rec ]]; then
+    itmux set-option -wu -t "$wid" @demux_widths 2>/dev/null || true
+    return 0
+  fi
+  while IFS= read -r line; do live+="$line "; done < <(itmux list-panes -t "$wid" -F '#{pane_id}' 2>/dev/null)
+  local CMD=()
+  # shellcheck disable=SC2086
+  for kv in $rec; do
+    [[ $live == *" ${kv%%=*} "* ]] && CMD+=(resize-pane -t "${kv%%=*}" -x "${kv#*=}" ";")
+  done
+  CMD+=(set-option -wu -t "$wid" @demux_widths)
+  itmux "${CMD[@]}" 2>/dev/null || true
+}
+
+# HOT PATH: exactly one synchronous tmux call per keypress. the target's
+# width record is captured server-side (set-option -F, pre-join, target
+# context) and echoed back for our cache; @demux_nav stamps the move so
+# follow ignores hooks we caused ourselves. the window we left is restored
+# asynchronously, then a self-signal repaints markers off the keypress path.
 preview_move() {
   local twid=$1
   shift
-  read_move_state "$twid" "$MYWID"
-  # user-visible commands FIRST (sequences abort on error; a failed
-  # bookkeeping command must never eat the switch)
-  local CMD=(join-pane -hbdf -l "$WIDTH" -s "$TMUX_PANE" -t "$twid" ";" "$@" ";")
-  resize_args "$OLD_WIDTHS"
-  CMD+=(set-option -w -t "$twid" @demux_widths "$TARGET_WIDTHS" ";" set-option -wu -t "$MYWID" @demux_widths)
-  itmux "${CMD[@]}" 2>/dev/null || true
+  local oldwid=$MYWID oldrec=$WREC out
+  if ! out=$(itmux set-option -Fw -t "$twid" @demux_widths '#{P:#{pane_id}=#{pane_width} }' \; \
+    set-option -g @demux_nav "$EPOCHSECONDS" \; \
+    join-pane -hbdf -l "$WIDTH" -s "$TMUX_PANE" -t "$twid" \; \
+    "$@" \; \
+    display-message -p -t "$twid" '#{@demux_widths}' 2>/dev/null); then
+    render
+    return 0
+  fi
+  WREC=$out
   MYWID=$twid
+  (
+    restore_widths "$oldwid" "$oldrec"
+    kill -USR1 $$ 2>/dev/null
+  ) &
 }
 
 # external movers (follow/nav/focus): find the sidebar, move it
@@ -322,6 +355,7 @@ move_with() {
   local CMD=()
   if [[ -n $sb && $sbwid != "$twid" ]]; then
     read_move_state "$twid" "$sbwid"
+    CMD+=(set-option -g @demux_nav "$EPOCHSECONDS" ";")
     CMD+=(join-pane -hbdf -l "$WIDTH" -s "$sb" -t "$twid" ";")
     [[ ${#} -gt 0 ]] && CMD+=("$@" ";")
     resize_args "$OLD_WIDTHS"
@@ -394,9 +428,11 @@ focus() {
     cwid=$(itmux display-message -p -t "$target" '#{window_id}')
     if [[ $sbwid != "$cwid" ]]; then
       move_with "$cwid" select-pane -t "$sb"
-    else
-      itmux select-pane -t "$sb" 2>/dev/null || true
+      unlock
+      refresh
+      return 0
     fi
+    itmux select-pane -t "$sb" 2>/dev/null || true
   fi
   unlock
 }
@@ -404,7 +440,12 @@ focus() {
 # hook fallback for switches demux didn't make itself. follows the CLIENT
 # the sidebar was opened for, never "some client".
 follow() {
-  local sb sbwid sbclient cwid
+  local sb sbwid sbclient cwid ts
+  # skip hooks demux's own moves triggered (@demux_nav stamps them); the
+  # sidebar repaints itself, and these no-op follows were serializing
+  # behind the preview lock, lagging every keypress
+  ts=$(itmux show-options -gqv @demux_nav 2>/dev/null) || ts=""
+  [[ -n $ts ]] && ((EPOCHSECONDS - ts <= 1)) && return 0
   sb=""
   IFS='|' read -r sb sbwid sbclient < <(itmux list-panes -a -f '#{==:#{@demux_sidebar},1}' -F '#{pane_id}|#{window_id}|#{@demux_client}') || true
   [[ -n $sb ]] || return 0
@@ -446,6 +487,7 @@ nav() {
   lock
   move_with "$target" select-window -t "$target"
   unlock
+  refresh
 }
 
 # ---- previews (all modes) ---------------------------------------------
@@ -457,7 +499,6 @@ preview() {
   sw_args
   if [[ -n $PANEMODE ]]; then
     lock
-    MYWID=$(tmux display-message -p -t "$TMUX_PANE" '#{window_id}')
     case "${ITEM_KIND[$SEL]}" in
     session)
       sname=${ITEM_ARG[$SEL]%%|*}
