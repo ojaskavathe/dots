@@ -23,9 +23,23 @@ FRAME_CONF="${DEMUX_FRAME_CONF:-@frameconf@}"
 FRAME_SOCKET="${DEMUX_FRAME_SOCKET:-demux-frame}"
 mkdir -p "$STATE_DIR"
 
-# inner = your real tmux server; DEMUX_INNER is its socket path, stored in
-# the frame server's global environment by `up`
-itmux() { tmux -S "${DEMUX_INNER:?DEMUX_INNER not set (run inside the demux frame)}" "$@"; }
+# inner = your real tmux server. under the frame, DEMUX_INNER carries its
+# socket path; in popup mode we're already inside the real server, so plain
+# tmux is correct.
+itmux() {
+  if [[ -n ${DEMUX_INNER:-} ]]; then
+    tmux -S "$DEMUX_INNER" "$@"
+  else
+    tmux "$@"
+  fi
+}
+
+# popup mode: the sidebar runs inside `display-popup` over the real tmux —
+# an overlay, not a pane, so there is no nesting (images/passthrough reach
+# the terminal directly) and no way to disturb layouts
+POPUP="${DEMUX_POPUP:-}"
+ORIG_SESSION=""
+ORIG_WID=""
 
 # 256-color, roughly catppuccin mocha
 C_TITLE=$'\033[1;38;5;183m'
@@ -59,11 +73,17 @@ inner_client() {
 build() {
   local width prev sess_idx
   local sname attached wcount widx wid wactive wpath scolor dot dotchar mark wcolor smax wmax
-  width=$(tmux display-message -p -t "$TMUX_PANE" '#{pane_width}')
-  # self-heal our width; the frame layout is trivial so this is always safe
-  if ((width != WIDTH)); then
-    tmux resize-pane -t "$TMUX_PANE" -x "$WIDTH" 2>/dev/null || true
-    width=$WIDTH
+  if [[ -n $POPUP || -z ${TMUX_PANE:-} ]]; then
+    # popup: our pty is the popup itself
+    IFS=' ' read -r _ width < <(stty size </dev/tty 2>/dev/null) || width=$WIDTH
+    [[ -n ${width:-} ]] || width=$WIDTH
+  else
+    width=$(tmux display-message -p -t "$TMUX_PANE" '#{pane_width}')
+    # self-heal our width; the frame layout is trivial so this is always safe
+    if ((width != WIDTH)); then
+      tmux resize-pane -t "$TMUX_PANE" -x "$WIDTH" 2>/dev/null || true
+      width=$WIDTH
+    fi
   fi
   inner_client
   smax=$((width - 8))
@@ -197,17 +217,31 @@ preview() {
   esac
 }
 
-# enter commits: the view already switched; move focus into your tmux
+# enter commits: the view already switched; leave the sidebar
 land() {
+  if [[ -n $POPUP ]]; then
+    exit 0
+  fi
   tmux last-pane 2>/dev/null || tmux select-pane -t :.+ 2>/dev/null || true
 }
 
+# q cancels: in popup mode, put the inner client back where it started
 close_self() {
+  if [[ -n $POPUP ]]; then
+    if [[ -n $ORIG_SESSION ]]; then
+      itmux switch-client -t "=$ORIG_SESSION" 2>/dev/null || true
+      [[ -n $ORIG_WID ]] && itmux select-window -t "$ORIG_WID" 2>/dev/null || true
+    fi
+    exit 0
+  fi
   tmux kill-pane -t "$TMUX_PANE" 2>/dev/null || true
 }
 
 run() {
-  : "${TMUX_PANE:?must run inside a tmux pane}"
+  [[ -n $POPUP || -n ${TMUX_PANE:-} ]] || {
+    echo "demux run: need a tmux pane or popup" >&2
+    exit 1
+  }
   local pidfile key rest i
   pidfile="$STATE_DIR/pid.$$"
   echo "$$" >"$pidfile"
@@ -216,6 +250,9 @@ run() {
   trap 'render' USR1 WINCH
   printf '\033[?25l\033[2J'
   render
+  # remember where the client started, so q can cancel back to it
+  ORIG_SESSION=$MYSESSION
+  ORIG_WID=$CURWID
   # start the selection on the inner client's current window
   for i in "${!ITEM_KIND[@]}"; do
     if [[ ${ITEM_KIND[$i]} == "window" && ${ITEM_ARG[$i]%%|*} == "$CURWID" ]]; then
@@ -238,6 +275,16 @@ run() {
       case "$rest" in
       '[A') key=k ;;
       '[B') key=j ;;
+      s)
+        # M-s inside the popup closes it, keeping the previewed view
+        [[ -n $POPUP ]] && exit 0
+        continue
+        ;;
+      '')
+        # bare ESC closes the popup, keeping the previewed view
+        [[ -n $POPUP ]] && exit 0
+        continue
+        ;;
       *) continue ;;
       esac
     fi
@@ -326,10 +373,15 @@ case "${1:-up}" in
 up) up "${2:-}" ;;
 ensure) frame_ensure "${2:-}" ;;
 run) run ;;
+popup)
+  DEMUX_POPUP=1
+  POPUP=1
+  run
+  ;;
 refresh) refresh ;;
 frame-focus) frame_focus "${2:-}" ;;
 *)
-  echo "usage: demux {up [inner-socket]|run|refresh|frame-focus [pane]}" >&2
+  echo "usage: demux {up [inner-socket]|popup|run|refresh|frame-focus [pane]}" >&2
   exit 2
   ;;
 esac
