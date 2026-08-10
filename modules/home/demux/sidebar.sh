@@ -265,25 +265,21 @@ sel_move() {
 # @demux_widths on a window = "id=w id=w ..." recorded BEFORE the sidebar
 # joined; leaving resize-panes them back. resize-pane is content-safe.
 
-TARGET_WIDTHS=""
 OLD_WIDTHS=""
 WREC="" # cached width record of the window we're currently in
 
-# one client call: target window's current widths + old window's record +
-# old window's LIVE panes. tmux ABORTS a command sequence at the first
-# error, so a resize targeting a dead pane would kill every command after
-# it (including the switch) — records must be filtered to live panes.
+# old window's record + its LIVE panes in one call. tmux ABORTS a command
+# sequence at the first error, so a resize targeting a dead pane would kill
+# every command after it — records must be filtered to live panes.
 read_move_state() {
-  local twid=$1 oldwid=$2 line t="" rec="" live=" " kv keep=""
+  local oldwid=$1 line rec="" live=" " kv keep=""
   OLD_WIDTHS=""
   while IFS= read -r line; do
     case "$line" in
-    T%*) t+="${line#T} " ;;
     O%*) live+="${line#O} " ;;
     *) rec=$line ;;
     esac
-  done < <(itmux list-panes -t "$twid" -F 'T#{pane_id}=#{pane_width}' \; list-panes -t "$oldwid" -F 'O#{pane_id}' \; show-options -wqv -t "$oldwid" @demux_widths 2>/dev/null)
-  TARGET_WIDTHS=${t% }
+  done < <(itmux list-panes -t "$oldwid" -F 'O#{pane_id}' \; show-options -wqv -t "$oldwid" @demux_widths 2>/dev/null)
   # shellcheck disable=SC2086
   for kv in $rec; do
     [[ $live == *" ${kv%%=*} "* ]] && keep+="$kv "
@@ -305,20 +301,33 @@ resize_args() { # appends resize-pane commands for record "$1" to CMD
 # same batch. two tmux spawns per keypress.
 # restore a left-behind window's widths from its record; runs async off the
 # keypress path. filters against live panes (sequences abort on error).
+# REFUSES to touch a window the sidebar re-entered meanwhile: restoring
+# full-width values around a present sidebar over-constrains the layout,
+# and clearing the record would drop the true baseline (whiplash scrubbing)
 restore_widths() {
-  local wid=$1 rec=$2 line live=" " kv
-  if [[ -z $rec ]]; then
-    itmux set-option -wu -t "$wid" @demux_widths 2>/dev/null || true
-    return 0
-  fi
-  while IFS= read -r line; do live+="$line "; done < <(itmux list-panes -t "$wid" -F '#{pane_id}' 2>/dev/null)
-  local CMD=()
+  local wid=$1 rec=$2 line live=" " kv hassb=0
+  while IFS= read -r line; do
+    case "$line" in
+    *S)
+      hassb=1
+      live+="${line%S} "
+      ;;
+    *) live+="$line " ;;
+    esac
+  done < <(itmux list-panes -t "$wid" -F '#{pane_id}#{?#{@demux_sidebar},S,}' 2>/dev/null)
+  ((hassb)) && return 0
+  # unset first (guaranteed cleanup even if a resize aborts the rest), then
+  # best-effort resizes for panes that were alive at read time
+  local str="set-option -wu -t '$wid' @demux_widths"
   # shellcheck disable=SC2086
   for kv in $rec; do
-    [[ $live == *" ${kv%%=*} "* ]] && CMD+=(resize-pane -t "${kv%%=*}" -x "${kv#*=}" ";")
+    [[ $live == *" ${kv%%=*} "* ]] && str+=" ; resize-pane -t '${kv%%=*}' -x ${kv#*=}"
   done
-  CMD+=(set-option -wu -t "$wid" @demux_widths)
-  itmux "${CMD[@]}" 2>/dev/null || true
+  # the client-side check above races the sidebar whiplashing back in; this
+  # if-shell re-checks presence SERVER-SIDE, atomic with the restore, so
+  # full-width values can never be applied around a present sidebar (which
+  # over-constrains the window, crushes panes, and poisons later baselines)
+  itmux if-shell -t "$wid" -F '#{m:*S*,#{P:#{?#{@demux_sidebar},S,}}}' '' "$str" 2>/dev/null || true
 }
 
 # HOT PATH: exactly one synchronous tmux call per keypress. the target's
@@ -330,7 +339,10 @@ preview_move() {
   local twid=$1
   shift
   local oldwid=$MYWID oldrec=$WREC out
-  if ! out=$(itmux set-option -Fw -t "$twid" @demux_widths '#{P:#{pane_id}=#{pane_width} }' \; \
+  # -oq: capture the width baseline only if none exists — a pending async
+  # restore means the stored record is the TRUE pre-sidebar baseline, and
+  # overwriting it with absorbed widths would corrupt every later restore
+  if ! out=$(itmux set-option -Fwoq -t "$twid" @demux_widths '#{P:#{pane_id}=#{pane_width} }' \; \
     set-option -g @demux_nav "$EPOCHSECONDS" \; \
     join-pane -hbdf -l "$WIDTH" -s "$TMUX_PANE" -t "$twid" \; \
     "$@" \; \
@@ -354,12 +366,13 @@ move_with() {
   IFS=' ' read -r sb sbwid < <(itmux list-panes -a -f '#{==:#{@demux_sidebar},1}' -F '#{pane_id} #{window_id}') || true
   local CMD=()
   if [[ -n $sb && $sbwid != "$twid" ]]; then
-    read_move_state "$twid" "$sbwid"
+    read_move_state "$sbwid"
     CMD+=(set-option -g @demux_nav "$EPOCHSECONDS" ";")
+    CMD+=(set-option -Fwoq -t "$twid" @demux_widths '#{P:#{pane_id}=#{pane_width} }' ";")
     CMD+=(join-pane -hbdf -l "$WIDTH" -s "$sb" -t "$twid" ";")
     [[ ${#} -gt 0 ]] && CMD+=("$@" ";")
     resize_args "$OLD_WIDTHS"
-    CMD+=(set-option -w -t "$twid" @demux_widths "$TARGET_WIDTHS" ";" set-option -wu -t "$sbwid" @demux_widths)
+    CMD+=(set-option -wu -t "$sbwid" @demux_widths)
   else
     CMD+=("$@")
   fi
