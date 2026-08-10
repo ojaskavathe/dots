@@ -38,10 +38,12 @@ func usage() {
 	fmt.Fprintf(os.Stderr, `usage: demuxd [-L name | -S path] <command>
 
 commands:
-  run      run the daemon in the foreground
-  ls       print the world (starts the daemon if needed)
-  events   stream snapshot + diffs as NDJSON (starts the daemon if needed)
-  sock     print the tmux and demux socket paths and exit
+  run              run the daemon in the foreground
+  ls               print the world (starts the daemon if needed)
+  events           stream snapshot + diffs as NDJSON (starts the daemon if needed)
+  toggle <client>  summon / focus / close the sidebar for a tmux client
+  tui              the sidebar TUI (spawned by the daemon inside the sidebar pane)
+  sock             print the tmux and demux socket paths and exit
 `)
 	os.Exit(2)
 }
@@ -67,6 +69,14 @@ func main() {
 		cmdLs(tmuxSock, demuxSock)
 	case "events":
 		cmdEvents(tmuxSock, demuxSock)
+	case "toggle":
+		client := ""
+		if len(args) > 1 {
+			client = args[1]
+		}
+		cmdToggle(tmuxSock, demuxSock, client)
+	case "tui":
+		cmdTui(tmuxSock, demuxSock)
 	case "sock":
 		fmt.Printf("tmux:  %s\ndemux: %s\n", tmuxSock, demuxSock)
 	default:

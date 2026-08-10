@@ -69,6 +69,38 @@ func cmdLs(tmuxSock, demuxSock string) {
 	fmt.Print(snap.world.String())
 }
 
+// cmdToggle is the M-s entrypoint: one short-lived connection, one cmd, wait
+// for the daemon's reply so bind errors surface in tmux.
+func cmdToggle(tmuxSock, demuxSock, client string) {
+	conn, err := dialEnsure(tmuxSock, demuxSock)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "demuxd toggle: %v\n", err)
+		os.Exit(1)
+	}
+	defer conn.Close()
+	b, _ := json.Marshal(cmdMsg{Type: "cmd", Cmd: "toggle", Client: client})
+	if _, err := conn.Write(append(b, '\n')); err != nil {
+		fmt.Fprintf(os.Stderr, "demuxd toggle: %v\n", err)
+		os.Exit(1)
+	}
+	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	sc := bufio.NewScanner(conn)
+	sc.Buffer(make([]byte, 64*1024), 16*1024*1024)
+	for sc.Scan() {
+		var m wireMsg
+		if json.Unmarshal(sc.Bytes(), &m) != nil || m.Type != "reply" {
+			continue // snapshot/diff lines on the same conn
+		}
+		if m.OK != nil && !*m.OK {
+			fmt.Fprintf(os.Stderr, "demuxd toggle: %s\n", m.Err)
+			os.Exit(1)
+		}
+		return
+	}
+	fmt.Fprintln(os.Stderr, "demuxd toggle: no reply from daemon")
+	os.Exit(1)
+}
+
 func cmdEvents(tmuxSock, demuxSock string) {
 	conn, err := dialEnsure(tmuxSock, demuxSock)
 	if err != nil {

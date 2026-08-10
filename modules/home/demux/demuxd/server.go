@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"net"
 	"sync"
@@ -13,6 +14,7 @@ type hub struct {
 	mu    sync.Mutex
 	world world
 	subs  map[*subscriber]struct{}
+	cmds  chan cmdEnvelope
 }
 
 type subscriber struct {
@@ -20,8 +22,49 @@ type subscriber struct {
 	ch   chan []byte
 }
 
+// cmdMsg is a client -> daemon request; replyMsg answers it on the same conn
+// (interleaved with the world stream, so replies are type-tagged).
+type cmdMsg struct {
+	Type   string `json:"type"`
+	Cmd    string `json:"cmd"`
+	Client string `json:"client,omitempty"`
+	Window string `json:"window,omitempty"`
+}
+
+type replyMsg struct {
+	Type string `json:"type"`
+	OK   bool   `json:"ok"`
+	Err  string `json:"err,omitempty"`
+}
+
+type cmdEnvelope struct {
+	msg cmdMsg
+	sub *subscriber
+}
+
 func newHub() *hub {
-	return &hub{subs: map[*subscriber]struct{}{}}
+	return &hub{subs: map[*subscriber]struct{}{}, cmds: make(chan cmdEnvelope, 16)}
+}
+
+func (h *hub) getWorld() world {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.world
+}
+
+// send queues a message to one subscriber, dropping it if stalled.
+func (h *hub) send(s *subscriber, payload []byte) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if _, ok := h.subs[s]; !ok {
+		return
+	}
+	select {
+	case s.ch <- payload:
+	default:
+		delete(h.subs, s)
+		close(s.ch)
+	}
 }
 
 type snapshotMsg struct {
@@ -98,8 +141,8 @@ func marshalLine(v any) []byte {
 	return append(b, '\n')
 }
 
-// serve accepts subscribers. Input from clients is drained and ignored in
-// milestone 1 (commands arrive here in milestone 2).
+// serve accepts subscribers; incoming NDJSON cmd lines go to the daemon's
+// event loop, which serializes them with re-lists and tmux commands.
 func serve(ln net.Listener, h *hub, tmuxSock string) {
 	for {
 		conn, err := ln.Accept()
@@ -109,14 +152,17 @@ func serve(ln net.Listener, h *hub, tmuxSock string) {
 		go func(conn net.Conn) {
 			s := h.add(conn, tmuxSock)
 			go func() {
-				buf := make([]byte, 4096)
-				for {
-					if _, err := conn.Read(buf); err != nil {
-						h.remove(s)
-						conn.Close()
-						return
+				sc := bufio.NewScanner(conn)
+				sc.Buffer(make([]byte, 4096), 1024*1024)
+				for sc.Scan() {
+					var m cmdMsg
+					if err := json.Unmarshal(sc.Bytes(), &m); err != nil || m.Type != "cmd" {
+						continue
 					}
+					h.cmds <- cmdEnvelope{msg: m, sub: s}
 				}
+				h.remove(s)
+				conn.Close()
 			}()
 			for msg := range s.ch {
 				if _, err := conn.Write(msg); err != nil {

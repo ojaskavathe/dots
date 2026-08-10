@@ -22,15 +22,15 @@
         ];
       };
 
-      # milestone 1 of thoughts/demux-architecture.md: the world-model daemon
-      # (control-mode ingest -> reducer -> NDJSON snapshot+diff pub/sub).
-      # the sh sidebar below still owns the UX until the TUI lands.
+      # demux daemon + sidebar TUI (thoughts/demux-architecture.md, milestones
+      # 1+2): control-mode world model, NDJSON pub/sub, and the M-s sidebar —
+      # zero process spawns on the event path, no tmux hooks needed.
       demuxd = pkgs.buildGoModule {
         pname = "demuxd";
-        version = "0.1.0";
+        version = "0.2.0";
 
         src = ./demux/demuxd;
-        vendorHash = null;
+        vendorHash = "sha256-v9QGoqKB/LGeAPF4NNTyI1Nmy301m43/9ljorcayums=";
 
         ldflags = [
           "-X"
@@ -46,22 +46,6 @@
         );
       };
 
-      # events that change what the demux sidebar shows
-      demuxRefreshHooks = [
-        "session-created"
-        "session-closed"
-        "session-renamed"
-        "client-attached"
-        "client-detached"
-        "window-linked"
-        "window-unlinked"
-        "window-renamed"
-      ];
-      # events that move the client elsewhere: the sidebar follows
-      demuxFollowHooks = [
-        "client-session-changed"
-        "session-window-changed"
-      ];
     in
     {
       options = {
@@ -145,15 +129,15 @@
             set -g status-interval 15
             set -g status-position top
 
-            # Cycle windows; with the demux sidebar open, route through demux
-            # so the sidebar moves in the same batch (no reflow jitter)
-            bind -n M-h if-shell -F '#{@demux_open}' 'run-shell -b "${demux}/bin/demux nav prev \"#{window_id}\""' 'previous-window'
-            bind -n M-l if-shell -F '#{@demux_open}' 'run-shell -b "${demux}/bin/demux nav next \"#{window_id}\""' 'next-window'
+            # window cycling stays native: the demux daemon watches
+            # %session-window-changed and makes the sidebar ride along
+            bind -n M-h previous-window
+            bind -n M-l next-window
 
-            # demux sidebar (real pane): M-s opens / focuses / closes.
-            # client is passed explicitly — implicit switch-client picks the
-            # wrong client whenever a second one is attached
-            bind -n M-s run-shell -b '${demux}/bin/demux focus "#{pane_id}" "#{client_name}"'
+            # demux sidebar: M-s summons / focuses / closes. client passed
+            # explicitly — implicit targeting picks the wrong client whenever
+            # a second one is attached (the demux control client always is)
+            bind -n M-s run-shell -b '${demuxd}/bin/demuxd toggle "#{client_name}"'
             bind -n M-e run-shell -b '${tmuxEqualizeNvim}/bin/tmux-equalize-nvim'
             bind -n M-g send-keys C-l \; run-shell -b -d 0.05 -C 'clear-history -t "#{pane_id}"'
 
@@ -186,14 +170,6 @@
 
             # restore clear with <prefix>C-l
             bind C-l send-keys 'C-l'
-
-            # demux hooks: repaint on changes; follow the client on switches
-            ${lib.concatMapStrings (h: ''
-              set-hook -g ${h} 'run-shell -b "${demux}/bin/demux refresh"'
-            '') demuxRefreshHooks}
-            ${lib.concatMapStrings (h: ''
-              set-hook -g ${h} 'run-shell -b "${demux}/bin/demux follow"'
-            '') demuxFollowHooks}
           '';
         };
       };

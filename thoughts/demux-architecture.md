@@ -213,9 +213,11 @@ capable — choose go purely for repo consistency and iteration speed.
 ## milestones
 
 1. **demuxd core** — control-mode ingest, reducer, snapshot+diff protocol,
-   `demux ls`. proves the event path end to end.
+   `demux ls`. proves the event path end to end. **done (2026-08-10).**
 2. **sidebar TUI** — tree render, j/k/enter/x, mouse, toggle mechanics ported
-   from spike. replaces sidebar.sh.
+   from spike. replaces sidebar.sh. **core shipped (2026-08-10): M-s cycle,
+   j/k live preview, enter/q, native-motion follow with zero hooks. still
+   open: x=kill, mouse, styling, start-selection-at-current-window.**
 3. **agents** — claude code hooks → `demux emit`, agent states in sidebar,
    statusline bridge, blocked notifications.
 4. **previews** — selection frames, then follow mode.
