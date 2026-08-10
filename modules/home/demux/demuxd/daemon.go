@@ -20,17 +20,8 @@ func runDaemon(tmuxSock, demuxSock string) {
 	log.SetPrefix("demuxd: ")
 	log.SetFlags(log.Ltime | log.Lmicroseconds)
 
-	if err := os.MkdirAll(filepath.Dir(demuxSock), 0o700); err != nil {
-		log.Fatalf("socket dir: %v", err)
-	}
-	ln, err := listenExclusive(demuxSock)
-	if err != nil {
-		log.Fatalf("%v", err)
-	}
-	defer os.Remove(demuxSock)
-
 	h := newHub()
-	go serve(ln, h, tmuxSock)
+	var ln net.Listener
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
@@ -52,15 +43,29 @@ func runDaemon(tmuxSock, demuxSock string) {
 			h.closeAll()
 			return
 		}
-		if attempt == 0 {
+		// Snapshot, not diff: after a reconnect gap, diffs against the old
+		// world could be stale mid-gap; a snapshot is always truthful.
+		h.setWorld(w, nil, true, tmuxSock)
+		if ln == nil {
+			// Bind only now, with a populated world: a subscriber must never
+			// see the socket before there is a truthful snapshot behind it
+			// (an early `ls` would print an empty world and exit 0).
+			if err := os.MkdirAll(filepath.Dir(demuxSock), 0o700); err != nil {
+				ctl.close()
+				log.Fatalf("socket dir: %v", err)
+			}
+			ln, err = listenExclusive(demuxSock)
+			if err != nil {
+				ctl.close()
+				log.Fatalf("%v", err)
+			}
+			defer os.Remove(demuxSock)
+			go serve(ln, h, tmuxSock)
 			log.Printf("attached to %s: %d sessions, %d windows, %d panes",
 				tmuxSock, len(w.Sessions), len(w.Windows), len(w.Panes))
 		} else {
 			log.Printf("reattached to %s", tmuxSock)
 		}
-		// Snapshot, not diff: after a reconnect gap, diffs against the old
-		// world could be stale mid-gap; a snapshot is always truthful.
-		h.setWorld(w, nil, true, tmuxSock)
 
 		if !consume(ctl, h, w, tmuxSock, sig) {
 			ctl.close()
