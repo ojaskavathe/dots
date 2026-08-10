@@ -129,10 +129,10 @@
             bind -n M-h previous-window
             bind -n M-l next-window
 
-            # common tmux actions without prefix. under the demux frame, M-s
-            # is intercepted by the outer server (sidebar); this fallback only
-            # fires in a bare tmux
-            bind -n M-s choose-tree -Zs
+            # demux popup sidebar: overlay over the real tmux, no nesting, so
+            # images/passthrough are untouched. under the demux frame, M-s is
+            # intercepted by the outer server instead and this never fires.
+            bind -n M-s display-popup -E -B -x 0 -y 0 -w 34 -h 100% '${demux}/bin/demux popup'
             bind -n M-e run-shell -b '${tmuxEqualizeNvim}/bin/tmux-equalize-nvim'
             bind -n M-g send-keys C-l \; run-shell -b -d 0.05 -C 'clear-history -t "#{pane_id}"'
 
