@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -27,12 +28,28 @@ import (
 
 const sidebarWidth = 40
 
+// baseEntry is one pane's recorded geometry. Baselines are ordered slices,
+// never maps: restores replay left-to-right, top-to-bottom, because absolute
+// resize-pane calls in nested layouts are order-sensitive — a randomized
+// order (Go map iteration) restores a different layout "sometimes".
+type baseEntry struct {
+	id    string
+	left  int
+	top   int
+	width int
+}
+
 type sidebarState struct {
-	pane     string         // %id of the pane running `demuxd tui`
-	client   string         // owning tmux client (explicit switching)
-	window   string         // current host window @id
-	session  string         // host window's session $id
-	baseline map[string]int // host-window pane widths captured at join
+	pane     string      // %id of the pane running `demuxd tui`
+	client   string      // owning tmux client (explicit switching)
+	window   string      // current host window @id
+	session  string      // host window's session $id
+	baseline []baseEntry // host-window pane geometry captured at join
+	// automatic-rename value of the host window before the sidebar entered
+	// ("" = unset). The option is switched off while the sidebar is present:
+	// the active pane is the sidebar, and tmux would rename the window to
+	// "demuxd". Restored (or unset) on leave.
+	autoRename string
 }
 
 type daemon struct {
@@ -114,8 +131,14 @@ func (d *daemon) summon(ctl *control, client, sid, wid, pid string) error {
 	if err != nil {
 		return err
 	}
-	lines, err := ctl.run(fmt.Sprintf("split-window -hbf -l %d -t %s -P -F '#{pane_id}' %s",
-		sidebarWidth, q(pid), q(self+" -S "+d.tmuxSock+" tui")))
+	// automatic-rename goes off before the split lands, in the same
+	// sequence: once the sidebar is the active pane tmux would rename the
+	// window to "demuxd".
+	autoRename := d.queryAutoRename(ctl, wid)
+	lines, err := ctl.runSeq(
+		"set-option -wq -t "+q(wid)+" automatic-rename off",
+		fmt.Sprintf("split-window -hbf -l %d -t %s -P -F '#{pane_id}' %s",
+			sidebarWidth, q(pid), q(self+" -S "+d.tmuxSock+" tui")))
 	if err != nil {
 		return err
 	}
@@ -128,7 +151,7 @@ func (d *daemon) summon(ctl *control, client, sid, wid, pid string) error {
 	_, _ = ctl.runSeq(
 		"set-option -p -t "+q(sb)+" @demux_sidebar 1",
 		"select-pane -t "+q(sb))
-	d.sb = &sidebarState{pane: sb, client: client, window: wid, session: sid, baseline: base}
+	d.sb = &sidebarState{pane: sb, client: client, window: wid, session: sid, baseline: base, autoRename: autoRename}
 	return nil
 }
 
@@ -150,8 +173,12 @@ func (d *daemon) join(ctl *control, sid, wid string, mode joinMode) error {
 	if err != nil {
 		return err
 	}
-	oldWin, oldBase := d.sb.window, d.sb.baseline
-	cmds := []string{fmt.Sprintf("join-pane -hbdf -l %d -s %s -t %s", sidebarWidth, q(d.sb.pane), q(wid))}
+	autoRename := d.queryAutoRename(ctl, wid)
+	oldWin, oldBase, oldAR := d.sb.window, d.sb.baseline, d.sb.autoRename
+	cmds := []string{
+		"set-option -wq -t " + q(wid) + " automatic-rename off",
+		fmt.Sprintf("join-pane -hbdf -l %d -s %s -t %s", sidebarWidth, q(d.sb.pane), q(wid)),
+	}
 	switch mode {
 	case joinSwitch:
 		cmds = append(cmds,
@@ -162,6 +189,7 @@ func (d *daemon) join(ctl *control, sid, wid string, mode joinMode) error {
 		cmds = append(cmds, "select-pane -t "+q(d.sb.pane))
 	}
 	cmds = append(cmds, d.restoreCmds(oldWin, oldBase)...)
+	cmds = append(cmds, autoRenameRestoreCmd(oldWin, oldAR))
 	_, err = ctl.runSeq(cmds...)
 	if err != nil {
 		// The sequence aborted somewhere; re-derive where the sidebar
@@ -169,7 +197,7 @@ func (d *daemon) join(ctl *control, sid, wid string, mode joinMode) error {
 		d.resync(ctl)
 		return err
 	}
-	d.sb.window, d.sb.session, d.sb.baseline = wid, sid, base
+	d.sb.window, d.sb.session, d.sb.baseline, d.sb.autoRename = wid, sid, base, autoRename
 	return nil
 }
 
@@ -200,39 +228,50 @@ func (d *daemon) closeSidebar(ctl *control) error {
 		return nil
 	}
 	cmds := append([]string{"kill-pane -t " + q(d.sb.pane)}, d.restoreCmds(d.sb.window, d.sb.baseline)...)
+	cmds = append(cmds, autoRenameRestoreCmd(d.sb.window, d.sb.autoRename))
 	_, err := ctl.runSeq(cmds...)
 	d.sb = nil
 	return err
 }
 
-// freshBaseline records the target window's pane widths right before a join.
-// Live by construction: this query and the join that follows are serialized
-// on the same connection.
-func (d *daemon) freshBaseline(ctl *control, wid string) (map[string]int, error) {
-	lines, err := ctl.run("list-panes -t " + q(wid) + " -F " + f("#{pane_id}", "#{pane_width}"))
+// freshBaseline records the target window's pane geometry right before a
+// join, ordered by position. Live by construction: this query and the join
+// that follows are serialized on the same connection.
+func (d *daemon) freshBaseline(ctl *control, wid string) ([]baseEntry, error) {
+	lines, err := ctl.run("list-panes -t " + q(wid) + " -F " + f("#{pane_id}", "#{pane_left}", "#{pane_top}", "#{pane_width}"))
 	if err != nil {
 		return nil, err
 	}
-	base := map[string]int{}
+	var base []baseEntry
 	for _, ln := range lines {
 		p := strings.Split(ln, sep)
-		if len(p) != 2 {
+		if len(p) != 4 {
 			continue
 		}
 		if d.sb != nil && p[0] == d.sb.pane {
 			continue
 		}
-		if w, err := strconv.Atoi(p[1]); err == nil {
-			base[p[0]] = w
+		left, _ := strconv.Atoi(p[1])
+		top, _ := strconv.Atoi(p[2])
+		width, err := strconv.Atoi(p[3])
+		if err != nil {
+			continue
 		}
+		base = append(base, baseEntry{id: p[0], left: left, top: top, width: width})
 	}
+	sort.Slice(base, func(i, j int) bool {
+		if base[i].left != base[j].left {
+			return base[i].left < base[j].left
+		}
+		return base[i].top < base[j].top
+	})
 	return base, nil
 }
 
-// restoreCmds builds resize-pane commands for panes that are still alive and
-// still in the window they were recorded in — a dead target would abort the
-// tail of the sequence.
-func (d *daemon) restoreCmds(wid string, base map[string]int) []string {
+// restoreCmds builds resize-pane commands, in baseline (positional) order,
+// for panes that are still alive and still in the window they were recorded
+// in — a dead target would abort the tail of the sequence.
+func (d *daemon) restoreCmds(wid string, base []baseEntry) []string {
 	if len(base) == 0 {
 		return nil
 	}
@@ -241,16 +280,33 @@ func (d *daemon) restoreCmds(wid string, base map[string]int) []string {
 		live[p.ID] = p.WindowID
 	}
 	var cmds []string
-	for id, width := range base {
-		if d.sb != nil && id == d.sb.pane {
+	for _, e := range base {
+		if d.sb != nil && e.id == d.sb.pane {
 			continue
 		}
-		if live[id] != wid {
+		if live[e.id] != wid {
 			continue
 		}
-		cmds = append(cmds, fmt.Sprintf("resize-pane -t %s -x %d", q(id), width))
+		cmds = append(cmds, fmt.Sprintf("resize-pane -t %s -x %d", q(e.id), e.width))
 	}
 	return cmds
+}
+
+// queryAutoRename reads a window's own automatic-rename setting ("" when the
+// window inherits the global value).
+func (d *daemon) queryAutoRename(ctl *control, wid string) string {
+	lines, err := ctl.run("show-options -wqv -t " + q(wid) + " automatic-rename")
+	if err != nil || len(lines) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(lines[0])
+}
+
+func autoRenameRestoreCmd(wid, val string) string {
+	if val == "" {
+		return "set-option -wqu -t " + q(wid) + " automatic-rename"
+	}
+	return "set-option -wq -t " + q(wid) + " automatic-rename " + q(val)
 }
 
 // resync re-derives sidebar location from tmux after a failed sequence.
@@ -289,9 +345,9 @@ func (d *daemon) checkSidebar(ctl *control, w world) {
 		}
 	}
 	if !alive {
-		if cmds := d.restoreCmds(d.sb.window, d.sb.baseline); len(cmds) > 0 {
-			_, _ = ctl.runSeq(cmds...)
-		}
+		cmds := d.restoreCmds(d.sb.window, d.sb.baseline)
+		cmds = append(cmds, autoRenameRestoreCmd(d.sb.window, d.sb.autoRename))
+		_, _ = ctl.runSeq(cmds...)
 		d.sb = nil
 		return
 	}
