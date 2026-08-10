@@ -20,15 +20,40 @@ type hub struct {
 type subscriber struct {
 	conn net.Conn
 	ch   chan []byte
+	role string // "", "list", "canvas" — set by a hello message
 }
 
 // cmdMsg is a client -> daemon request; replyMsg answers it on the same conn
-// (interleaved with the world stream, so replies are type-tagged).
+// (interleaved with the world stream, so replies are type-tagged). A
+// {"type":"hello","role":"..."} line tags the connection instead.
 type cmdMsg struct {
 	Type   string `json:"type"`
 	Cmd    string `json:"cmd"`
 	Client string `json:"client,omitempty"`
 	Window string `json:"window,omitempty"`
+	Role   string `json:"role,omitempty"`
+}
+
+// selectMsg tells the list TUI to move its selection (daemon -> list).
+type selectMsg struct {
+	Type   string `json:"type"`
+	Window string `json:"window"`
+}
+
+// frameMsg carries a captured window for the preview canvas (daemon ->
+// canvas). Pane lines are raw capture-pane -e output (SGR included).
+type frameMsg struct {
+	Type   string      `json:"type"`
+	Window string      `json:"window"`
+	Panes  []framePane `json:"panes"`
+}
+
+type framePane struct {
+	Left   int      `json:"left"`
+	Top    int      `json:"top"`
+	Width  int      `json:"width"`
+	Height int      `json:"height"`
+	Lines  []string `json:"lines"`
 }
 
 type replyMsg struct {
@@ -56,6 +81,10 @@ func (h *hub) getWorld() world {
 func (h *hub) send(s *subscriber, payload []byte) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	h.sendLocked(s, payload)
+}
+
+func (h *hub) sendLocked(s *subscriber, payload []byte) {
 	if _, ok := h.subs[s]; !ok {
 		return
 	}
@@ -65,6 +94,23 @@ func (h *hub) send(s *subscriber, payload []byte) {
 		delete(h.subs, s)
 		close(s.ch)
 	}
+}
+
+// sendRole queues a message to every subscriber with the given role.
+func (h *hub) sendRole(role string, payload []byte) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for s := range h.subs {
+		if s.role == role {
+			h.sendLocked(s, payload)
+		}
+	}
+}
+
+func (h *hub) setRole(s *subscriber, role string) {
+	h.mu.Lock()
+	s.role = role
+	h.mu.Unlock()
 }
 
 type snapshotMsg struct {
@@ -156,10 +202,18 @@ func serve(ln net.Listener, h *hub, tmuxSock string) {
 				sc.Buffer(make([]byte, 4096), 1024*1024)
 				for sc.Scan() {
 					var m cmdMsg
-					if err := json.Unmarshal(sc.Bytes(), &m); err != nil || m.Type != "cmd" {
+					if err := json.Unmarshal(sc.Bytes(), &m); err != nil {
 						continue
 					}
-					h.cmds <- cmdEnvelope{msg: m, sub: s}
+					switch m.Type {
+					case "hello":
+						h.setRole(s, m.Role)
+						// Let the daemon replay state (frame, selection)
+						// to a client that connected after it was sent.
+						h.cmds <- cmdEnvelope{msg: cmdMsg{Type: "cmd", Cmd: "hello-" + m.Role}, sub: s}
+					case "cmd":
+						h.cmds <- cmdEnvelope{msg: m, sub: s}
+					}
 				}
 				h.remove(s)
 				conn.Close()

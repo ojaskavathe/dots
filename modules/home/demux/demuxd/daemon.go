@@ -105,9 +105,14 @@ func consume(d *daemon, ctl *control, w world, sig chan os.Signal) bool {
 			ops := diffWorlds(w, next)
 			w = next
 			d.h.setWorld(w, ops, false, d.tmuxSock)
-			d.checkSidebar(ctl, w)
+			d.checkBrowse(ctl, w)
 		case env := <-d.h.cmds:
 			d.handleCmd(ctl, env)
+		case <-d.tickC:
+			// Live preview stream: nil (never fires) unless browsing.
+			if d.br != nil && d.br.open && d.br.target != "" {
+				_ = d.preview(ctl, d.br.target)
+			}
 		case <-ctl.done:
 			if timer != nil {
 				timer.Stop()

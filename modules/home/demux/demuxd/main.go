@@ -77,6 +77,8 @@ func main() {
 		cmdToggle(tmuxSock, demuxSock, client)
 	case "tui":
 		cmdTui(tmuxSock, demuxSock)
+	case "canvas":
+		cmdCanvas(tmuxSock, demuxSock)
 	case "sock":
 		fmt.Printf("tmux:  %s\ndemux: %s\n", tmuxSock, demuxSock)
 	default:
