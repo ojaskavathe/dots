@@ -134,9 +134,9 @@
             bind -n M-l if-shell -F '#{@demux_open}' 'run-shell -b "${demux}/bin/demux nav next \"#{window_id}\""' 'next-window'
 
             # demux sidebar (real pane): M-s opens / focuses / closes.
-            # width restore on leave uses resize-pane only — never
-            # select-layout (positional; corrupts splits)
-            bind -n M-s run-shell -b '${demux}/bin/demux focus "#{pane_id}"'
+            # client is passed explicitly — implicit switch-client picks the
+            # wrong client whenever a second one is attached
+            bind -n M-s run-shell -b '${demux}/bin/demux focus "#{pane_id}" "#{client_name}"'
             bind -n M-e run-shell -b '${tmuxEqualizeNvim}/bin/tmux-equalize-nvim'
             bind -n M-g send-keys C-l \; run-shell -b -d 0.05 -C 'clear-history -t "#{pane_id}"'
 
