@@ -256,21 +256,31 @@ sel_move() {
 TARGET_WIDTHS=""
 OLD_WIDTHS=""
 
-# one client call: target window's current widths + old window's record
+# one client call: target window's current widths + old window's record +
+# old window's LIVE panes. tmux ABORTS a command sequence at the first
+# error, so a resize targeting a dead pane would kill every command after
+# it (including the switch) — records must be filtered to live panes.
 read_move_state() {
-  local twid=$1 oldwid=$2 line t=""
+  local twid=$1 oldwid=$2 line t="" rec="" live=" " kv keep=""
   OLD_WIDTHS=""
   while IFS= read -r line; do
     case "$line" in
     T%*) t+="${line#T} " ;;
-    *) OLD_WIDTHS=$line ;;
+    O%*) live+="${line#O} " ;;
+    *) rec=$line ;;
     esac
-  done < <(itmux list-panes -t "$twid" -F 'T#{pane_id}=#{pane_width}' \; show-options -wqv -t "$oldwid" @demux_widths 2>/dev/null)
+  done < <(itmux list-panes -t "$twid" -F 'T#{pane_id}=#{pane_width}' \; list-panes -t "$oldwid" -F 'O#{pane_id}' \; show-options -wqv -t "$oldwid" @demux_widths 2>/dev/null)
   TARGET_WIDTHS=${t% }
+  # shellcheck disable=SC2086
+  for kv in $rec; do
+    [[ $live == *" ${kv%%=*} "* ]] && keep+="$kv "
+  done
+  OLD_WIDTHS=${keep% }
 }
 
 resize_args() { # appends resize-pane commands for record "$1" to CMD
   local kv
+  # shellcheck disable=SC2086
   for kv in $1; do
     CMD+=(resize-pane -t "${kv%%=*}" -x "${kv#*=}" ";")
   done
@@ -284,9 +294,11 @@ preview_move() {
   local twid=$1
   shift
   read_move_state "$twid" "$MYWID"
-  local CMD=(join-pane -hbdf -l "$WIDTH" -s "$TMUX_PANE" -t "$twid" ";")
-  [[ -n $OLD_WIDTHS ]] && resize_args "$OLD_WIDTHS"
-  CMD+=(set-option -w -t "$twid" @demux_widths "$TARGET_WIDTHS" ";" set-option -wu -t "$MYWID" @demux_widths ";" "$@")
+  # user-visible commands FIRST (sequences abort on error; a failed
+  # bookkeeping command must never eat the switch)
+  local CMD=(join-pane -hbdf -l "$WIDTH" -s "$TMUX_PANE" -t "$twid" ";" "$@" ";")
+  resize_args "$OLD_WIDTHS"
+  CMD+=(set-option -w -t "$twid" @demux_widths "$TARGET_WIDTHS" ";" set-option -wu -t "$MYWID" @demux_widths)
   itmux "${CMD[@]}" 2>/dev/null || true
   MYWID=$twid
 }
@@ -301,18 +313,30 @@ move_with() {
   if [[ -n $sb && $sbwid != "$twid" ]]; then
     read_move_state "$twid" "$sbwid"
     CMD+=(join-pane -hbdf -l "$WIDTH" -s "$sb" -t "$twid" ";")
-    [[ -n $OLD_WIDTHS ]] && resize_args "$OLD_WIDTHS"
-    CMD+=(set-option -w -t "$twid" @demux_widths "$TARGET_WIDTHS" ";" set-option -wu -t "$sbwid" @demux_widths ";")
+    [[ ${#} -gt 0 ]] && CMD+=("$@" ";")
+    resize_args "$OLD_WIDTHS"
+    CMD+=(set-option -w -t "$twid" @demux_widths "$TARGET_WIDTHS" ";" set-option -wu -t "$sbwid" @demux_widths)
+  else
+    CMD+=("$@")
   fi
-  CMD+=("$@")
   ((${#CMD[@]} > 0)) && itmux "${CMD[@]}" 2>/dev/null || true
 }
 
 close_pane() {
-  local pane=$1 wid=$2 rec
-  rec=$(itmux show-options -wqv -t "$wid" @demux_widths 2>/dev/null) || rec=""
+  local pane=$1 wid=$2 line rec="" live=" " kv keep=""
+  while IFS= read -r line; do
+    case "$line" in
+    O%*) live+="${line#O} " ;;
+    *) rec=$line ;;
+    esac
+  done < <(itmux list-panes -t "$wid" -F 'O#{pane_id}' \; show-options -wqv -t "$wid" @demux_widths 2>/dev/null)
+  # shellcheck disable=SC2086
+  for kv in $rec; do
+    [[ ${kv%%=*} == "$pane" ]] && continue
+    [[ $live == *" ${kv%%=*} "* ]] && keep+="$kv "
+  done
   local CMD=(kill-pane -t "$pane" ";")
-  [[ -n $rec ]] && resize_args "$rec"
+  resize_args "${keep% }"
   CMD+=(set-option -wu -t "$wid" @demux_widths ";" set-option -gu @demux_open)
   itmux "${CMD[@]}" 2>/dev/null || itmux kill-pane -t "$pane" 2>/dev/null || true
 }
