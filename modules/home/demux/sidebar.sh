@@ -179,9 +179,24 @@ paint() {
   printf '\033[H%s\033[0J' "$buf"
 }
 
+# signal-safe render: bash runs traps between commands, so a USR1 landing
+# mid-build would otherwise resume the interrupted build on top of the
+# trap's fresh arrays -> duplicated entries. never nest; coalesce instead.
+IN_RENDER=0
+PENDING=0
 render() {
-  build
-  paint
+  if ((IN_RENDER)); then
+    PENDING=1
+    return 0
+  fi
+  IN_RENDER=1
+  PENDING=1
+  while ((PENDING)); do
+    PENDING=0
+    build
+    paint
+  done
+  IN_RENDER=0
 }
 
 sel_move() {
