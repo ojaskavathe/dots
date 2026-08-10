@@ -386,7 +386,8 @@ toggle() {
   unlock
 }
 
-# summon: open if closed, else pull it here and focus it
+# summon cycle: closed -> open focused; open but unfocused -> pull here and
+# focus; already focused (keybind's active pane IS the sidebar) -> close
 focus() {
   local target sb sbwid cwid
   target="${1:-${TMUX_PANE:?no pane: pass one or run inside tmux}}"
@@ -395,6 +396,8 @@ focus() {
   IFS=' ' read -r sb sbwid < <(tmux list-panes -a -f '#{==:#{@demux_sidebar},1}' -F '#{pane_id} #{window_id}') || true
   if [[ -z $sb ]]; then
     open_at "$target"
+  elif [[ $target == "$sb" ]]; then
+    close_pane "$sb" "$sbwid"
   else
     cwid=$(tmux display-message -p -t "$target" '#{window_id}')
     if [[ $sbwid != "$cwid" ]]; then
