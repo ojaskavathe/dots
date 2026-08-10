@@ -195,6 +195,34 @@ sel_move() {
   done
   SEL=$i
   paint
+  preview
+}
+
+# the sidebar is a previewer: moving the selection immediately shows that
+# session/window, sidebar riding along and keeping focus
+preview() {
+  local n=${#ITEM_KIND[@]} twid sname awid
+  ((n == 0)) && return
+  lock
+  case "${ITEM_KIND[$SEL]}" in
+  session)
+    sname=${ITEM_ARG[$SEL]%%|*}
+    awid=${ITEM_ARG[$SEL]#*|}
+    if [[ -n $awid && $awid != "$MYWID" ]]; then
+      move_with "$awid" switch-client -t "=$sname" ";" select-pane -t "$TMUX_PANE"
+      MYWID=$awid
+    fi
+    ;;
+  window)
+    twid=${ITEM_ARG[$SEL]%%|*}
+    sname=${ITEM_ARG[$SEL]#*|}
+    if [[ $twid != "$MYWID" ]]; then
+      move_with "$twid" switch-client -t "=$sname" ";" select-window -t "$twid" ";" select-pane -t "$TMUX_PANE"
+      MYWID=$twid
+    fi
+    ;;
+  esac
+  unlock
 }
 
 # move the sidebar (if open) into window $1 and run the remaining args as a
@@ -219,35 +247,10 @@ move_with() {
   tmux "${cmd[@]}" 2>/dev/null || true
 }
 
-jump() {
-  local n=${#ITEM_KIND[@]}
-  ((n == 0)) && return
-  lock
-  case "${ITEM_KIND[$SEL]}" in
-  session)
-    local sname awid
-    sname=${ITEM_ARG[$SEL]%%|*}
-    awid=${ITEM_ARG[$SEL]#*|}
-    if [[ -n $awid ]]; then
-      # keep the sidebar focused so navigation can continue
-      move_with "$awid" switch-client -t "=$sname" ";" select-pane -t "$TMUX_PANE"
-    else
-      tmux switch-client -t "=$sname" 2>/dev/null || true
-    fi
-    ;;
-  window)
-    local wid sname
-    wid=${ITEM_ARG[$SEL]%%|*}
-    sname=${ITEM_ARG[$SEL]#*|}
-    if [[ $wid == "$MYWID" ]]; then
-      # jumping to our own window: move focus off the sidebar, into the work
-      tmux last-pane -t "$MYWID" 2>/dev/null || true
-    else
-      move_with "$wid" switch-client -t "=$sname" ";" select-window -t "$wid" ";" select-pane -t "$TMUX_PANE"
-    fi
-    ;;
-  esac
-  unlock
+# enter commits: preview already switched the view, so just move focus off
+# the sidebar into the work pane
+land() {
+  tmux last-pane -t "$MYWID" 2>/dev/null || true
 }
 
 # no lock here: the close batch kills our own process, so unlock would never
@@ -267,6 +270,15 @@ run() {
   trap 'render' USR1 WINCH
   printf '\033[?25l\033[2J'
   render
+  # start the selection on the current window so opening never yanks the view
+  local i
+  for i in "${!ITEM_KIND[@]}"; do
+    if [[ ${ITEM_KIND[$i]} == "window" && ${ITEM_ARG[$i]%%|*} == "$MYWID" ]]; then
+      SEL=$i
+      paint
+      break
+    fi
+  done
   # block on keyboard; signals interrupt the read, trap repaints, loop resumes
   while :; do
     key=""
@@ -291,13 +303,15 @@ run() {
       SEL=0
       clamp_sel
       paint
+      preview
       ;;
     G)
       SEL=$((${#ITEM_KIND[@]} - 1))
       clamp_sel
       paint
+      preview
       ;;
-    "") jump ;;
+    "") land ;;
     q) close_self ;;
     esac
   done
@@ -330,9 +344,18 @@ close_pane() {
   fi
 }
 
+open_at() {
+  local target=$1 pane wid layout
+  wid=$(tmux display-message -p -t "$target" '#{window_id}')
+  layout=$(tmux display-message -p -t "$wid" '#{window_layout}')
+  # no -d: opening the sidebar focuses it, ready for j/k/enter
+  pane=$(tmux split-window -hbf -l "$WIDTH" -t "$target" -P -F '#{pane_id}' "exec bash '$SELF' run")
+  tmux set-option -w -t "$wid" @demux_saved_layout "$layout" \; set-option -p -t "$pane" @demux_sidebar 1 \; set-option -g @demux_open 1
+}
+
 # the sidebar is global: toggle closes it wherever it lives, or opens it here
 toggle() {
-  local target pane wid layout sb sbwid found
+  local target sb sbwid found
   target="${1:-${TMUX_PANE:?no pane: pass one or run inside tmux}}"
   lock
   found=0
@@ -341,15 +364,27 @@ toggle() {
     found=1
     close_pane "$sb" "$sbwid"
   done < <(tmux list-panes -a -f '#{==:#{@demux_sidebar},1}' -F '#{pane_id} #{window_id}')
-  if ((found)); then
-    unlock
-    return 0
+  ((found)) || open_at "$target"
+  unlock
+}
+
+# summon: open if closed, else pull it here and focus it
+focus() {
+  local target sb sbwid cwid
+  target="${1:-${TMUX_PANE:?no pane: pass one or run inside tmux}}"
+  lock
+  sb=""
+  IFS=' ' read -r sb sbwid < <(tmux list-panes -a -f '#{==:#{@demux_sidebar},1}' -F '#{pane_id} #{window_id}') || true
+  if [[ -z $sb ]]; then
+    open_at "$target"
+  else
+    cwid=$(tmux display-message -p -t "$target" '#{window_id}')
+    if [[ $sbwid != "$cwid" ]]; then
+      move_with "$cwid" select-pane -t "$sb"
+    else
+      tmux select-pane -t "$sb" 2>/dev/null || true
+    fi
   fi
-  wid=$(tmux display-message -p -t "$target" '#{window_id}')
-  layout=$(tmux display-message -p -t "$wid" '#{window_layout}')
-  # no -d: opening the sidebar focuses it, ready for j/k/enter
-  pane=$(tmux split-window -hbf -l "$WIDTH" -t "$target" -P -F '#{pane_id}' "exec bash '$SELF' run")
-  tmux set-option -w -t "$wid" @demux_saved_layout "$layout" \; set-option -p -t "$pane" @demux_sidebar 1 \; set-option -g @demux_open 1
   unlock
 }
 
@@ -399,11 +434,12 @@ nav() {
 case "${1:-run}" in
 run) run ;;
 toggle) toggle "${2:-}" ;;
+focus) focus "${2:-}" ;;
 refresh) refresh ;;
 follow) follow ;;
 nav) nav "${2:?next|prev}" "${3:-}" ;;
 *)
-  echo "usage: demux-sidebar {run|toggle [pane]|refresh|follow|nav next|prev [window]}" >&2
+  echo "usage: demux-sidebar {run|toggle [pane]|focus [pane]|refresh|follow|nav next|prev [window]}" >&2
   exit 2
   ;;
 esac
