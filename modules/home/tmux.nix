@@ -133,7 +133,7 @@
             bind -n M-l if-shell -F '#{@demux_open}' 'run-shell -b "${demuxSidebar}/bin/demux-sidebar nav next \"#{window_id}\""' 'next-window'
 
             # common tmux actions without prefix
-            bind -n M-s choose-tree -Zs
+            bind -n M-s run-shell -b '${demuxSidebar}/bin/demux-sidebar focus "#{pane_id}"'
             bind -n M-e run-shell -b '${tmuxEqualizeNvim}/bin/tmux-equalize-nvim'
             bind -n M-g send-keys C-l \; run-shell -b -d 0.05 -C 'clear-history -t "#{pane_id}"'
 

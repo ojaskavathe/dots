@@ -168,6 +168,7 @@ func checksum(layout string) string {
 type paneInfo struct {
 	command string
 	server  string
+	fixed   bool
 }
 
 func tmux(args ...string) (string, error) {
@@ -328,7 +329,7 @@ func largestRemainderIndex(raw []float64, sizes []int) int {
 	return index
 }
 
-func assign(n *node, left, top, width, height int, counts map[string]map[string]int) {
+func assign(n *node, left, top, width, height int, counts map[string]map[string]int, fixed map[string]bool) {
 	n.left = left
 	n.top = top
 	n.width = width
@@ -340,15 +341,29 @@ func assign(n *node, left, top, width, height int, counts map[string]map[string]
 
 	separators := len(n.children) - 1
 	if n.kind == '{' {
+		// fixed-width leaves (demux sidebar) keep their size; the rest share
+		fixedWidths := map[int]int{}
+		avail := width - separators
 		weights := make([]int, 0, len(n.children))
-		for _, child := range n.children {
-			weights = append(weights, visualWeight(child, "x", counts))
-		}
-		widths := allocate(width-separators, weights)
-		childLeft := left
 		for i, child := range n.children {
-			assign(child, childLeft, top, widths[i], height, counts)
-			childLeft += widths[i] + 1
+			if child.kind == 'l' && fixed[child.pane] {
+				fixedWidths[i] = child.width
+				avail -= child.width
+			} else {
+				weights = append(weights, visualWeight(child, "x", counts))
+			}
+		}
+		widths := allocate(avail, weights)
+		childLeft := left
+		flex := 0
+		for i, child := range n.children {
+			w, ok := fixedWidths[i]
+			if !ok {
+				w = widths[flex]
+				flex++
+			}
+			assign(child, childLeft, top, w, height, counts, fixed)
+			childLeft += w + 1
 		}
 		return
 	}
@@ -360,7 +375,7 @@ func assign(n *node, left, top, width, height int, counts map[string]map[string]
 	heights := allocate(height-separators, weights)
 	childTop := top
 	for i, child := range n.children {
-		assign(child, left, childTop, width, heights[i], counts)
+		assign(child, left, childTop, width, heights[i], counts, fixed)
 		childTop += heights[i] + 1
 	}
 }
@@ -370,15 +385,15 @@ func isNvim(command string) bool {
 }
 
 func currentPanes(window string) map[string]paneInfo {
-	lines, err := tmux("list-panes", "-t", window, "-F", "#{pane_id}\t#{pane_dead}\t#{pane_current_command}\t#{@nvim_server}")
+	lines, err := tmux("list-panes", "-t", window, "-F", "#{pane_id}\t#{pane_dead}\t#{pane_current_command}\t#{@nvim_server}\t#{@demux_sidebar}")
 	if err != nil {
 		return nil
 	}
 
 	panes := map[string]paneInfo{}
 	for _, line := range strings.Split(lines, "\n") {
-		parts := strings.SplitN(line, "\t", 4)
-		for len(parts) < 4 {
+		parts := strings.SplitN(line, "\t", 5)
+		for len(parts) < 5 {
 			parts = append(parts, "")
 		}
 		if parts[1] != "0" {
@@ -387,6 +402,7 @@ func currentPanes(window string) map[string]paneInfo {
 		panes[strings.TrimPrefix(parts[0], "%")] = paneInfo{
 			command: parts[2],
 			server:  parts[3],
+			fixed:   parts[4] == "1",
 		}
 	}
 	return panes
@@ -458,14 +474,22 @@ func run() error {
 		return err
 	}
 
-	counts, clients := nvimLayoutCounts(currentPanes(currentWindow))
+	panes := currentPanes(currentWindow)
+	counts, clients := nvimLayoutCounts(panes)
 	defer func() {
 		for _, client := range clients {
 			_ = client.Close()
 		}
 	}()
 
-	assign(root, root.left, root.top, root.width, root.height, counts)
+	fixed := map[string]bool{}
+	for paneID, pane := range panes {
+		if pane.fixed {
+			fixed[paneID] = true
+		}
+	}
+
+	assign(root, root.left, root.top, root.width, root.height, counts, fixed)
 	body = render(root)
 	if !tmuxOK("select-layout", "-t", currentWindow, checksum(body)+","+body) {
 		tmuxOK("select-layout", "-t", currentWindow, "-E")
