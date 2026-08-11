@@ -194,6 +194,42 @@ func (c *control) runSeq(commands ...string) ([]string, error) {
 	}
 }
 
+// runPipelined sends several command lines in ONE stdin write: the server
+// reads them in a single pass, so their effects — resizes especially — land
+// back-to-back and apps coalesce the SIGWINCHes into one reflow, while each
+// line keeps its own reply and its own %error scope. Replies are awaited in
+// order; errs[i] belongs to lines[i].
+func (c *control) runPipelined(lines ...[]string) ([][]string, []error) {
+	ps := make([]*pendingCmd, len(lines))
+	var buf strings.Builder
+	for i, cmds := range lines {
+		ps[i] = &pendingCmd{n: len(cmds), ch: make(chan cmdReply, 1)}
+		buf.WriteString(strings.Join(cmds, " ; "))
+		buf.WriteByte('\n')
+	}
+	c.mu.Lock()
+	c.pending = append(c.pending, ps...)
+	_, werr := io.WriteString(c.stdin, buf.String())
+	c.mu.Unlock()
+	outs := make([][]string, len(lines))
+	errs := make([]error, len(lines))
+	if werr != nil {
+		for i := range errs {
+			errs[i] = werr
+		}
+		return outs, errs
+	}
+	for i, p := range ps {
+		select {
+		case r := <-p.ch:
+			outs[i], errs[i] = r.lines, r.err
+		case <-c.done:
+			errs[i] = errors.New("control connection closed")
+		}
+	}
+	return outs, errs
+}
+
 func (c *control) close() {
 	_ = c.stdin.Close()
 	_ = c.cmd.Process.Kill()

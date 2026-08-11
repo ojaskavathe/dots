@@ -16,6 +16,12 @@ import (
 // session teardown emits dozens), short enough to be imperceptible.
 const debounce = 15 * time.Millisecond
 
+// scrubQuiet suppresses re-lists while pin scrubs are landing: each scrub
+// step mutates the world, and one whole-server re-list per keystroke is
+// wasted heat. The world settles this long after the last scrub. Bookkeeping
+// only — key handling and painting never wait on this.
+const scrubQuiet = 150 * time.Millisecond
+
 func runDaemon(tmuxSock, demuxSock string) {
 	log.SetPrefix("demuxd: ")
 	log.SetFlags(log.Ltime | log.Lmicroseconds)
@@ -99,7 +105,16 @@ func consume(d *daemon, ctl *control, w world, sig chan os.Signal) bool {
 				fire = timer.C
 			}
 		case <-fire:
+			if len(d.h.cmds) > 0 || time.Since(d.lastScrub) < scrubQuiet {
+				// A scrub is in flight or just landed: the world churn is our
+				// own doing. Yield and re-arm — user input keeps full
+				// priority, the re-list lands once scrubbing settles.
+				timer = time.NewTimer(debounce)
+				fire = timer.C
+				continue
+			}
 			fire = nil
+			start := time.Now()
 			next, err := fetchWorld(ctl)
 			if err != nil {
 				// Connection is dying; the done case handles the rest.
@@ -110,6 +125,9 @@ func consume(d *daemon, ctl *control, w world, sig chan os.Signal) bool {
 			d.h.setWorld(w, ops, false, d.tmuxSock)
 			d.checkBrowse(ctl, w)
 			d.checkPin(ctl, w)
+			if bench {
+				log.Printf("bench relist ops=%d dur_us=%d", len(ops), time.Since(start).Microseconds())
+			}
 		case env := <-d.h.cmds:
 			d.handleCmd(ctl, env)
 		case <-d.tickC:
