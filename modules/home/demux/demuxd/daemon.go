@@ -111,7 +111,7 @@ func consume(d *daemon, ctl *control, w world, sig chan os.Signal) bool {
 		case <-d.tickC:
 			// Live preview stream: nil (never fires) unless browsing.
 			if d.br != nil && d.br.open && d.br.target != "" {
-				_ = d.preview(ctl, d.br.target)
+				_ = d.preview(ctl, d.br.target, false)
 			}
 		case <-ctl.done:
 			if timer != nil {

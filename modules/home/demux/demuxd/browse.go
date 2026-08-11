@@ -34,17 +34,16 @@ const listWidth = 40
 const demuxSession = "_demux"
 
 type browseState struct {
-	sess       string // $id of the _demux session
-	win        string // @id of the browse window
-	listPane   string
-	canvasPane string
+	sess string // $id of the _demux session
+	win  string // @id of the browse window
+	pane string // the single full-window pane running `demuxd tui`
 
 	open       bool
 	client     string // browsing client (explicit switching)
 	originSess string // where q returns to
 	originWin  string
 	target     string // currently previewed window
-	lastFrame  []byte // last frame sent, replayed to late-connecting canvases
+	lastFrame  []byte // last target frame, replayed to late-connecting TUIs
 }
 
 type daemon struct {
@@ -79,25 +78,26 @@ func (d *daemon) stopStream() {
 }
 
 func (d *daemon) handleCmd(ctl *control, env cmdEnvelope) {
-	// Coalesce a preview backlog: only the newest target matters.
-	if env.msg.Cmd == "preview" {
-		for {
-			select {
-			case next := <-d.h.cmds:
-				if next.msg.Cmd == "preview" {
-					d.h.send(env.sub, marshalLine(replyMsg{Type: "reply", OK: true}))
-					env = next
-					continue
-				}
-				d.runCmd(ctl, env)
+	// Coalesce a backlog of real (non-prefetch) previews: only the newest
+	// target matters. Prefetches are cheap and never swallow a real one.
+	for env.msg.Cmd == "preview" && !env.msg.Prefetch {
+		select {
+		case next := <-d.h.cmds:
+			if next.msg.Cmd == "preview" && !next.msg.Prefetch {
+				d.h.send(env.sub, marshalLine(replyMsg{Type: "reply", OK: true}))
 				env = next
-			default:
+				continue
 			}
-			break
+			d.runCmd(ctl, env)
+			env = next
+		default:
 		}
+		break
 	}
 	d.runCmd(ctl, env)
 }
+
+var bench = os.Getenv("DEMUX_BENCH") != ""
 
 func (d *daemon) runCmd(ctl *control, env cmdEnvelope) {
 	start := time.Now()
@@ -106,25 +106,26 @@ func (d *daemon) runCmd(ctl *control, env cmdEnvelope) {
 	case "toggle":
 		err = d.toggle(ctl, env.msg.Client)
 	case "preview":
-		err = d.preview(ctl, env.msg.Window)
+		err = d.preview(ctl, env.msg.Window, env.msg.Prefetch)
 	case "commit":
 		err = d.commit(ctl, env.msg.Window)
 	case "close":
 		err = d.closeBrowse(ctl)
-	case "hello-canvas":
-		// A canvas connected after the last frame went out; replay it.
-		if d.br != nil && d.br.lastFrame != nil {
-			d.h.send(env.sub, d.br.lastFrame)
-		}
 	case "hello-list":
+		// A TUI connected after state went out; replay selection + frame.
 		if d.br != nil && d.br.open && d.br.target != "" {
 			d.h.send(env.sub, marshalLine(selectMsg{Type: "select", Window: d.br.target}))
+		}
+		if d.br != nil && d.br.lastFrame != nil {
+			d.h.send(env.sub, d.br.lastFrame)
 		}
 	default:
 		err = fmt.Errorf("unknown cmd %q", env.msg.Cmd)
 	}
 	if dur := time.Since(start); dur > 25*time.Millisecond {
 		log.Printf("%s took %s", env.msg.Cmd, dur)
+	} else if bench {
+		log.Printf("bench cmd=%s prefetch=%v dur_us=%d", env.msg.Cmd, env.msg.Prefetch, dur.Microseconds())
 	}
 	r := replyMsg{Type: "reply", OK: err == nil}
 	if err != nil {
@@ -153,18 +154,13 @@ func (d *daemon) toggle(ctl *control, client string) error {
 	d.br.open = true
 	d.br.client = client
 	d.br.originSess, d.br.originWin = sid, wid
-	// The list width is re-asserted after the client lands: entering a
-	// window resizes it to the client, which rescales panes proportionally.
-	if _, err := ctl.runSeq(
-		"select-pane -t "+q(d.br.listPane),
-		"switch-client -c "+q(client)+" -t "+q(d.br.sess),
-		"resize-pane -t "+q(d.br.listPane)+" -x "+strconv.Itoa(listWidth)); err != nil {
+	if _, err := ctl.run("switch-client -c " + q(client) + " -t " + q(d.br.sess)); err != nil {
 		return err
 	}
 	d.startStream()
 	// Land the list selection on where the user came from, and show it.
 	d.h.sendRole("list", marshalLine(selectMsg{Type: "select", Window: wid}))
-	return d.preview(ctl, wid)
+	return d.preview(ctl, wid, false)
 }
 
 // clientView: the client's current session, window, and size, from
@@ -193,18 +189,9 @@ func (d *daemon) clientView(ctl *control, client string) (sid, wid string, cw, c
 func (d *daemon) ensureBrowse(ctl *control, cw, ch int) error {
 	if d.br != nil {
 		lines, err := ctl.run("list-panes -t " + q(d.br.win) + " -F " + f("#{pane_id}", "#{pane_current_command}"))
-		if err == nil {
-			alive := 0
-			for _, ln := range lines {
-				p := strings.Split(ln, sep)
-				if len(p) != 2 {
-					continue
-				}
-				if (p[0] == d.br.listPane || p[0] == d.br.canvasPane) && strings.Contains(p[1], "demux") {
-					alive++
-				}
-			}
-			if alive == 2 {
+		if err == nil && len(lines) == 1 {
+			p := strings.Split(lines[0], sep)
+			if len(p) == 2 && p[0] == d.br.pane && strings.Contains(p[1], "demux") {
 				return nil
 			}
 		}
@@ -218,8 +205,12 @@ func (d *daemon) ensureBrowse(ctl *control, cw, ch int) error {
 	if cw < listWidth+10 || ch < 5 {
 		cw, ch = 200, 50
 	}
+	tuiCmd := self + " -S " + d.tmuxSock + " tui"
+	if bench {
+		tuiCmd = "env DEMUX_BENCH=1 " + tuiCmd
+	}
 	lines, err := ctl.run(fmt.Sprintf("new-session -d -s %s -x %d -y %d -P -F %s %s",
-		demuxSession, cw, ch, f("#{session_id}", "#{window_id}", "#{pane_id}"), q(self+" -S "+d.tmuxSock+" tui")))
+		demuxSession, cw, ch, f("#{session_id}", "#{window_id}", "#{pane_id}"), q(tuiCmd)))
 	if err != nil {
 		return err
 	}
@@ -230,20 +221,13 @@ func (d *daemon) ensureBrowse(ctl *control, cw, ch int) error {
 	if len(p) != 3 {
 		return errors.New("bad new-session reply")
 	}
-	br := &browseState{sess: p[0], win: p[1], listPane: p[2]}
-	lines, err = ctl.runSeq(
-		fmt.Sprintf("split-window -hd -t %s -P -F '#{pane_id}' %s",
-			q(br.listPane), q(self+" -S "+d.tmuxSock+" canvas")),
-		"resize-pane -t "+q(br.listPane)+" -x "+strconv.Itoa(listWidth),
+	br := &browseState{sess: p[0], win: p[1], pane: p[2]}
+	_, err = ctl.runSeq(
 		"set-option -wq -t "+q(br.win)+" automatic-rename off",
 		"set-option -q -t "+q(br.sess)+" status off")
 	if err != nil {
 		return err
 	}
-	if len(lines) == 0 {
-		return errors.New("split-window returned no pane id")
-	}
-	br.canvasPane = strings.TrimSpace(lines[0])
 	d.br = br
 	return nil
 }
@@ -254,7 +238,9 @@ func (d *daemon) ensureBrowse(ctl *control, cw, ch int) error {
 // capture output line counts are not reliable (trailing blanks), markers are.
 const frameMarker = "\x1fdemux-frame\x1f"
 
-func (d *daemon) preview(ctl *control, wid string) error {
+// preview captures wid and ships it as a frame. A prefetch warms the TUI's
+// cache for adjacent rows without becoming the streamed target.
+func (d *daemon) preview(ctl *control, wid string, prefetch bool) error {
 	if d.br == nil || !d.br.open {
 		return nil
 	}
@@ -294,13 +280,17 @@ func (d *daemon) preview(ctl *control, wid string) error {
 			panes[idx].Lines = append(panes[idx].Lines, ln)
 		}
 	}
-	d.br.target = wid
 	payload := marshalLine(frameMsg{Type: "frame", Window: wid, Panes: panes})
+	if prefetch {
+		d.h.sendRole("list", payload)
+		return nil
+	}
+	d.br.target = wid
 	if bytes.Equal(payload, d.br.lastFrame) {
 		return nil // idle content: no repaint
 	}
 	d.br.lastFrame = payload
-	d.h.sendRole("canvas", payload)
+	d.h.sendRole("list", payload)
 	return nil
 }
 
@@ -347,9 +337,7 @@ func (d *daemon) closeBrowse(ctl *control) error {
 }
 
 // checkBrowse runs after every re-list: if the client escaped the browse
-// window by other means (detach, manual switch), browsing is over; and the
-// list width is re-asserted if a window rescale (client entry, monitor
-// change) crushed it.
+// window by other means (detach, manual switch), browsing is over.
 func (d *daemon) checkBrowse(ctl *control, w world) {
 	if d.br == nil || !d.br.open {
 		return
@@ -369,13 +357,6 @@ func (d *daemon) checkBrowse(ctl *control, w world) {
 	if !found {
 		d.br.open = false // client detached
 		d.stopStream()
-		return
-	}
-	for _, p := range w.Panes {
-		if p.ID == d.br.listPane && p.Width != listWidth {
-			_, _ = ctl.run("resize-pane -t " + q(d.br.listPane) + " -x " + strconv.Itoa(listWidth))
-			return
-		}
 	}
 }
 
