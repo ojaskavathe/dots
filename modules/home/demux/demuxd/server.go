@@ -97,15 +97,20 @@ func (h *hub) sendLocked(s *subscriber, payload []byte) {
 	}
 }
 
-// sendRole queues a message to every subscriber with the given role.
-func (h *hub) sendRole(role string, payload []byte) {
+// sendRole queues a message to every subscriber with the given role and
+// reports how many received it — zero receivers means the message was lost,
+// which the caller should surface in its logs.
+func (h *hub) sendRole(role string, payload []byte) int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	n := 0
 	for s := range h.subs {
 		if s.role == role {
 			h.sendLocked(s, payload)
+			n++
 		}
 	}
+	return n
 }
 
 func (h *hub) setRole(s *subscriber, role string) {
