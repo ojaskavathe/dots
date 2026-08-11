@@ -19,6 +19,9 @@ const debounce = 15 * time.Millisecond
 func runDaemon(tmuxSock, demuxSock string) {
 	log.SetPrefix("demuxd: ")
 	log.SetFlags(log.Ltime | log.Lmicroseconds)
+	if exe, err := os.Executable(); err == nil {
+		log.Printf("build %s", exe)
+	}
 
 	h := newHub()
 	d := &daemon{tmuxSock: tmuxSock, h: h}

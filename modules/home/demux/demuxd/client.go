@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -69,9 +70,34 @@ func cmdLs(tmuxSock, demuxSock string) {
 	fmt.Print(snap.world.String())
 }
 
+// staleBindWarning detects the M-s bind running a different nix build than
+// the installed one: binds bake the store path in, and a tmux server that
+// hasn't re-sourced its config keeps executing the old binary forever —
+// while every fix ships into the new one. run-shell displays this output.
+func staleBindWarning() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	if r, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = r
+	}
+	if !strings.HasPrefix(exe, "/nix/store/") {
+		return "" // dev binary; nothing to compare against
+	}
+	prof, err := filepath.EvalSymlinks(os.Getenv("HOME") + "/.nix-profile/bin/demuxd")
+	if err != nil || prof == exe {
+		return ""
+	}
+	return fmt.Sprintf("demux: M-s runs a STALE build\n  bind:      %s\n  installed: %s\n  fix: tmux source-file ~/.config/tmux/tmux.conf ; pkill demuxd", exe, prof)
+}
+
 // cmdToggle is the M-s entrypoint: one short-lived connection, one cmd, wait
 // for the daemon's reply so bind errors surface in tmux.
 func cmdToggle(tmuxSock, demuxSock, client string) {
+	if w := staleBindWarning(); w != "" {
+		fmt.Println(w)
+	}
 	conn, err := dialEnsure(tmuxSock, demuxSock)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "demuxd toggle: %v\n", err)

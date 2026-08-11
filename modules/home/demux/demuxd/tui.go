@@ -33,6 +33,19 @@ func benchf(format string, args ...any) {
 	fmt.Fprintf(benchLog, format+"\n", args...)
 }
 
+// tuiLog is ALWAYS on (<demux sock>.tui.log): low-volume lifecycle events —
+// which build started, what select arrived and where it resolved — so field
+// reports can be diagnosed from logs instead of guesses.
+var tuiLog *os.File
+
+func tlogf(format string, args ...any) {
+	if tuiLog == nil {
+		return
+	}
+	fmt.Fprintf(tuiLog, "%s ", time.Now().Format("01-02 15:04:05.000"))
+	fmt.Fprintf(tuiLog, format+"\n", args...)
+}
+
 type store struct {
 	sessions map[string]session
 	windows  map[string]window
@@ -166,6 +179,10 @@ func cmdTui(tmuxSock, demuxSock string) {
 	if os.Getenv("DEMUX_BENCH") != "" {
 		benchLog, _ = os.OpenFile(demuxSock+".tui-bench.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	}
+	tuiLog, _ = os.OpenFile(demuxSock+".tui.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	exe, _ := os.Executable()
+	cols, height := surfaceSize()
+	tlogf("start build=%s pane=%s size=%dx%d", exe, os.Getenv("TMUX_PANE"), cols, height)
 
 	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
 	if err == nil {
@@ -303,7 +320,8 @@ func cmdTui(tmuxSock, demuxSock string) {
 		select {
 		case m, ok := <-msgs:
 			if !ok {
-				return // daemon gone
+				tlogf("exit: daemon connection closed")
+				return
 			}
 			switch m.Type {
 			case "snapshot", "diff":
@@ -314,12 +332,15 @@ func cmdTui(tmuxSock, demuxSock string) {
 				}
 				paintList(rows, sel)
 			case "select":
+				found := false
 				for i, r := range rows {
 					if r.window == m.Window && !r.session {
 						sel = i
+						found = true
 						break
 					}
 				}
+				tlogf("select win=%s found=%v sel=%d rows=%d", m.Window, found, sel, len(rows))
 				paintList(rows, sel)
 				paintFrameFor(target())
 				requestFrames()

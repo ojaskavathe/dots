@@ -137,9 +137,12 @@ func (d *daemon) runCmd(ctl *control, env cmdEnvelope) {
 		err = d.closeBrowse(ctl)
 	case "hello-list":
 		// A TUI connected after state went out; replay selection + frame.
-		if d.br != nil && d.br.open && d.br.target != "" {
+		replaySel := d.br != nil && d.br.open && d.br.target != ""
+		if replaySel {
 			d.h.send(env.sub, marshalLine(selectMsg{Type: "select", Window: d.br.target}))
 		}
+		log.Printf("hello-list: replay select=%v target=%s frame=%v",
+			replaySel, brTarget(d.br), d.br != nil && d.br.lastFrame != nil)
 		if d.br != nil && d.br.lastFrame != nil {
 			d.h.send(env.sub, d.br.lastFrame)
 		}
@@ -179,8 +182,11 @@ func (d *daemon) toggle(ctl *control, client string) error {
 	d.br.client = client
 	d.br.originSess, d.br.originWin = sid, wid
 	// Selection first: the list repaints while the browse window is still
-	// hidden, so it is already on the origin row when the client lands.
-	d.h.sendRole("list", marshalLine(selectMsg{Type: "select", Window: wid}))
+	// hidden, so it is already on the origin row when the client lands. A
+	// freshly spawned TUI isn't connected yet (n=0) — the hello-list replay
+	// covers that; n=0 on a WARM browse means the select was lost.
+	n := d.h.sendRole("list", marshalLine(selectMsg{Type: "select", Window: wid}))
+	log.Printf("toggle open client=%s origin=%s/%s size=%dx%d select_receivers=%d", client, sid, wid, cw, ch, n)
 	if _, err := ctl.run("switch-client -c " + q(client) + " -t " + q(d.br.sess)); err != nil {
 		return err
 	}
@@ -333,14 +339,23 @@ func (d *daemon) commit(ctl *control, wid string) error {
 		}
 	}
 	if sid == "" {
+		log.Printf("commit target=%s unknown, closing to origin", wid)
 		return d.closeBrowse(ctl)
 	}
 	d.br.open = false
 	d.stopStream()
+	log.Printf("commit client=%s -> %s/%s", d.br.client, sid, wid)
 	_, err := ctl.runSeq(
 		"select-window -t "+q(wid),
 		"switch-client -c "+q(d.br.client)+" -t "+q(sid))
 	return err
+}
+
+func brTarget(br *browseState) string {
+	if br == nil {
+		return "<nil>"
+	}
+	return br.target
 }
 
 // closeBrowse returns the client to where it was when it summoned.
@@ -350,6 +365,7 @@ func (d *daemon) closeBrowse(ctl *control) error {
 	}
 	d.br.open = false
 	d.stopStream()
+	log.Printf("close client=%s -> origin %s/%s", d.br.client, d.br.originSess, d.br.originWin)
 	_, err := ctl.runSeq(
 		"select-window -t "+q(d.br.originWin),
 		"switch-client -c "+q(d.br.client)+" -t "+q(d.br.originSess))
