@@ -41,8 +41,8 @@ commands:
   run              run the daemon in the foreground
   ls               print the world (starts the daemon if needed)
   events           stream snapshot + diffs as NDJSON (starts the daemon if needed)
-  toggle <client>  summon / focus / close the sidebar for a tmux client
-  tui              the sidebar TUI (spawned by the daemon inside the sidebar pane)
+  toggle <client>  enter / leave the browse window for a tmux client
+  tui              the browse TUI (spawned by the daemon inside the browse window)
   sock             print the tmux and demux socket paths and exit
 `)
 	os.Exit(2)
@@ -77,8 +77,6 @@ func main() {
 		cmdToggle(tmuxSock, demuxSock, client)
 	case "tui":
 		cmdTui(tmuxSock, demuxSock)
-	case "canvas":
-		cmdCanvas(tmuxSock, demuxSock)
 	case "sock":
 		fmt.Printf("tmux:  %s\ndemux: %s\n", tmuxSock, demuxSock)
 	default:

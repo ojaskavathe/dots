@@ -9,14 +9,29 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+	"time"
 
 	"golang.org/x/term"
 )
 
-// The sidebar TUI: runs inside the sidebar pane, subscribes to the daemon,
-// renders the session/window tree, and turns j/k into live previews.
-// Rendering is fully ours — ANSI into the pane, no tmux UI. The daemon owns
-// every tmux mutation; this process never spawns anything.
+// The browse TUI: one full-window process rendering the session/window list
+// (left, 40 cols) and the live preview (right) in the same pane. Frames are
+// cached per window, so scrubbing paints the cached frame in ~0ms — the
+// herdr/choose-tree trick: state lives locally, painting is local. The fresh
+// frame (and the 10fps live stream) replaces it moments later. The daemon
+// owns every tmux interaction; this process spawns nothing.
+
+// benchLog, when DEMUX_BENCH is set, records per-event timings so latency can
+// be attributed (key handling vs paint cost vs frame arrival).
+var benchLog *os.File
+
+func benchf(format string, args ...any) {
+	if benchLog == nil {
+		return
+	}
+	fmt.Fprintf(benchLog, "%s tui ", time.Now().Format("15:04:05.000000"))
+	fmt.Fprintf(benchLog, format+"\n", args...)
+}
 
 type store struct {
 	sessions map[string]session
@@ -25,14 +40,15 @@ type store struct {
 }
 
 type wireMsg struct {
-	Type     string    `json:"type"`
-	Sessions []session `json:"sessions"`
-	Windows  []window  `json:"windows"`
-	Panes    []pane    `json:"panes"`
-	Ops      []wireOp  `json:"ops"`
-	Window   string    `json:"window"`
-	OK       *bool     `json:"ok"`
-	Err      string    `json:"err"`
+	Type     string      `json:"type"`
+	Sessions []session   `json:"sessions"`
+	Windows  []window    `json:"windows"`
+	Panes    []pane      `json:"panes"`
+	Ops      []wireOp    `json:"ops"`
+	Window   string      `json:"window"`
+	Frame    []framePane `json:"frame"`
+	OK       *bool       `json:"ok"`
+	Err      string      `json:"err"`
 }
 
 type wireOp struct {
@@ -147,17 +163,23 @@ func cmdTui(tmuxSock, demuxSock string) {
 	}
 	defer conn.Close()
 
+	if os.Getenv("DEMUX_BENCH") != "" {
+		benchLog, _ = os.OpenFile(demuxSock+".tui-bench.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	}
+
 	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
 	if err == nil {
 		defer term.Restore(int(os.Stdin.Fd()), oldState)
 	}
-	fmt.Print("\033[?25l")       // hide cursor
-	defer fmt.Print("\033[?25h") // best effort; pane usually dies with us
+	// Hide cursor; disable autowrap so frame lines wider than the preview
+	// region clip at the right edge instead of wrapping over the layout.
+	fmt.Print("\033[?25l\033[?7l")
+	defer fmt.Print("\033[?25h\033[?7h")
 
 	msgs := make(chan wireMsg, 64)
 	go func() {
 		sc := bufio.NewScanner(conn)
-		sc.Buffer(make([]byte, 64*1024), 16*1024*1024)
+		sc.Buffer(make([]byte, 64*1024), 64*1024*1024)
 		for sc.Scan() {
 			var m wireMsg
 			if json.Unmarshal(sc.Bytes(), &m) == nil {
@@ -197,13 +219,36 @@ func cmdTui(tmuxSock, demuxSock string) {
 	esc := 0 // escape-sequence state for arrow keys
 	var rows []row
 
+	// Per-window frame cache with generations, so "did I already paint
+	// exactly this?" is an integer compare, never a deep one.
+	type cached struct {
+		gen   int
+		panes []framePane
+	}
+	frames := map[string]cached{}
+	gen := 0
+	paintedWin, paintedGen := "", -1
+
 	target := func() string {
 		if sel >= 0 && sel < len(rows) {
 			return rows[sel].window
 		}
 		return ""
 	}
-	repaint := func() {
+	// Painting is split: a selection move repaints the list column only, a
+	// frame repaints the preview region only. Neither clears the screen —
+	// everything is positioned overwrites, so tmux's own cell diff decides
+	// what actually reaches the terminal (a selection move is ~2 changed
+	// rows, not 45k cells).
+	paintFrameFor := func(win string) {
+		c, ok := frames[win]
+		if !ok || (win == paintedWin && c.gen == paintedGen) {
+			return
+		}
+		paintFrame(c.panes)
+		paintedWin, paintedGen = win, c.gen
+	}
+	paintAll := func() {
 		rows = st.rows()
 		if sel >= len(rows) {
 			sel = len(rows) - 1
@@ -211,10 +256,26 @@ func cmdTui(tmuxSock, demuxSock string) {
 		if sel < 0 {
 			sel = 0
 		}
-		paint(rows, sel)
+		paintList(rows, sel)
+		paintedWin, paintedGen = "", -1 // size/world may have shifted regions
+		paintFrameFor(target())
 	}
-	// No debounce: a preview is one capture round trip painted into the
-	// canvas — nothing in the user's windows moves, so scrubbing is cheap.
+	// Cached frame paints locally NOW; the daemon refreshes it (and streams
+	// it live) right behind. Neighbors are prefetched so the next scrub step
+	// is warm too.
+	requestFrames := func() {
+		cur := target()
+		if cur != "" {
+			send(cmdMsg{Cmd: "preview", Window: cur})
+		}
+		seen := map[string]bool{cur: true, "": true}
+		for _, i := range []int{sel - 1, sel + 1} {
+			if i >= 0 && i < len(rows) && !seen[rows[i].window] {
+				seen[rows[i].window] = true
+				send(cmdMsg{Cmd: "preview", Window: rows[i].window, Prefetch: true})
+			}
+		}
+	}
 	move := func(delta int) {
 		if len(rows) == 0 {
 			return
@@ -230,13 +291,13 @@ func cmdTui(tmuxSock, demuxSock string) {
 			return
 		}
 		sel = next
-		paint(rows, sel)
-		if w := target(); w != "" {
-			send(cmdMsg{Cmd: "preview", Window: w})
-		}
+		benchf("key sel=%d target=%s cached=%v", sel, target(), frames[target()].panes != nil)
+		paintList(rows, sel)
+		paintFrameFor(target())
+		requestFrames()
 	}
 
-	// The list process persists across browse sessions (the browse window is
+	// The process persists across browse sessions (the browse window is
 	// never destroyed); commit/close just switch the client away.
 	for {
 		select {
@@ -247,7 +308,11 @@ func cmdTui(tmuxSock, demuxSock string) {
 			switch m.Type {
 			case "snapshot", "diff":
 				st.apply(m)
-				repaint()
+				rows = st.rows()
+				if sel >= len(rows) {
+					sel = len(rows) - 1
+				}
+				paintList(rows, sel)
 			case "select":
 				for i, r := range rows {
 					if r.window == m.Window && !r.session {
@@ -255,7 +320,19 @@ func cmdTui(tmuxSock, demuxSock string) {
 						break
 					}
 				}
-				repaint()
+				paintList(rows, sel)
+				paintFrameFor(target())
+				requestFrames()
+			case "frame":
+				benchf("frame win=%s current=%v", m.Window, m.Window == target())
+				if prev, ok := frames[m.Window]; ok && framesEqual(prev.panes, m.Frame) {
+					break // confirming frame, content unchanged: no repaint
+				}
+				gen++
+				frames[m.Window] = cached{gen: gen, panes: m.Frame}
+				if m.Window == target() {
+					paintFrameFor(m.Window)
+				}
 			}
 		case b, ok := <-keys:
 			if !ok {
@@ -285,16 +362,44 @@ func cmdTui(tmuxSock, demuxSock string) {
 				esc = 0
 			}
 		case <-winch:
-			repaint()
+			paintAll()
 		}
 	}
 }
 
-func paint(rows []row, sel int) {
-	width, height, err := term.GetSize(int(os.Stdout.Fd()))
-	if err != nil || width <= 0 {
-		width, height = listWidth, 40
+func framesEqual(a, b []framePane) bool {
+	if len(a) != len(b) {
+		return false
 	}
+	for i := range a {
+		if a[i].Left != b[i].Left || a[i].Top != b[i].Top ||
+			a[i].Width != b[i].Width || a[i].Height != b[i].Height ||
+			len(a[i].Lines) != len(b[i].Lines) {
+			return false
+		}
+		for j := range a[i].Lines {
+			if a[i].Lines[j] != b[i].Lines[j] {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func surfaceSize() (int, int) {
+	cols, height, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil || cols <= 0 {
+		cols, height = 120, 40
+	}
+	return cols, height
+}
+
+// paintList redraws the list column and border only. Fixed width, padded
+// with spaces — no clears, so unchanged cells cost nothing downstream.
+// Wrapped in synchronized output (DECSET 2026) so tmux applies it atomically.
+func paintList(rows []row, sel int) {
+	start := time.Now()
+	_, height := surfaceSize()
 	top := 0
 	if len(rows) > height && sel > height/2 {
 		top = sel - height/2
@@ -303,23 +408,66 @@ func paint(rows []row, sel int) {
 		}
 	}
 	var b strings.Builder
-	b.WriteString("\033[H")
-	for i := top; i < len(rows) && i-top < height; i++ {
-		r := rows[i]
-		label := r.label
-		if len(label) > width {
-			label = label[:width]
+	b.WriteString("\033[?2026h\033[0m")
+	for y := 0; y < height; y++ {
+		i := top + y
+		fmt.Fprintf(&b, "\033[%d;1H", y+1)
+		if i < len(rows) {
+			label := []rune(rows[i].label)
+			if len(label) > listWidth {
+				label = label[:listWidth]
+			}
+			pad := strings.Repeat(" ", listWidth-len(label))
+			switch {
+			case i == sel:
+				b.WriteString("\033[7m" + string(label) + pad + "\033[27m")
+			case rows[i].session:
+				b.WriteString("\033[1m" + string(label) + pad + "\033[22m")
+			default:
+				b.WriteString("\033[2m" + string(label) + pad + "\033[22m")
+			}
+		} else {
+			b.WriteString(strings.Repeat(" ", listWidth))
 		}
-		switch {
-		case i == sel:
-			b.WriteString("\033[7m" + label + "\033[27m")
-		case r.session:
-			b.WriteString("\033[1m" + label + "\033[22m")
-		default:
-			b.WriteString("\033[2m" + label + "\033[22m")
-		}
-		b.WriteString("\033[K\r\n")
+		b.WriteString("\033[2m│\033[22m")
 	}
-	b.WriteString("\033[0J")
+	b.WriteString("\033[?2026l")
 	os.Stdout.WriteString(b.String())
+	benchf("paint_list dur_us=%d bytes=%d", time.Since(start).Microseconds(), b.Len())
+}
+
+// paintFrame redraws the preview region only: space-prefill (stale content
+// from differently-shaped windows must not linger), then pane contents at
+// their window coordinates. No screen clear — tmux diffs cells server-side
+// and ships only real changes to the terminal.
+func paintFrame(frame []framePane) {
+	start := time.Now()
+	cols, height := surfaceSize()
+	const offX = listWidth + 1 // frame region starts right of the border
+	avail := cols - offX
+	if avail <= 0 {
+		return
+	}
+	var b strings.Builder
+	b.WriteString("\033[?2026h\033[0m")
+	blank := strings.Repeat(" ", avail)
+	for y := 1; y <= height; y++ {
+		fmt.Fprintf(&b, "\033[%d;%dH%s", y, offX+1, blank)
+	}
+	for _, p := range frame {
+		if offX+p.Left >= cols || p.Top >= height {
+			continue
+		}
+		for i, ln := range p.Lines {
+			if i >= p.Height || p.Top+i >= height {
+				break
+			}
+			// 1-based addressing; SGR reset per line so pane edges don't
+			// bleed attributes into each other.
+			fmt.Fprintf(&b, "\033[%d;%dH%s\033[0m", p.Top+1+i, offX+p.Left+1, ln)
+		}
+	}
+	b.WriteString("\033[?2026l")
+	os.Stdout.WriteString(b.String())
+	benchf("paint_frame dur_us=%d bytes=%d panes=%d", time.Since(start).Microseconds(), b.Len(), len(frame))
 }

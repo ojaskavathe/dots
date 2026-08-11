@@ -27,11 +27,12 @@ type subscriber struct {
 // (interleaved with the world stream, so replies are type-tagged). A
 // {"type":"hello","role":"..."} line tags the connection instead.
 type cmdMsg struct {
-	Type   string `json:"type"`
-	Cmd    string `json:"cmd"`
-	Client string `json:"client,omitempty"`
-	Window string `json:"window,omitempty"`
-	Role   string `json:"role,omitempty"`
+	Type     string `json:"type"`
+	Cmd      string `json:"cmd"`
+	Client   string `json:"client,omitempty"`
+	Window   string `json:"window,omitempty"`
+	Role     string `json:"role,omitempty"`
+	Prefetch bool   `json:"prefetch,omitempty"`
 }
 
 // selectMsg tells the list TUI to move its selection (daemon -> list).
@@ -40,12 +41,12 @@ type selectMsg struct {
 	Window string `json:"window"`
 }
 
-// frameMsg carries a captured window for the preview canvas (daemon ->
-// canvas). Pane lines are raw capture-pane -e output (SGR included).
+// frameMsg carries a captured window for the preview region (daemon ->
+// list TUI). Pane lines are raw capture-pane -e output (SGR included).
 type frameMsg struct {
 	Type   string      `json:"type"`
 	Window string      `json:"window"`
-	Panes  []framePane `json:"panes"`
+	Panes  []framePane `json:"frame"`
 }
 
 type framePane struct {
