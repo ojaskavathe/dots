@@ -77,24 +77,48 @@ func (d *daemon) stopStream() {
 	}
 }
 
+// handleCmd drains everything already queued and executes only what still
+// matters: every non-preview command in order, the NEWEST real preview, and
+// the prefetches that came after it (they describe the final position).
+// Stale previews and stale prefetches are acked without running — during a
+// fast scrub they'd otherwise serialize ahead of the frame the user is
+// actually looking at. Remaining prefetches are abandoned the moment fresher
+// input arrives.
 func (d *daemon) handleCmd(ctl *control, env cmdEnvelope) {
-	// Coalesce a backlog of real (non-prefetch) previews: only the newest
-	// target matters. Prefetches are cheap and never swallow a real one.
-	for env.msg.Cmd == "preview" && !env.msg.Prefetch {
+	batch := []cmdEnvelope{env}
+	for {
 		select {
 		case next := <-d.h.cmds:
-			if next.msg.Cmd == "preview" && !next.msg.Prefetch {
-				d.h.send(env.sub, marshalLine(replyMsg{Type: "reply", OK: true}))
-				env = next
-				continue
-			}
-			d.runCmd(ctl, env)
-			env = next
+			batch = append(batch, next)
+			continue
 		default:
 		}
 		break
 	}
-	d.runCmd(ctl, env)
+	lastReal := -1
+	for i, e := range batch {
+		if e.msg.Cmd == "preview" && !e.msg.Prefetch {
+			lastReal = i
+		}
+	}
+	for i, e := range batch {
+		isPreview := e.msg.Cmd == "preview"
+		switch {
+		case !isPreview:
+			d.runCmd(ctl, e)
+		case !e.msg.Prefetch && i == lastReal:
+			d.runCmd(ctl, e)
+		case e.msg.Prefetch && i > lastReal:
+			if len(d.h.cmds) > 0 {
+				// Fresher input queued: this prefetch is already history.
+				d.h.send(e.sub, marshalLine(replyMsg{Type: "reply", OK: true}))
+				continue
+			}
+			d.runCmd(ctl, e)
+		default:
+			d.h.send(e.sub, marshalLine(replyMsg{Type: "reply", OK: true}))
+		}
+	}
 }
 
 var bench = os.Getenv("DEMUX_BENCH") != ""
@@ -154,12 +178,13 @@ func (d *daemon) toggle(ctl *control, client string) error {
 	d.br.open = true
 	d.br.client = client
 	d.br.originSess, d.br.originWin = sid, wid
+	// Selection first: the list repaints while the browse window is still
+	// hidden, so it is already on the origin row when the client lands.
+	d.h.sendRole("list", marshalLine(selectMsg{Type: "select", Window: wid}))
 	if _, err := ctl.run("switch-client -c " + q(client) + " -t " + q(d.br.sess)); err != nil {
 		return err
 	}
 	d.startStream()
-	// Land the list selection on where the user came from, and show it.
-	d.h.sendRole("list", marshalLine(selectMsg{Type: "select", Window: wid}))
 	return d.preview(ctl, wid, false)
 }
 
