@@ -481,8 +481,12 @@ func sameGeometry(a, b []framePane) bool {
 	return true
 }
 
+// activeBorderStyle matches the real tmux pane-active-border color
+// (catppuccin lavender). Theming milestone can query the live style later.
+const activeBorderStyle = "\033[38;2;183;189;251m"
+
 // paintBorders draws the gaps between panes as tmux-style borders: dim
-// │ ─ ┼, with the active pane's surrounding border in green.
+// │ ─ ┼, with the active pane's surrounding border in the active color.
 func paintBorders(b *strings.Builder, frame []framePane, cols, height, offX int) {
 	W, H := 0, 0
 	for _, p := range frame {
@@ -549,7 +553,7 @@ func paintBorders(b *strings.Builder, frame []framePane, cols, height, offX int)
 			}
 			style := "\033[2m"
 			if activeAt(x, y) {
-				style = "\033[32m"
+				style = activeBorderStyle
 			}
 			fmt.Fprintf(b, "\033[%d;%dH%s%s\033[0m", y+1, offX+x+1, style, ch)
 		}
