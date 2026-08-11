@@ -69,6 +69,14 @@ type pinState struct {
 	originWin  string
 	snap       winSnap    // pre-dock snapshot of win
 	status     statusSave // pre-pad status-left of sess
+
+	// scrubbing: the sidebar pane is ZOOMED and the main area shows live
+	// billboards of the selection instead of real windows. Zoom leaves the
+	// hidden panes untouched (rig-verified: sizes byte-exact, zero app
+	// reflows) — scrubbing costs captures, not window mutations. The real
+	// window materializes on commit (join-from-zoomed auto-unzooms), and
+	// landing back on the pinned window is a free unzoom.
+	scrubbing bool
 }
 
 // statusPad shifts the status line's content past the sidebar column:
@@ -160,13 +168,54 @@ func (d *daemon) pinOpen(ctl *control, client string) error {
 	return nil
 }
 
-// pinScrub moves the main area to wid: the sidebar rides along in the same
-// sequence, so the target window is never visible without it. Everything the
-// arriving session needs (status pad, @demux_pinned) is in the sequence
+// scrubStart begins billboard scrubbing: capture the target FIRST (the TUI
+// caches the frame before its WINCH repaint, so the canvas fills instantly),
+// then zoom the sidebar to full window. The client never leaves the pinned
+// window — status line, layouts, and every hidden pane stay untouched.
+func (d *daemon) scrubStart(ctl *control, wid string) error {
+	p := d.pin
+	if p == nil || p.scrubbing {
+		return nil
+	}
+	if err := d.preview(ctl, wid, false); err != nil {
+		return err
+	}
+	if _, err := ctl.runSeq(
+		"resize-pane -Z -t "+q(d.br.pane),
+		"select-pane -t "+q(d.br.pane)); err != nil {
+		return err
+	}
+	p.scrubbing = true
+	d.startStream()
+	log.Printf("scrub start from=%s target=%s", p.win, wid)
+	return nil
+}
+
+// scrubEnd stops billboard scrubbing. unzoom=true is the landed-back-home
+// path (Enter/q on the pinned window): the real panes reappear exactly as
+// they were. unzoom=false is for paths where a join/break is about to move
+// the zoomed sidebar anyway (tmux auto-unzooms on both — rig-verified).
+func (d *daemon) scrubEnd(ctl *control, unzoom bool) {
+	p := d.pin
+	if p == nil || !p.scrubbing {
+		return
+	}
+	p.scrubbing = false
+	d.stopStream()
+	if unzoom {
+		_, _ = ctl.run("resize-pane -Z -t " + q(d.br.pane))
+	}
+	log.Printf("scrub end win=%s unzoom=%v", p.win, unzoom)
+}
+
+// pinScrub moves the main area to wid FOR REAL: the sidebar rides along in
+// the same sequence, so the target window is never visible without it. Used
+// by commit-from-scrub, routed nav, and unrouted-switch follow — never by
+// plain list scrubbing anymore (that's billboards via scrubStart). Everything
+// the arriving session needs (status pad, @demux_pinned) is in the sequence
 // BEFORE switch-client — after it, the pad lands a frame late and the status
 // line visibly flickers. focusMain puts the keyboard in the window's own
-// pane (nav, follow); scrubbing from the list keeps focus in the sidebar so
-// held-j keeps working.
+// pane; false keeps focus in the sidebar.
 func (d *daemon) pinScrub(ctl *control, wid string, focusMain bool) error {
 	p := d.pin
 	if p == nil || wid == "" || wid == p.win {
@@ -236,6 +285,7 @@ func (d *daemon) pinScrub(ctl *control, wid string, focusMain bool) error {
 	if errs[0] != nil {
 		return errs[0]
 	}
+	d.scrubEnd(ctl, false) // join already unzoomed the sidebar on its way out
 	if errs[1] != nil {
 		log.Printf("scrub restore %s: %v", p.win, errs[1])
 	}
@@ -331,6 +381,7 @@ func (d *daemon) pinClose(ctl *control, toOrigin bool) error {
 	if p == nil {
 		return nil
 	}
+	d.scrubEnd(ctl, true) // settle any zoom before undocking
 	d.pin = nil
 	log.Printf("pin close client=%s win=%s to_origin=%v", p.client, p.win, toOrigin)
 	if toOrigin && p.originWin != p.win {
@@ -489,6 +540,9 @@ func (d *daemon) checkPin(ctl *control, w world) {
 		}
 		d.h.sendRole("list", marshalLine(selectMsg{Type: "select", Window: cur}))
 		return
+	}
+	if p.scrubbing {
+		return // zoomed: full-width by design; enforcing 40 would unzoom it
 	}
 	for _, pn := range w.Panes {
 		if pn.ID == d.br.pane && pn.WindowID == p.win && pn.Width != listWidth {

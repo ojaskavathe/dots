@@ -131,10 +131,13 @@ func consume(d *daemon, ctl *control, w world, sig chan os.Signal) bool {
 		case env := <-d.h.cmds:
 			d.handleCmd(ctl, env)
 		case <-d.tickC:
-			// Live preview stream: nil (never fires) unless browsing. Yield
+			// Live preview stream: nil (never fires) unless the billboards
+			// are showing — full-screen browse or a pinned zoom-scrub. Yield
 			// to queued commands — a mid-scrub tick would capture a target
 			// that's about to change anyway.
-			if d.br != nil && d.br.open && d.br.target != "" && len(d.h.cmds) == 0 {
+			streaming := d.br != nil && d.br.target != "" &&
+				(d.br.open || (d.pin != nil && d.pin.scrubbing))
+			if streaming && len(d.h.cmds) == 0 {
 				_ = d.preview(ctl, d.br.target, false)
 			}
 		case <-ctl.done:
