@@ -245,6 +245,7 @@ func cmdTui(tmuxSock, demuxSock string) {
 	frames := map[string]cached{}
 	gen := 0
 	paintedWin, paintedGen := "", -1
+	var paintedPanes []framePane
 
 	target := func() string {
 		if sel >= 0 && sel < len(rows) {
@@ -256,14 +257,19 @@ func cmdTui(tmuxSock, demuxSock string) {
 	// frame repaints the preview region only. Neither clears the screen —
 	// everything is positioned overwrites, so tmux's own cell diff decides
 	// what actually reaches the terminal (a selection move is ~2 changed
-	// rows, not 45k cells).
+	// rows, not 45k cells). Streaming updates of the same window diff at
+	// line level: a claude spinner tick repaints 1-3 lines, not the region.
 	paintFrameFor := func(win string) {
 		c, ok := frames[win]
 		if !ok || (win == paintedWin && c.gen == paintedGen) {
 			return
 		}
-		paintFrame(c.panes)
-		paintedWin, paintedGen = win, c.gen
+		var prev []framePane
+		if win == paintedWin && sameGeometry(paintedPanes, c.panes) {
+			prev = paintedPanes
+		}
+		paintFrame(c.panes, prev)
+		paintedWin, paintedGen, paintedPanes = win, c.gen, c.panes
 	}
 	paintAll := func() {
 		rows = st.rows()
@@ -457,11 +463,29 @@ func paintList(rows []row, sel int) {
 	benchf("paint_list dur_us=%d bytes=%d", time.Since(start).Microseconds(), b.Len())
 }
 
-// paintFrame redraws the preview region only: space-prefill (stale content
-// from differently-shaped windows must not linger), then pane contents at
-// their window coordinates. No screen clear — tmux diffs cells server-side
-// and ships only real changes to the terminal.
-func paintFrame(frame []framePane) {
+// sameGeometry reports whether two frames tile identically — the
+// precondition for line-level diff painting.
+func sameGeometry(a, b []framePane) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Left != b[i].Left || a[i].Top != b[i].Top ||
+			a[i].Width != b[i].Width || a[i].Height != b[i].Height {
+			return false
+		}
+	}
+	return true
+}
+
+// paintFrame redraws the preview region. With prev (same window, same
+// geometry) only changed lines are erased-and-rewritten — a streaming pane
+// repaints a few lines per frame instead of blanking the region, which is
+// what made busy claude panes flicker. Without prev (new window, resize)
+// the full region is prefilled so stale content from differently-shaped
+// windows cannot linger. No screen clear either way — tmux diffs cells
+// server-side and ships only real changes to the terminal.
+func paintFrame(frame, prev []framePane) {
 	start := time.Now()
 	cols, height := surfaceSize()
 	const offX = listWidth + 1 // frame region starts right of the border
@@ -471,24 +495,48 @@ func paintFrame(frame []framePane) {
 	}
 	var b strings.Builder
 	b.WriteString("\033[?2026h\033[0m")
-	blank := strings.Repeat(" ", avail)
-	for y := 1; y <= height; y++ {
-		fmt.Fprintf(&b, "\033[%d;%dH%s", y, offX+1, blank)
+	changed := 0
+	if prev == nil {
+		blank := strings.Repeat(" ", avail)
+		for y := 1; y <= height; y++ {
+			fmt.Fprintf(&b, "\033[%d;%dH%s", y, offX+1, blank)
+		}
 	}
-	for _, p := range frame {
+	for pi, p := range frame {
 		if offX+p.Left >= cols || p.Top >= height {
 			continue
 		}
-		for i, ln := range p.Lines {
+		width := p.Width
+		if offX+p.Left+width > cols {
+			width = cols - offX - p.Left
+		}
+		blank := strings.Repeat(" ", width)
+		lines := len(p.Lines)
+		if prev != nil && len(prev[pi].Lines) > lines {
+			lines = len(prev[pi].Lines) // erase rows the new frame lost
+		}
+		for i := 0; i < lines; i++ {
 			if i >= p.Height || p.Top+i >= height {
 				break
 			}
-			// 1-based addressing; SGR reset per line so pane edges don't
-			// bleed attributes into each other.
-			fmt.Fprintf(&b, "\033[%d;%dH%s\033[0m", p.Top+1+i, offX+p.Left+1, ln)
+			ln := ""
+			if i < len(p.Lines) {
+				ln = p.Lines[i]
+			}
+			if prev != nil && i < len(prev[pi].Lines) && prev[pi].Lines[i] == ln {
+				continue
+			}
+			changed++
+			// Erase this pane's own cell range first (content may have
+			// shrunk), then the content over it. 1-based addressing; SGR
+			// reset per line so pane edges don't bleed attributes.
+			fmt.Fprintf(&b, "\033[%d;%dH%s\033[%d;%dH%s\033[0m",
+				p.Top+1+i, offX+p.Left+1, blank,
+				p.Top+1+i, offX+p.Left+1, ln)
 		}
 	}
 	b.WriteString("\033[?2026l")
 	os.Stdout.WriteString(b.String())
-	benchf("paint_frame dur_us=%d bytes=%d panes=%d", time.Since(start).Microseconds(), b.Len(), len(frame))
+	benchf("paint_frame dur_us=%d bytes=%d panes=%d diff=%v changed_lines=%d",
+		time.Since(start).Microseconds(), b.Len(), len(frame), prev != nil, changed)
 }
