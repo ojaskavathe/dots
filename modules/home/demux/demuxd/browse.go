@@ -173,6 +173,14 @@ func (d *daemon) toggle(ctl *control, client string) error {
 	}
 	if d.br != nil && d.br.open && sid == d.br.sess {
 		d.br.client = client
+		// M-s while browsing commits to the current selection, like Enter —
+		// muscle memory from the join-sidebar era, where previews physically
+		// moved the client and dismissing left you at the previewed spot.
+		// q / Ctrl-C remain cancel-to-origin.
+		if d.br.target != "" && d.br.target != d.br.originWin {
+			log.Printf("toggle-off commits to %s", d.br.target)
+			return d.commit(ctl, d.br.target)
+		}
 		return d.closeBrowse(ctl)
 	}
 	if err := d.ensureBrowse(ctl, cw, ch); err != nil {
