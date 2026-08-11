@@ -142,23 +142,39 @@ func (d *daemon) runCmd(ctl *control, env cmdEnvelope) {
 		err = d.pinNav(ctl, env.msg.Dir)
 	case "preview":
 		if d.pin != nil && !browsing {
-			// Pinned scrub: the "preview" moves the real main area. Prefetch
-			// is a billboard concept — acked, never switches anything.
-			if !env.msg.Prefetch {
-				err = d.pinScrub(ctl, env.msg.Window, false)
+			// Pinned: selection leaving the real window starts billboard
+			// scrubbing (zoom + captures); while scrubbing, previews and
+			// prefetches are plain billboards. Nothing real moves until
+			// commit.
+			p := d.pin
+			switch {
+			case p.scrubbing:
+				err = d.preview(ctl, env.msg.Window, env.msg.Prefetch)
+			case !env.msg.Prefetch && env.msg.Window != "" && env.msg.Window != p.win:
+				err = d.scrubStart(ctl, env.msg.Window)
 			}
 		} else {
 			err = d.preview(ctl, env.msg.Window, env.msg.Prefetch)
 		}
 	case "commit":
 		if d.pin != nil && !browsing {
-			err = d.pinCommit(ctl)
+			if d.pin.scrubbing {
+				err = d.commitScrub(ctl, env.msg.Window)
+			} else {
+				err = d.pinCommit(ctl)
+			}
 		} else {
 			err = d.commit(ctl, env.msg.Window)
 		}
 	case "close":
 		if d.pin != nil && !browsing {
-			err = d.pinClose(ctl, true)
+			if d.pin.scrubbing {
+				// q mid-scrub: unzoom — the origin panes reappear untouched.
+				d.scrubEnd(ctl, true)
+				d.h.sendRole("list", marshalLine(selectMsg{Type: "select", Window: d.pin.win}))
+			} else {
+				err = d.pinClose(ctl, true)
+			}
 		} else {
 			err = d.closeBrowse(ctl)
 		}
@@ -214,9 +230,32 @@ func (d *daemon) toggle(ctl *control, client string) error {
 		}
 	}
 	if d.pin != nil {
+		if d.pin.scrubbing {
+			// M-s mid-scrub commits to the selection, like Enter.
+			return d.commitScrub(ctl, d.br.target)
+		}
 		return d.pinClose(ctl, false)
 	}
 	return d.pinOpen(ctl, client)
+}
+
+// commitScrub lands a billboard scrub: on the pinned window itself it is a
+// free unzoom; anywhere else the sidebar docks into the target for real.
+// Either way the origin resets — q now returns here.
+func (d *daemon) commitScrub(ctl *control, wid string) error {
+	p := d.pin
+	if p == nil {
+		return nil
+	}
+	if wid == "" || wid == p.win {
+		d.scrubEnd(ctl, true)
+		return d.pinCommit(ctl)
+	}
+	if err := d.pinScrub(ctl, wid, true); err != nil {
+		return err
+	}
+	p.originSess, p.originWin = p.sess, p.win
+	return nil
 }
 
 // browseOpen is the full-screen billboard browser (`demuxd browse`): switch
@@ -375,9 +414,12 @@ func (d *daemon) ensureSurface(ctl *control, cw, ch int) error {
 const frameMarker = "\x1fdemux-frame\x1f"
 
 // preview captures wid and ships it as a frame. A prefetch warms the TUI's
-// cache for adjacent rows without becoming the streamed target.
+// cache for adjacent rows without becoming the streamed target. Serves both
+// the full-screen browser and pinned billboard scrubbing; the sidebar pane
+// itself is never billboarded (a docked window's frame is its mains,
+// shifted to the canvas origin — near-pixel-parity with entering it).
 func (d *daemon) preview(ctl *control, wid string, prefetch bool) error {
-	if d.br == nil || !d.br.open {
+	if d.br == nil || (!d.br.open && d.pin == nil) {
 		return nil
 	}
 	lines, err := ctl.run("list-panes -t " + q(wid) + " -F " +
@@ -392,6 +434,9 @@ func (d *daemon) preview(ctl *control, wid string, prefetch bool) error {
 		if len(p) != 6 {
 			continue
 		}
+		if p[0] == d.br.pane {
+			continue
+		}
 		left, _ := strconv.Atoi(p[1])
 		top, _ := strconv.Atoi(p[2])
 		width, _ := strconv.Atoi(p[3])
@@ -401,6 +446,17 @@ func (d *daemon) preview(ctl *control, wid string, prefetch bool) error {
 	}
 	if len(panes) == 0 {
 		return fmt.Errorf("no panes in %s", wid)
+	}
+	minLeft := panes[0].Left
+	for _, p := range panes {
+		if p.Left < minLeft {
+			minLeft = p.Left
+		}
+	}
+	if minLeft > 0 {
+		for i := range panes {
+			panes[i].Left -= minLeft
+		}
 	}
 	out, err := ctl.runSeq(caps...)
 	if err != nil {

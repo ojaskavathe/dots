@@ -171,15 +171,22 @@ previews — capture-pane already returns a rendered screen.
 - **pinned sidebar (M-s, the default surface, 2026-08-11)** — the herdr
   layout on tmux: the TUI pane docks as a REAL 40-col pane at the window's
   left edge (`join-pane -hb -f -l 40`); the main area is the user's actual
-  panes, live and enterable. scrubbing j/k moves the MAIN AREA for real:
-  join sidebar into the target + `select-window` in one control sequence, so
-  the target is never visible without the sidebar. Enter focuses the main
-  pane; M-s undocks in place; q undocks back to origin. held-j storms
-  coalesce via the same newest-wins queue policy as billboards. M-h/M-l
-  route through `demuxd nav` only while `@demux_pinned` is set (`if-shell
-  -F` bind), native otherwise; unrouted switches (choose-tree) are followed
-  from the notification path. the status line shifts past the sidebar via a
-  41-space session `status-left` (saved/restored). rig-verified mechanics:
+  panes, live and enterable. scrubbing j/k shows LIVE BILLBOARDS: the
+  sidebar pane ZOOMS to full window (rig-verified: hidden panes keep sizes
+  byte-exact, zero app reflows) and the canvas paints capture frames of the
+  selection, 10fps-streamed, sized to the main area (width-41) with the
+  sidebar pane filtered out of its own window's frame. nothing real moves
+  until commit: Enter/M-s dock into the target (join-from-zoomed
+  auto-unzooms, one control sequence, target never visible without the
+  sidebar); Enter/q landing on the pinned window itself is a free unzoom.
+  measured on a held 120-key scrub: 0 real switches, 0 re-lists, 0 nvim
+  reflows (the join-per-scrub design cost 28/28/54 on the same load —
+  that was the cpu spike). M-h/M-l route through `demuxd nav` only while
+  `@demux_pinned` is set (`if-shell -F` bind), native otherwise; unrouted
+  switches (choose-tree) are followed from the notification path. the
+  status line shifts past the sidebar via a 41-space session `status-left`
+  (saved/restored, padded before switch-client in the same sequence).
+  rig-verified mechanics:
   `-hb -f` always lands at the window edge; the joined pane takes focus;
   undocking hands the 40 cols to the ADJACENT pane, so exact restore comes
   from replaying the saved `#{window_layout}` string — `select-layout` with
