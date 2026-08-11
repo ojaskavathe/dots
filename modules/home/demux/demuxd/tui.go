@@ -401,6 +401,7 @@ func framesEqual(a, b []framePane) bool {
 	for i := range a {
 		if a[i].Left != b[i].Left || a[i].Top != b[i].Top ||
 			a[i].Width != b[i].Width || a[i].Height != b[i].Height ||
+			a[i].Active != b[i].Active ||
 			len(a[i].Lines) != len(b[i].Lines) {
 			return false
 		}
@@ -463,19 +464,96 @@ func paintList(rows []row, sel int) {
 	benchf("paint_list dur_us=%d bytes=%d", time.Since(start).Microseconds(), b.Len())
 }
 
-// sameGeometry reports whether two frames tile identically — the
-// precondition for line-level diff painting.
+// sameGeometry reports whether two frames tile identically with the same
+// active pane — the precondition for line-level diff painting (an active
+// change recolors borders, so it takes the full path).
 func sameGeometry(a, b []framePane) bool {
 	if len(a) != len(b) {
 		return false
 	}
 	for i := range a {
 		if a[i].Left != b[i].Left || a[i].Top != b[i].Top ||
-			a[i].Width != b[i].Width || a[i].Height != b[i].Height {
+			a[i].Width != b[i].Width || a[i].Height != b[i].Height ||
+			a[i].Active != b[i].Active {
 			return false
 		}
 	}
 	return true
+}
+
+// paintBorders draws the gaps between panes as tmux-style borders: dim
+// │ ─ ┼, with the active pane's surrounding border in green.
+func paintBorders(b *strings.Builder, frame []framePane, cols, height, offX int) {
+	W, H := 0, 0
+	for _, p := range frame {
+		if p.Left+p.Width > W {
+			W = p.Left + p.Width
+		}
+		if p.Top+p.Height > H {
+			H = p.Top + p.Height
+		}
+	}
+	if W <= 0 || H <= 0 || len(frame) < 2 {
+		return // single pane: no internal borders
+	}
+	const (
+		vert  = 1
+		horiz = 2
+	)
+	grid := make([]byte, W*H)
+	mark := func(x, y int, kind byte) {
+		if x >= 0 && x < W && y >= 0 && y < H {
+			grid[y*W+x] |= kind
+		}
+	}
+	for _, p := range frame {
+		if x := p.Left + p.Width; x < W {
+			for y := p.Top; y < p.Top+p.Height; y++ {
+				mark(x, y, vert)
+			}
+			mark(x, p.Top+p.Height, vert|horiz)
+		}
+		if y := p.Top + p.Height; y < H {
+			for x := p.Left; x < p.Left+p.Width; x++ {
+				mark(x, y, horiz)
+			}
+		}
+	}
+	// Border cells adjacent to the active pane render green, like tmux's
+	// pane-active-border-style.
+	activeAt := func(x, y int) bool {
+		for _, p := range frame {
+			if !p.Active {
+				continue
+			}
+			hSpan := x >= p.Left-1 && x <= p.Left+p.Width
+			vSpan := y >= p.Top-1 && y <= p.Top+p.Height
+			onV := (x == p.Left-1 || x == p.Left+p.Width) && vSpan
+			onH := (y == p.Top-1 || y == p.Top+p.Height) && hSpan
+			return onV || onH
+		}
+		return false
+	}
+	for y := 0; y < H && y < height; y++ {
+		for x := 0; x < W && offX+x < cols; x++ {
+			kind := grid[y*W+x]
+			if kind == 0 {
+				continue
+			}
+			ch := "│"
+			switch kind {
+			case horiz:
+				ch = "─"
+			case vert | horiz:
+				ch = "┼"
+			}
+			style := "\033[2m"
+			if activeAt(x, y) {
+				style = "\033[32m"
+			}
+			fmt.Fprintf(b, "\033[%d;%dH%s%s\033[0m", y+1, offX+x+1, style, ch)
+		}
+	}
 }
 
 // paintFrame redraws the preview region. With prev (same window, same
@@ -501,6 +579,7 @@ func paintFrame(frame, prev []framePane) {
 		for y := 1; y <= height; y++ {
 			fmt.Fprintf(&b, "\033[%d;%dH%s", y, offX+1, blank)
 		}
+		paintBorders(&b, frame, cols, height, offX)
 	}
 	for pi, p := range frame {
 		if offX+p.Left >= cols || p.Top >= height {

@@ -284,7 +284,7 @@ func (d *daemon) preview(ctl *control, wid string, prefetch bool) error {
 		return nil
 	}
 	lines, err := ctl.run("list-panes -t " + q(wid) + " -F " +
-		f("#{pane_id}", "#{pane_left}", "#{pane_top}", "#{pane_width}", "#{pane_height}"))
+		f("#{pane_id}", "#{pane_left}", "#{pane_top}", "#{pane_width}", "#{pane_height}", "#{pane_active}"))
 	if err != nil {
 		return err
 	}
@@ -292,14 +292,14 @@ func (d *daemon) preview(ctl *control, wid string, prefetch bool) error {
 	var caps []string
 	for _, ln := range lines {
 		p := strings.Split(ln, sep)
-		if len(p) != 5 {
+		if len(p) != 6 {
 			continue
 		}
 		left, _ := strconv.Atoi(p[1])
 		top, _ := strconv.Atoi(p[2])
 		width, _ := strconv.Atoi(p[3])
 		height, _ := strconv.Atoi(p[4])
-		panes = append(panes, framePane{Left: left, Top: top, Width: width, Height: height})
+		panes = append(panes, framePane{Left: left, Top: top, Width: width, Height: height, Active: p[5] == "1"})
 		caps = append(caps, "capture-pane -e -p -t "+q(p[0]), "display-message -p "+q(frameMarker))
 	}
 	if len(panes) == 0 {

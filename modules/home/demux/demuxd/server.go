@@ -54,6 +54,7 @@ type framePane struct {
 	Top    int      `json:"top"`
 	Width  int      `json:"width"`
 	Height int      `json:"height"`
+	Active bool     `json:"active,omitempty"`
 	Lines  []string `json:"lines"`
 }
 
