@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 )
 
 // Pinned mode: the herdr layout on tmux. The TUI pane docks as a real 40-col
@@ -74,20 +75,28 @@ type pinState struct {
 // 40 cols of pane + 1 col of pane border.
 const statusPad = listWidth + 1
 
+func snapQuery(wid string) string {
+	return "display-message -p -t " + q(wid) + " -F " +
+		f("#{window_layout}", "#{pane_id}", "#{automatic-rename}", "#{window_name}")
+}
+
+func parseSnap(line string) (winSnap, error) {
+	p := strings.Split(line, sep)
+	if len(p) != 4 {
+		return winSnap{}, fmt.Errorf("bad snapshot %q", line)
+	}
+	return winSnap{layout: p[0], activePane: p[1], autoRename: p[2], name: p[3]}, nil
+}
+
 func (d *daemon) winSnapshot(ctl *control, wid string) (winSnap, error) {
-	lines, err := ctl.run("display-message -p -t " + q(wid) + " -F " +
-		f("#{window_layout}", "#{pane_id}", "#{automatic-rename}", "#{window_name}"))
+	lines, err := ctl.run(snapQuery(wid))
 	if err != nil {
 		return winSnap{}, err
 	}
 	if len(lines) == 0 {
 		return winSnap{}, fmt.Errorf("no snapshot for %s", wid)
 	}
-	p := strings.Split(lines[0], sep)
-	if len(p) != 4 {
-		return winSnap{}, fmt.Errorf("bad snapshot for %s", wid)
-	}
-	return winSnap{layout: p[0], activePane: p[1], autoRename: p[2], name: p[3]}, nil
+	return parseSnap(lines[0])
 }
 
 // leaveInfo queries what restoring the window being left needs: its CURRENT
@@ -167,40 +176,75 @@ func (d *daemon) pinScrub(ctl *control, wid string, focusMain bool) error {
 	if sidN == "" {
 		return fmt.Errorf("scrub target %s unknown", wid)
 	}
-	snapN, err := d.winSnapshot(ctl, wid)
+	// Both point-of-use queries in one round trip: snapshot of the window we
+	// enter, leave-info of the one we exit.
+	qlines, err := ctl.runSeq(
+		snapQuery(wid),
+		"display-message -p -t "+q(p.win)+" -F "+f("#{window_layout}", "#{@demux_layout_dirty}"))
 	if err != nil {
 		return err
 	}
-	oldLayout, oldDirty := d.leaveInfo(ctl, p.win)
+	if len(qlines) < 2 {
+		return errors.New("scrub query came back short")
+	}
+	snapN, err := parseSnap(qlines[0])
+	if err != nil {
+		return err
+	}
+	oldLayout, oldDirty := "", false
+	if lp := strings.Split(qlines[1], sep); len(lp) == 2 {
+		oldLayout, oldDirty = lp[0], lp[1] == "1"
+	}
 	var statusN statusSave
 	if sidN != p.sess {
 		statusN = d.savedStatus(ctl, sidN) // before the pad, or we save our own pad
 	}
-	seq := []string{
+	critical := []string{
 		"set-option -w -t " + q(wid) + " automatic-rename off",
 		fmt.Sprintf("join-pane -hb -f -l %d -s %s -t %s", listWidth, q(d.br.pane), q(wid)),
 		"select-window -t " + q(wid),
 	}
 	if sidN != p.sess {
-		seq = append(seq, pinSessionCmds(sidN)...)
-		seq = append(seq, "switch-client -c "+q(p.client)+" -t "+q(sidN))
+		critical = append(critical, pinSessionCmds(sidN)...)
+		critical = append(critical, "switch-client -c "+q(p.client)+" -t "+q(sidN))
 	}
 	if focusMain {
-		seq = append(seq, "select-pane -t "+q(snapN.activePane))
+		critical = append(critical, "select-pane -t "+q(snapN.activePane))
 	}
-	if _, err := ctl.runSeq(seq...); err != nil {
-		return err
+	// The old window's restores ride the SAME socket write (pipelined): its
+	// join-away resize and its layout restore reach the server in one read,
+	// so its apps (nvim) coalesce the two SIGWINCHes into one reflow —
+	// separate round trips here doubled every visited window's reflow work.
+	// select-layout leads the fallible tail: if the critical line failed, the
+	// sidebar is still in the old window and the restore fails on pane count,
+	// aborting the rename re-enable that would otherwise fire while the
+	// sidebar holds focus.
+	restore := []string{
+		"set-option -w -uq -t " + q(p.win) + " @demux_layout_dirty",
 	}
-	// The window we left is off-screen now; its restores are best-effort and
-	// invisible, each on its own so one failure doesn't abort the rest.
 	if sidN != p.sess {
-		d.restoreStatus(ctl, p.status)
-		_, _ = ctl.run("set-option -u -t " + q(p.sess) + " @demux_pinned")
+		restore = append(restore, statusRestoreCmds(p.status)...)
+		restore = append(restore, "set-option -uq -t "+q(p.sess)+" @demux_pinned")
+	}
+	if rl := d.leaveLayout(p.win, p.snap, oldLayout, oldDirty); rl != "" {
+		restore = append(restore, "select-layout -t "+q(p.win)+" "+q(rl))
+	}
+	restore = append(restore,
+		"select-pane -t "+q(p.snap.activePane),
+		"set-option -w -t "+q(p.win)+" automatic-rename "+p.snap.autoRename)
+	_, errs := ctl.runPipelined(critical, restore)
+	if errs[0] != nil {
+		return errs[0]
+	}
+	if errs[1] != nil {
+		log.Printf("scrub restore %s: %v", p.win, errs[1])
+	}
+	if sidN != p.sess {
 		p.status = statusN
 	}
-	d.restoreLeave(ctl, p.win, p.snap, oldLayout, oldDirty)
 	prev := p.win
 	p.win, p.sess, p.snap = wid, sidN, snapN
+	d.lastScrub = time.Now()
 	if bench {
 		log.Printf("bench scrub %s -> %s focus_main=%v dirty=%v", prev, wid, focusMain, oldDirty)
 	}
@@ -341,21 +385,6 @@ func (d *daemon) leaveLayout(wid string, snap winSnap, dockedLayout string, dirt
 	return s
 }
 
-// restoreLeave puts a window the sidebar just left back in shape: layout
-// (exact or proportional, see leaveLayout), active pane, rename freeze,
-// dirty marker. Best-effort — a stale layout (user split while docked)
-// fails cleanly and is logged.
-func (d *daemon) restoreLeave(ctl *control, wid string, snap winSnap, dockedLayout string, dirty bool) {
-	if restore := d.leaveLayout(wid, snap, dockedLayout, dirty); restore != "" {
-		if _, err := ctl.run("select-layout -t " + q(wid) + " " + q(restore)); err != nil {
-			log.Printf("restore layout %s: %v (panes changed while docked?)", wid, err)
-		}
-	}
-	_, _ = ctl.run("select-pane -t " + q(snap.activePane))
-	_, _ = ctl.run("set-option -w -t " + q(wid) + " automatic-rename " + snap.autoRename)
-	_, _ = ctl.run("set-option -w -uq -t " + q(wid) + " @demux_layout_dirty")
-}
-
 // pinSessionCmds marks a session as pinned: the bind-routing flag M-h/M-l
 // check, plus the status pad that shifts the status line past the sidebar.
 func pinSessionCmds(sid string) []string {
@@ -381,19 +410,30 @@ func (d *daemon) savedStatus(ctl *control, sid string) statusSave {
 	return s
 }
 
-func (d *daemon) restoreStatus(ctl *control, s statusSave) {
+// statusRestoreCmds builds the commands that put a session's status-left
+// back: replay the saved raw show-options lines, or quiet-unset down to the
+// global value. All infallible, safe anywhere in a sequence.
+func statusRestoreCmds(s statusSave) []string {
 	if s.sess == "" {
-		return
+		return nil
 	}
+	out := make([]string, 0, 2)
 	if s.left != "" {
-		_, _ = ctl.run("set-option -t " + q(s.sess) + " " + s.left)
+		out = append(out, "set-option -t "+q(s.sess)+" "+s.left)
 	} else {
-		_, _ = ctl.run("set-option -u -t " + q(s.sess) + " status-left")
+		out = append(out, "set-option -uq -t "+q(s.sess)+" status-left")
 	}
 	if s.leftLen != "" {
-		_, _ = ctl.run("set-option -t " + q(s.sess) + " " + s.leftLen)
+		out = append(out, "set-option -t "+q(s.sess)+" "+s.leftLen)
 	} else {
-		_, _ = ctl.run("set-option -u -t " + q(s.sess) + " status-left-length")
+		out = append(out, "set-option -uq -t "+q(s.sess)+" status-left-length")
+	}
+	return out
+}
+
+func (d *daemon) restoreStatus(ctl *control, s statusSave) {
+	for _, c := range statusRestoreCmds(s) {
+		_, _ = ctl.run(c)
 	}
 }
 

@@ -52,6 +52,11 @@ type daemon struct {
 	br       *browseState
 	pin      *pinState
 
+	// lastScrub gates re-lists: world churn within scrubQuiet of a pin
+	// scrub is our own doing, and re-listing the whole server once per
+	// scrub step is the daemon's main cost during a held-key scrub.
+	lastScrub time.Time
+
 	// The preview stream: while browsing, the selected window is re-captured
 	// on this ticker (10fps) so previews stay LIVE — scrolling logs, agent
 	// output. Frames are dropped when content hasn't changed, and the ticker
