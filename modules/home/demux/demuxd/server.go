@@ -32,6 +32,7 @@ type cmdMsg struct {
 	Client   string `json:"client,omitempty"`
 	Window   string `json:"window,omitempty"`
 	Role     string `json:"role,omitempty"`
+	Dir      string `json:"dir,omitempty"` // nav: "next" | "prev"
 	Prefetch bool   `json:"prefetch,omitempty"`
 }
 

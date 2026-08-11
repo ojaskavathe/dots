@@ -38,12 +38,14 @@ func usage() {
 	fmt.Fprintf(os.Stderr, `usage: demuxd [-L name | -S path] <command>
 
 commands:
-  run              run the daemon in the foreground
-  ls               print the world (starts the daemon if needed)
-  events           stream snapshot + diffs as NDJSON (starts the daemon if needed)
-  toggle <client>  enter / leave the browse window for a tmux client
-  tui              the browse TUI (spawned by the daemon inside the browse window)
-  sock             print the tmux and demux socket paths and exit
+  run                    run the daemon in the foreground
+  ls                     print the world (starts the daemon if needed)
+  events                 stream snapshot + diffs as NDJSON (starts the daemon if needed)
+  toggle <client>        dock / undock the sidebar for a tmux client
+  nav <next|prev> <cl>   window nav with the sidebar riding along (routed M-h/M-l)
+  browse <client>        full-screen billboard browser (the pre-pin M-s)
+  tui                    the sidebar TUI (spawned by the daemon)
+  sock                   print the tmux and demux socket paths and exit
 `)
 	os.Exit(2)
 }
@@ -75,6 +77,17 @@ func main() {
 			client = args[1]
 		}
 		cmdToggle(tmuxSock, demuxSock, client)
+	case "nav":
+		if len(args) < 3 || (args[1] != "next" && args[1] != "prev") {
+			usage()
+		}
+		cmdNav(tmuxSock, demuxSock, args[1], args[2])
+	case "browse":
+		client := ""
+		if len(args) > 1 {
+			client = args[1]
+		}
+		cmdBrowse(tmuxSock, demuxSock, client)
 	case "tui":
 		cmdTui(tmuxSock, demuxSock)
 	case "sock":
