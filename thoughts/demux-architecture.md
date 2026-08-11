@@ -168,21 +168,37 @@ previews — capture-pane already returns a rendered screen.
   mapping)
 - kill/spawn follow the same path (`kill-pane`, `split-window` for "new agent
   here", worktree-aware spawn later)
-- the browse surface is a PERSISTENT DEMUX-OWNED WINDOW in a hidden `_demux`
-  session: a 40-col list pane + a full-size preview canvas (choose-tree
-  mechanics, custom UI). M-s = `switch-client` to it; j/k paints captured
-  frames into the canvas (no debounce — nothing in user windows moves);
-  Enter = `switch-client` to the target; q returns to origin. previews stay
-  LIVE via a capture stream (10fps while browsing, frames dropped when
-  content is unchanged) — the only universal source, since cross-session
-  panes emit no `%output`. user windows are never joined into, resized, or
-  renamed: the sidebar-as-joined-pane design (and its whole baseline/restore
-  problem class) was built, worked, and was retired for scrub latency — every
-  preview join reflowed the target window's apps via SIGWINCH (git history:
-  f2538c2). still-load-bearing rules from that era: `select-layout` stays
-  BANNED (positional; corrupts layouts); sequences abort at first error
-  (critical commands first); all switching client-explicit (`-c`);
-  per-client truth via list-clients rows, never `display-message -c`.
+- **pinned sidebar (M-s, the default surface, 2026-08-11)** — the herdr
+  layout on tmux: the TUI pane docks as a REAL 40-col pane at the window's
+  left edge (`join-pane -hb -f -l 40`); the main area is the user's actual
+  panes, live and enterable. scrubbing j/k moves the MAIN AREA for real:
+  join sidebar into the target + `select-window` in one control sequence, so
+  the target is never visible without the sidebar. Enter focuses the main
+  pane; M-s undocks in place; q undocks back to origin. held-j storms
+  coalesce via the same newest-wins queue policy as billboards. M-h/M-l
+  route through `demuxd nav` only while `@demux_pinned` is set (`if-shell
+  -F` bind), native otherwise; unrouted switches (choose-tree) are followed
+  from the notification path. the status line shifts past the sidebar via a
+  41-space session `status-left` (saved/restored). rig-verified mechanics:
+  `-hb -f` always lands at the window edge; the joined pane takes focus;
+  undocking hands the 40 cols to the ADJACENT pane, so exact restore comes
+  from replaying the saved `#{window_layout}` string — `select-layout` with
+  an exact saved string is SAFE and restores byte-identically (the old
+  blanket ban was about positional/equalizing use, which stays banned);
+  stale strings (user split while docked) fail cleanly and are skipped.
+  `automatic-rename` is frozen per-window before each join (the sidebar
+  takes focus, which would rename windows to "demuxd") and restored on
+  leave. a placeholder window keeps `_demux` alive while the TUI is docked
+  out (a session dies when its only pane is joined away — verified).
+- **billboard browser (`demuxd browse`, off the key)** — the full-screen
+  list + preview canvas in `_demux`: j/k paints captured frames, 10fps live
+  capture stream while open, Enter/M-s commit, q cancels. kept fully
+  working; pinned mode auto-undocks before entering it.
+- still-load-bearing rules: sequences abort at first error (critical
+  commands first, best-effort restores last, on their own); all switching
+  client-explicit (`-c`); per-client truth via list-clients rows, never
+  `display-message -c`; geometry queried at point-of-use, never from the
+  cached world.
 
 ## language
 
@@ -213,9 +229,10 @@ capable — choose go purely for repo consistency and iteration speed.
 1. **demuxd core** — control-mode ingest, reducer, snapshot+diff protocol,
    `demux ls`. proves the event path end to end. **done (2026-08-10).**
 2. **sidebar TUI** — tree render, j/k/enter/x, mouse, toggle mechanics ported
-   from spike. replaces sidebar.sh. **core shipped (2026-08-10): M-s cycle,
-   j/k live preview, enter/q, native-motion follow with zero hooks. still
-   open: x=kill, mouse, styling, start-selection-at-current-window.**
+   from spike. replaces sidebar.sh. **shipped (2026-08-10/11): pinned mode
+   (dock as a real pane, real-window scrub, routed M-h/M-l, layout
+   save/restore, status shift) is the M-s default; the billboard browser
+   survives as `demuxd browse`. still open: x=kill, mouse, styling.**
 3. **agents** — claude code hooks → `demux emit`, agent states in sidebar,
    statusline bridge, blocked notifications.
 4. **previews** — selection frames, then follow mode.

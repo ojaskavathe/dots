@@ -27,7 +27,7 @@
       # zero process spawns on the event path, no tmux hooks needed.
       demuxd = pkgs.buildGoModule {
         pname = "demuxd";
-        version = "0.2.0";
+        version = "0.3.0";
 
         src = ./demux/demuxd;
         vendorHash = "sha256-v9QGoqKB/LGeAPF4NNTyI1Nmy301m43/9ljorcayums=";
@@ -129,14 +129,18 @@
             set -g status-interval 15
             set -g status-position top
 
-            # window cycling stays native: the demux daemon watches
-            # %session-window-changed and makes the sidebar ride along
-            bind -n M-h previous-window
-            bind -n M-l next-window
+            # window cycling: native normally; while the demux sidebar is
+            # docked (@demux_pinned set on the session) the switch routes
+            # through the daemon so the sidebar arrives WITH the window —
+            # never a frame of the target without it
+            bind -n M-h if-shell -F "#{@demux_pinned}" {run-shell -b '${demuxd}/bin/demuxd nav prev "#{client_name}"'} {previous-window}
+            bind -n M-l if-shell -F "#{@demux_pinned}" {run-shell -b '${demuxd}/bin/demuxd nav next "#{client_name}"'} {next-window}
 
-            # demux sidebar: M-s summons / focuses / closes. client passed
-            # explicitly — implicit targeting picks the wrong client whenever
-            # a second one is attached (the demux control client always is)
+            # demux sidebar: M-s docks the list as a real pane on the left
+            # (herdr-style; main area stays your live panes), M-s again
+            # undocks and restores the exact layout. client passed explicitly
+            # — implicit targeting picks the wrong client whenever a second
+            # one is attached (the demux control client always is)
             bind -n M-s run-shell -b '${demuxd}/bin/demuxd toggle "#{client_name}"'
             bind -n M-e run-shell -b '${tmuxEqualizeNvim}/bin/tmux-equalize-nvim'
             bind -n M-g send-keys C-l \; run-shell -b -d 0.05 -C 'clear-history -t "#{pane_id}"'

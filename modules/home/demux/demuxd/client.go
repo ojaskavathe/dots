@@ -127,6 +127,66 @@ func cmdToggle(tmuxSock, demuxSock, client string) {
 	os.Exit(1)
 }
 
+// cmdNav is the routed M-h / M-l while pinned: previous/next window with the
+// sidebar riding along in one atomic server sequence. Hot path — one conn,
+// one cmd, wait for the reply so bind errors surface in tmux.
+func cmdNav(tmuxSock, demuxSock, dir, client string) {
+	conn, err := dialEnsure(tmuxSock, demuxSock)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "demuxd nav: %v\n", err)
+		os.Exit(1)
+	}
+	defer conn.Close()
+	b, _ := json.Marshal(cmdMsg{Type: "cmd", Cmd: "nav", Dir: dir, Client: client})
+	if _, err := conn.Write(append(b, '\n')); err != nil {
+		fmt.Fprintf(os.Stderr, "demuxd nav: %v\n", err)
+		os.Exit(1)
+	}
+	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	sc := bufio.NewScanner(conn)
+	sc.Buffer(make([]byte, 64*1024), 16*1024*1024)
+	for sc.Scan() {
+		var m wireMsg
+		if json.Unmarshal(sc.Bytes(), &m) != nil || m.Type != "reply" {
+			continue
+		}
+		if m.OK != nil && !*m.OK {
+			fmt.Fprintf(os.Stderr, "demuxd nav: %s\n", m.Err)
+			os.Exit(1)
+		}
+		return
+	}
+}
+
+// cmdBrowse opens the full-screen billboard browser (the pre-pin M-s).
+func cmdBrowse(tmuxSock, demuxSock, client string) {
+	conn, err := dialEnsure(tmuxSock, demuxSock)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "demuxd browse: %v\n", err)
+		os.Exit(1)
+	}
+	defer conn.Close()
+	b, _ := json.Marshal(cmdMsg{Type: "cmd", Cmd: "browse", Client: client})
+	if _, err := conn.Write(append(b, '\n')); err != nil {
+		fmt.Fprintf(os.Stderr, "demuxd browse: %v\n", err)
+		os.Exit(1)
+	}
+	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	sc := bufio.NewScanner(conn)
+	sc.Buffer(make([]byte, 64*1024), 16*1024*1024)
+	for sc.Scan() {
+		var m wireMsg
+		if json.Unmarshal(sc.Bytes(), &m) != nil || m.Type != "reply" {
+			continue
+		}
+		if m.OK != nil && !*m.OK {
+			fmt.Fprintf(os.Stderr, "demuxd browse: %s\n", m.Err)
+			os.Exit(1)
+		}
+		return
+	}
+}
+
 func cmdEvents(tmuxSock, demuxSock string) {
 	conn, err := dialEnsure(tmuxSock, demuxSock)
 	if err != nil {

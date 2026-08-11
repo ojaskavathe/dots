@@ -109,6 +109,7 @@ func consume(d *daemon, ctl *control, w world, sig chan os.Signal) bool {
 			w = next
 			d.h.setWorld(w, ops, false, d.tmuxSock)
 			d.checkBrowse(ctl, w)
+			d.checkPin(ctl, w)
 		case env := <-d.h.cmds:
 			d.handleCmd(ctl, env)
 		case <-d.tickC:

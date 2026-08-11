@@ -50,6 +50,7 @@ type daemon struct {
 	tmuxSock string
 	h        *hub
 	br       *browseState
+	pin      *pinState
 
 	// The preview stream: while browsing, the selected window is re-captured
 	// on this ticker (10fps) so previews stay LIVE — scrolling logs, agent
@@ -125,19 +126,45 @@ var bench = os.Getenv("DEMUX_BENCH") != ""
 
 func (d *daemon) runCmd(ctl *control, env cmdEnvelope) {
 	start := time.Now()
+	browsing := d.br != nil && d.br.open
 	var err error
 	switch env.msg.Cmd {
 	case "toggle":
 		err = d.toggle(ctl, env.msg.Client)
+	case "browse":
+		err = d.browseOpen(ctl, env.msg.Client)
+	case "nav":
+		err = d.pinNav(ctl, env.msg.Dir)
 	case "preview":
-		err = d.preview(ctl, env.msg.Window, env.msg.Prefetch)
+		if d.pin != nil && !browsing {
+			// Pinned scrub: the "preview" moves the real main area. Prefetch
+			// is a billboard concept — acked, never switches anything.
+			if !env.msg.Prefetch {
+				err = d.pinScrub(ctl, env.msg.Window, false)
+			}
+		} else {
+			err = d.preview(ctl, env.msg.Window, env.msg.Prefetch)
+		}
 	case "commit":
-		err = d.commit(ctl, env.msg.Window)
+		if d.pin != nil && !browsing {
+			err = d.pinCommit(ctl)
+		} else {
+			err = d.commit(ctl, env.msg.Window)
+		}
 	case "close":
-		err = d.closeBrowse(ctl)
+		if d.pin != nil && !browsing {
+			err = d.pinClose(ctl, true)
+		} else {
+			err = d.closeBrowse(ctl)
+		}
 	case "hello-list":
 		// A TUI connected after state went out; replay selection + frame.
-		replaySel := d.br != nil && d.br.open && d.br.target != ""
+		if d.pin != nil {
+			d.h.send(env.sub, marshalLine(selectMsg{Type: "select", Window: d.pin.win}))
+			log.Printf("hello-list: replay pinned select=%s", d.pin.win)
+			break
+		}
+		replaySel := browsing && d.br.target != ""
 		if replaySel {
 			d.h.send(env.sub, marshalLine(selectMsg{Type: "select", Window: d.br.target}))
 		}
@@ -161,29 +188,52 @@ func (d *daemon) runCmd(ctl *control, env cmdEnvelope) {
 	d.h.send(env.sub, marshalLine(r))
 }
 
-// toggle: not browsing -> remember origin and switch to the browse window;
-// already browsing (M-s again) -> return to origin.
+// toggle is M-s: browsing (full-screen) -> commit/close as before; pinned ->
+// undock in place; otherwise dock the sidebar into the current window.
 func (d *daemon) toggle(ctl *control, client string) error {
 	if client == "" {
 		return errors.New("toggle needs a client name")
+	}
+	if d.br != nil && d.br.open {
+		sid, _, _, _, err := d.clientView(ctl, client)
+		if err == nil && sid == d.br.sess {
+			d.br.client = client
+			// M-s while browsing commits to the current selection, like Enter —
+			// muscle memory from the join-sidebar era. q / Ctrl-C remain
+			// cancel-to-origin.
+			if d.br.target != "" && d.br.target != d.br.originWin {
+				log.Printf("toggle-off commits to %s", d.br.target)
+				return d.commit(ctl, d.br.target)
+			}
+			return d.closeBrowse(ctl)
+		}
+	}
+	if d.pin != nil {
+		return d.pinClose(ctl, false)
+	}
+	return d.pinOpen(ctl, client)
+}
+
+// browseOpen is the full-screen billboard browser (`demuxd browse`): switch
+// the client to the _demux window and stream capture frames. No longer on
+// M-s — pinned mode replaced it there — but fully functional.
+func (d *daemon) browseOpen(ctl *control, client string) error {
+	if client == "" {
+		return errors.New("browse needs a client name")
+	}
+	if d.pin != nil {
+		if err := d.pinClose(ctl, false); err != nil {
+			return err
+		}
 	}
 	sid, wid, cw, ch, err := d.clientView(ctl, client)
 	if err != nil {
 		return err
 	}
 	if d.br != nil && d.br.open && sid == d.br.sess {
-		d.br.client = client
-		// M-s while browsing commits to the current selection, like Enter —
-		// muscle memory from the join-sidebar era, where previews physically
-		// moved the client and dismissing left you at the previewed spot.
-		// q / Ctrl-C remain cancel-to-origin.
-		if d.br.target != "" && d.br.target != d.br.originWin {
-			log.Printf("toggle-off commits to %s", d.br.target)
-			return d.commit(ctl, d.br.target)
-		}
-		return d.closeBrowse(ctl)
+		return nil // already browsing
 	}
-	if err := d.ensureBrowse(ctl, cw, ch); err != nil {
+	if err := d.ensureSurface(ctl, cw, ch); err != nil {
 		return err
 	}
 	d.br.open = true
@@ -194,8 +244,10 @@ func (d *daemon) toggle(ctl *control, client string) error {
 	// freshly spawned TUI isn't connected yet (n=0) — the hello-list replay
 	// covers that; n=0 on a WARM browse means the select was lost.
 	n := d.h.sendRole("list", marshalLine(selectMsg{Type: "select", Window: wid}))
-	log.Printf("toggle open client=%s origin=%s/%s size=%dx%d select_receivers=%d", client, sid, wid, cw, ch, n)
-	if _, err := ctl.run("switch-client -c " + q(client) + " -t " + q(d.br.sess)); err != nil {
+	log.Printf("browse open client=%s origin=%s/%s size=%dx%d select_receivers=%d", client, sid, wid, cw, ch, n)
+	if _, err := ctl.runSeq(
+		"select-window -t "+q(d.br.win),
+		"switch-client -c "+q(client)+" -t "+q(d.br.sess)); err != nil {
 		return err
 	}
 	d.startStream()
@@ -220,19 +272,61 @@ func (d *daemon) clientView(ctl *control, client string) (sid, wid string, cw, c
 	return "", "", 0, 0, errors.New("no client " + client)
 }
 
-// ensureBrowse verifies the browse window is intact (both panes alive and
-// running us), rebuilding it from scratch otherwise — which also collects
-// any stale _demux session resurrect may have restored. The session is
-// created at the summoning client's size: entering a differently-sized
+// placeholderCmd keeps the _demux session alive while the TUI pane is
+// docked in a user window — moving a session's only pane out kills it
+// (rig-verified), and the undock target must exist.
+const placeholderCmd = "sleep 100000000"
+
+// ensureSurface verifies the TUI pane is alive (wherever it currently lives
+// — its home window, or docked in a user window) and that the _demux holding
+// session can receive it back, rebuilding whatever is missing. The session
+// is created at the summoning client's size: entering a differently-sized
 // window makes tmux rescale it, which crushes the list pane.
-func (d *daemon) ensureBrowse(ctl *control, cw, ch int) error {
+func (d *daemon) ensureSurface(ctl *control, cw, ch int) error {
+	if cw < listWidth+10 || ch < 5 {
+		cw, ch = 200, 50
+	}
 	if d.br != nil {
-		lines, err := ctl.run("list-panes -t " + q(d.br.win) + " -F " + f("#{pane_id}", "#{pane_current_command}"))
-		if err == nil && len(lines) == 1 {
-			p := strings.Split(lines[0], sep)
-			if len(p) == 2 && p[0] == d.br.pane && strings.Contains(p[1], "demux") {
-				return nil
+		alive := false
+		nDemuxWins := 0
+		lines, err := ctl.run("list-panes -a -F " + f("#{pane_id}", "#{pane_current_command}", "#{session_name}", "#{window_id}"))
+		if err == nil {
+			wins := map[string]bool{}
+			for _, ln := range lines {
+				p := strings.Split(ln, sep)
+				if len(p) != 4 {
+					continue
+				}
+				if p[0] == d.br.pane && strings.Contains(p[1], "demux") {
+					alive = true
+				}
+				if p[2] == demuxSession && !wins[p[3]] {
+					wins[p[3]] = true
+					nDemuxWins++
+				}
 			}
+		}
+		if alive {
+			switch {
+			case nDemuxWins == 0:
+				// Holding session died with the TUI docked out; recreate it.
+				out, err := ctl.run(fmt.Sprintf("new-session -d -s %s -x %d -y %d -P -F %s %s",
+					demuxSession, cw, ch, f("#{session_id}", "#{window_id}"), q(placeholderCmd)))
+				if err != nil {
+					return err
+				}
+				if len(out) == 1 {
+					if p := strings.Split(out[0], sep); len(p) == 2 {
+						d.br.sess, d.br.win = p[0], p[1]
+					}
+				}
+				_, _ = ctl.run("set-option -q -t " + q(d.br.sess) + " status off")
+			case nDemuxWins == 1 && d.pin == nil:
+				// TUI home is the only window: docking it away would kill the
+				// session. Keep the placeholder ahead of need.
+				_, _ = ctl.run("new-window -d -t " + q(demuxSession+":") + " " + q(placeholderCmd))
+			}
+			return nil
 		}
 		d.br = nil
 	}
@@ -240,9 +334,6 @@ func (d *daemon) ensureBrowse(ctl *control, cw, ch int) error {
 	self, err := os.Executable()
 	if err != nil {
 		return err
-	}
-	if cw < listWidth+10 || ch < 5 {
-		cw, ch = 200, 50
 	}
 	tuiCmd := self + " -S " + d.tmuxSock + " tui"
 	if bench {
@@ -262,6 +353,7 @@ func (d *daemon) ensureBrowse(ctl *control, cw, ch int) error {
 	}
 	br := &browseState{sess: p[0], win: p[1], pane: p[2]}
 	_, err = ctl.runSeq(
+		"new-window -d -t "+q(demuxSession+":")+" "+q(placeholderCmd),
 		"set-option -wq -t "+q(br.win)+" automatic-rename off",
 		"set-option -q -t "+q(br.sess)+" status off")
 	if err != nil {

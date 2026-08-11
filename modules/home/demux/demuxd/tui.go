@@ -283,13 +283,17 @@ func cmdTui(tmuxSock, demuxSock string) {
 		paintedWin, paintedGen = "", -1 // size/world may have shifted regions
 		paintFrameFor(target())
 	}
-	// Cached frame paints locally NOW; the daemon refreshes it (and streams
-	// it live) right behind. Neighbors are prefetched so the next scrub step
-	// is warm too.
+	// Browse mode: cached frame paints locally NOW; the daemon refreshes it
+	// (and streams it live) right behind, neighbors prefetched warm. Pinned
+	// (narrow) mode: the same preview cmd IS the scrub — the daemon moves
+	// the real main area to the target window; prefetch means nothing.
 	requestFrames := func() {
 		cur := target()
 		if cur != "" {
 			send(cmdMsg{Cmd: "preview", Window: cur})
+		}
+		if narrowMode() {
+			return
 		}
 		seen := map[string]bool{cur: true, "": true}
 		for _, i := range []int{sel - 1, sel + 1} {
@@ -422,12 +426,24 @@ func surfaceSize() (int, int) {
 	return cols, height
 }
 
+// narrowMode: the surface is the docked 40-col sidebar, not the full-screen
+// browser. The list takes the whole width (the tmux pane border is the
+// separator) and the preview region simply doesn't exist.
+func narrowMode() bool {
+	cols, _ := surfaceSize()
+	return cols <= listWidth+2
+}
+
 // paintList redraws the list column and border only. Fixed width, padded
 // with spaces — no clears, so unchanged cells cost nothing downstream.
 // Wrapped in synchronized output (DECSET 2026) so tmux applies it atomically.
 func paintList(rows []row, sel int) {
 	start := time.Now()
-	_, height := surfaceSize()
+	cols, height := surfaceSize()
+	lw, border := listWidth, true
+	if cols <= listWidth+2 {
+		lw, border = cols, false
+	}
 	top := 0
 	if len(rows) > height && sel > height/2 {
 		top = sel - height/2
@@ -442,10 +458,10 @@ func paintList(rows []row, sel int) {
 		fmt.Fprintf(&b, "\033[%d;1H", y+1)
 		if i < len(rows) {
 			label := []rune(rows[i].label)
-			if len(label) > listWidth {
-				label = label[:listWidth]
+			if len(label) > lw {
+				label = label[:lw]
 			}
-			pad := strings.Repeat(" ", listWidth-len(label))
+			pad := strings.Repeat(" ", lw-len(label))
 			switch {
 			case i == sel:
 				b.WriteString("\033[7m" + string(label) + pad + "\033[27m")
@@ -455,9 +471,11 @@ func paintList(rows []row, sel int) {
 				b.WriteString("\033[2m" + string(label) + pad + "\033[22m")
 			}
 		} else {
-			b.WriteString(strings.Repeat(" ", listWidth))
+			b.WriteString(strings.Repeat(" ", lw))
 		}
-		b.WriteString("\033[2m│\033[22m")
+		if border {
+			b.WriteString("\033[2m│\033[22m")
+		}
 	}
 	b.WriteString("\033[?2026l")
 	os.Stdout.WriteString(b.String())
