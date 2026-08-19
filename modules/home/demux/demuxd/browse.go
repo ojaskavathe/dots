@@ -429,30 +429,63 @@ func (d *daemon) preview(ctl *control, wid string, prefetch bool) error {
 	if d.br == nil || (!d.br.open && d.pin == nil) {
 		return nil
 	}
-	lines, err := ctl.run("list-panes -t " + q(wid) + " -F " +
-		f("#{pane_id}", "#{pane_left}", "#{pane_top}", "#{pane_width}", "#{pane_height}", "#{pane_active}"))
-	if err != nil {
-		return err
-	}
+	// Pinned scrub targets get pre-rendered at the docked main-area size
+	// (window-size manual, hidden — the window's apps re-wrap for real):
+	// the billboard then IS the docked reality. A full-width capture scaled
+	// down only approximates it — different wraps, ±1 borders — which reads
+	// as content/split shifts on entry. Once per window while pinned;
+	// skipped when another client is attached to that window's session.
+	canReflow := d.pin != nil && (d.br == nil || !d.br.open) &&
+		wid != d.pin.win && d.pin.mainW > 0
 	var panes []framePane
 	var caps []string
-	for _, ln := range lines {
-		p := strings.Split(ln, sep)
-		if len(p) != 6 {
-			continue
+	for attempt := 0; ; attempt++ {
+		lines, err := ctl.run("list-panes -t " + q(wid) + " -F " +
+			f("#{pane_id}", "#{pane_left}", "#{pane_top}", "#{pane_width}", "#{pane_height}", "#{pane_active}"))
+		if err != nil {
+			return err
 		}
-		if p[0] == d.br.pane {
-			continue
+		panes, caps = panes[:0], caps[:0]
+		fw := 0
+		for _, ln := range lines {
+			p := strings.Split(ln, sep)
+			if len(p) != 6 {
+				continue
+			}
+			left, _ := strconv.Atoi(p[1])
+			width, _ := strconv.Atoi(p[3])
+			if left+width > fw {
+				fw = left + width
+			}
+			if p[0] == d.br.pane {
+				continue
+			}
+			top, _ := strconv.Atoi(p[2])
+			height, _ := strconv.Atoi(p[4])
+			panes = append(panes, framePane{Left: left, Top: top, Width: width, Height: height, Active: p[5] == "1"})
+			caps = append(caps, "capture-pane -e -p -t "+q(p[0]), "display-message -p "+q(frameMarker))
 		}
-		left, _ := strconv.Atoi(p[1])
-		top, _ := strconv.Atoi(p[2])
-		width, _ := strconv.Atoi(p[3])
-		height, _ := strconv.Atoi(p[4])
-		panes = append(panes, framePane{Left: left, Top: top, Width: width, Height: height, Active: p[5] == "1"})
-		caps = append(caps, "capture-pane -e -p -t "+q(p[0]), "display-message -p "+q(frameMarker))
-	}
-	if len(panes) == 0 {
-		return fmt.Errorf("no panes in %s", wid)
+		if len(panes) == 0 {
+			return fmt.Errorf("no panes in %s", wid)
+		}
+		if canReflow && attempt == 0 && fw != d.pin.mainW && !d.otherClientOn(wid) {
+			out, err := ctl.runSeq(
+				"display-message -p -t "+q(wid)+" -F "+f("#{window_layout}"),
+				"set-option -wq -t "+q(wid)+" window-size manual",
+				fmt.Sprintf("resize-window -t %s -x %d -y %d", q(wid), d.pin.mainW, d.pin.mainH))
+			if err == nil {
+				if len(out) > 0 && d.pin.orig[wid] == "" {
+					d.pin.orig[wid] = out[0] // for byte-exact restores later
+				}
+				d.pin.touched[wid] = true
+				d.lastScrub = time.Now()
+				if bench {
+					log.Printf("bench prereflow win=%s %d -> %d", wid, fw, d.pin.mainW)
+				}
+				continue // recapture at the docked size
+			}
+		}
+		break
 	}
 	minLeft := panes[0].Left
 	for _, p := range panes {

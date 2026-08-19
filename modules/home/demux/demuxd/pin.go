@@ -77,6 +77,34 @@ type pinState struct {
 	// window materializes on commit (join-from-zoomed auto-unzooms), and
 	// landing back on the pinned window is a free unzoom.
 	scrubbing bool
+
+	// touched: windows pre-rendered at the docked main-area size
+	// (window-size manual) so their billboards are EXACT — a full-width
+	// capture scaled down only approximates the docked reality (different
+	// wraps, ±1 borders), which reads as content/split shifts on entry.
+	// Unset back to tmux's sizing when the window is entered or the pin
+	// closes.
+	touched map[string]bool
+	// orig: each touched window's full-width layout from BEFORE the
+	// pre-render. Proportional round trips (full -> main-area -> full)
+	// redistribute the width with tmux's own remainder choices, drifting
+	// borders ±1 — restores replay these strings for byte-exact geometry.
+	orig  map[string]string
+	mainW int // client width minus sidebar column: the docked main area
+	mainH int
+}
+
+// layoutDims reads the WxH prefix of a #{window_layout} string.
+func layoutDims(layout string) (int, int) {
+	_, body, ok := strings.Cut(layout, ",")
+	if !ok {
+		return 0, 0
+	}
+	var w, h int
+	if _, err := fmt.Sscanf(body, "%dx%d", &w, &h); err != nil {
+		return 0, 0
+	}
+	return w, h
 }
 
 // statusPad shifts the status line's content past the sidebar column:
@@ -122,6 +150,29 @@ func (d *daemon) leaveInfo(ctl *control, wid string) (layout string, dirty bool)
 	return p[0], p[1] == "1"
 }
 
+// otherClientOn reports whether any client besides the pinned one is
+// attached to the window's session — pre-rendering a window such a client
+// might be viewing would visibly resize it under them.
+func (d *daemon) otherClientOn(wid string) bool {
+	w := d.h.getWorld()
+	sid := ""
+	for _, win := range w.Windows {
+		if win.ID == wid {
+			sid = win.SessionID
+			break
+		}
+	}
+	if sid == "" {
+		return true // unknown window: don't touch it
+	}
+	for _, c := range w.Clients {
+		if c.SessionID == sid && (d.pin == nil || c.Name != d.pin.client) {
+			return true
+		}
+	}
+	return false
+}
+
 // sessionOf resolves a window's session from the world model.
 func (d *daemon) sessionOf(wid string) string {
 	for _, w := range d.h.getWorld().Windows {
@@ -148,7 +199,11 @@ func (d *daemon) pinOpen(ctl *control, client string) error {
 	if err != nil {
 		return err
 	}
-	p := &pinState{client: client, win: wid, sess: sid, originSess: sid, originWin: wid, snap: snap}
+	p := &pinState{client: client, win: wid, sess: sid, originSess: sid, originWin: wid, snap: snap,
+		touched: map[string]bool{}, orig: map[string]string{}}
+	if w, h := layoutDims(snap.layout); w > listWidth+1 {
+		p.mainW, p.mainH = w-listWidth-1, h
+	}
 	p.status = d.savedStatus(ctl, sid)
 	// Freeze rename BEFORE the join: the sidebar takes focus on join, and an
 	// automatic-rename window would flip its name to "demuxd" (the sh-era bug).
@@ -240,6 +295,12 @@ func (d *daemon) pinScrub(ctl *control, wid string, focusMain bool) error {
 	if err != nil {
 		return err
 	}
+	if o := p.orig[wid]; o != "" {
+		// Pre-rendered window: its live layout is the main-area-sized one;
+		// the pre-render original is what a later leave must restore.
+		snapN.layout = o
+		delete(p.orig, wid)
+	}
 	oldLayout, oldDirty := "", false
 	if lp := strings.Split(qlines[1], sep); len(lp) == 2 {
 		oldLayout, oldDirty = lp[0], lp[1] == "1"
@@ -252,6 +313,15 @@ func (d *daemon) pinScrub(ctl *control, wid string, focusMain bool) error {
 		"set-option -w -t " + q(wid) + " automatic-rename off",
 		fmt.Sprintf("join-pane -hb -f -l %d -s %s -t %s", listWidth, q(d.br.pane), q(wid)),
 		"select-window -t " + q(wid),
+	}
+	if p.touched[wid] {
+		// Pre-rendered at main-area width: scale the window up to client
+		// width FIRST, then the join carves the sidebar's column back out —
+		// same batch, so the mains land at exactly their pre-rendered size
+		// (scaling up then down through a finer grid round-trips exactly).
+		// After the view, hand sizing back to tmux.
+		critical = append([]string{fmt.Sprintf("resize-window -t %s -x %d", q(wid), p.mainW+listWidth+1)}, critical...)
+		critical = append(critical, "set-option -w -uq -t "+q(wid)+" window-size")
 	}
 	if sidN != p.sess {
 		critical = append(critical, pinSessionCmds(sidN)...)
@@ -285,6 +355,7 @@ func (d *daemon) pinScrub(ctl *control, wid string, focusMain bool) error {
 	if errs[0] != nil {
 		return errs[0]
 	}
+	delete(p.touched, wid) // entered: sizing handed back to tmux in-seq
 	d.scrubEnd(ctl, false) // join already unzoomed the sidebar on its way out
 	if errs[1] != nil {
 		log.Printf("scrub restore %s: %v", p.win, errs[1])
@@ -396,10 +467,27 @@ func (d *daemon) pinClose(ctl *control, toOrigin bool) error {
 	if moving {
 		// Land first, with the session bookkeeping in the SAME batch — an
 		// unpad arriving a round trip after the switch flickers the status.
-		seq := append([]string{
-			"select-window -t " + q(p.originWin),
-			"switch-client -c " + q(p.client) + " -t " + q(p.originSess)},
-			unpin...)
+		// A pre-rendered landing target gets its sizing back BEFORE the
+		// switch, so tmux expands it to the client as the view arrives.
+		var seq []string
+		if p.touched[p.originWin] {
+			// Landing on a pre-rendered window: put it back byte-exact
+			// BEFORE the switch (tmux's own re-expansion drifts ±1).
+			if o := p.orig[p.originWin]; o != "" {
+				if w, h := layoutDims(o); w > 0 {
+					seq = append(seq,
+						fmt.Sprintf("resize-window -t %s -x %d -y %d", q(p.originWin), w, h),
+						"select-layout -t "+q(p.originWin)+" "+q(o))
+				}
+				delete(p.orig, p.originWin)
+			}
+			seq = append(seq, "set-option -w -uq -t "+q(p.originWin)+" window-size")
+			delete(p.touched, p.originWin)
+		}
+		seq = append(seq,
+			"select-window -t "+q(p.originWin),
+			"switch-client -c "+q(p.client)+" -t "+q(p.originSess))
+		seq = append(seq, unpin...)
 		if _, err := ctl.runSeq(seq...); err != nil {
 			// Origin may have died; session alone, then keep cleaning.
 			_, _ = ctl.run("switch-client -c " + q(p.client) + " -t " + q(p.originSess))
@@ -433,7 +521,31 @@ func (d *daemon) pinClose(ctl *control, toOrigin bool) error {
 			_, _ = ctl.run("set-option -wq -t " + q(d.br.win) + " automatic-rename off")
 		}
 	}
+	d.releaseTouched(ctl, p)
 	return nil
+}
+
+// releaseTouched puts every still-pre-rendered window back exactly as it
+// was: resize to its original dims, replay the original layout (letting
+// tmux rescale on next view would drift borders ±1), then hand sizing back.
+// One sequence per window — a dead window must not abort the others.
+func (d *daemon) releaseTouched(ctl *control, p *pinState) {
+	for wid := range p.touched {
+		seq := []string{}
+		if o := p.orig[wid]; o != "" {
+			if w, h := layoutDims(o); w > 0 {
+				seq = append(seq,
+					fmt.Sprintf("resize-window -t %s -x %d -y %d", q(wid), w, h),
+					"select-layout -t "+q(wid)+" "+q(o))
+			}
+			delete(p.orig, wid)
+		}
+		seq = append(seq, "set-option -w -uq -t "+q(wid)+" window-size")
+		if _, err := ctl.runSeq(seq...); err != nil {
+			log.Printf("release %s: %v", wid, err)
+		}
+		delete(p.touched, wid)
+	}
 }
 
 // leaveLayout picks what a window being left should get back: the exact
@@ -522,6 +634,7 @@ func (d *daemon) checkPin(ctl *control, w world) {
 		d.br = nil
 		_, _ = ctl.run("set-option -u -t " + q(p.sess) + " @demux_pinned")
 		d.restoreStatus(ctl, p.status)
+		d.releaseTouched(ctl, p)
 		return
 	}
 	var cl *tclient
