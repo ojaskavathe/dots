@@ -244,16 +244,28 @@ func (d *daemon) toggle(ctl *control, client string) error {
 	if d.dock != nil {
 		if d.dock.scrubbing {
 			// M-s mid-scrub commits AND dismisses — browse-era muscle
-			// memory: one press lands you in the selection. Land the swap
-			// first (geometry-free, content in front of the user instantly),
-			// THEN undock in place — the expand-to-full-width reflow happens
-			// behind content the user is already reading, never before it.
-			// (Enter is the commit that keeps the sidebar docked.)
+			// memory: one press lands you in the selection. (Enter is the
+			// commit that keeps the sidebar docked.)
 			target := d.br.target
-			if d.sessionOf(target) != "" && target != d.dock.win {
-				if err := d.dockMove(ctl, target, true); err != nil {
-					return err
+			sid := d.sessionOf(target)
+			if sid != "" && target != d.dock.win {
+				if t := d.dock.carved[target]; t != nil && t.spacer != "" {
+					// Carved: swap the sidebar in first (geometry-free —
+					// content in front of the user instantly), THEN undock;
+					// the expand-to-full-width reflow happens behind content
+					// the user is already reading, never before it.
+					if err := d.dockMove(ctl, target, true); err != nil {
+						return err
+					}
+					return d.dockClose(ctl, false)
 				}
+				// Uncarved (huge-scrollback windows deliberately stay so):
+				// the target is already at full width — land on it directly,
+				// zero geometry changes, zero reflows. Committing first
+				// would carve it (~200ms history reflow) only to expand it
+				// right back.
+				d.dock.originSess, d.dock.originWin = sid, target
+				return d.dockClose(ctl, true)
 			}
 			return d.dockClose(ctl, false)
 		}
