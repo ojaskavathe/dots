@@ -21,6 +21,31 @@
           "main.tmuxPath=${pkgs.tmux}/bin/tmux"
         ];
       };
+
+      # demux daemon + sidebar TUI (thoughts/demux-architecture.md, milestones
+      # 1+2): control-mode world model, NDJSON pub/sub, and the M-s sidebar —
+      # zero process spawns on the event path, no tmux hooks needed.
+      demuxd = pkgs.buildGoModule {
+        pname = "demuxd";
+        version = "0.3.0";
+
+        src = ./demux/demuxd;
+        vendorHash = "sha256-v9QGoqKB/LGeAPF4NNTyI1Nmy301m43/9ljorcayums=";
+
+        ldflags = [
+          "-X"
+          "main.tmuxPath=${pkgs.tmux}/bin/tmux"
+        ];
+      };
+
+      demux = pkgs.writeShellApplication {
+        name = "demux";
+        runtimeInputs = [ pkgs.tmux ];
+        text = builtins.replaceStrings [ "@frameconf@" ] [ "${./demux/frame.conf}" ] (
+          builtins.readFile ./demux/sidebar.sh
+        );
+      };
+
     in
     {
       options = {
@@ -30,7 +55,11 @@
       };
 
       config = lib.mkIf config.tmux.enable {
-        home.packages = [ tmuxEqualizeNvim ];
+        home.packages = [
+          tmuxEqualizeNvim
+          demux
+          demuxd
+        ];
 
         programs.tmux = {
           enable = true;
@@ -100,14 +129,21 @@
             set -g status-interval 15
             set -g status-position top
 
-            # Cycle windows
-            bind -n M-h previous-window
-            bind -n M-l next-window
+            # window cycling: native normally; while the demux sidebar is
+            # docked (@demux_pinned set on the session) the switch routes
+            # through the daemon so the sidebar arrives WITH the window —
+            # never a frame of the target without it
+            bind -n M-h if-shell -F "#{@demux_pinned}" {run-shell -b '${demuxd}/bin/demuxd nav prev "#{client_name}"'} {previous-window}
+            bind -n M-l if-shell -F "#{@demux_pinned}" {run-shell -b '${demuxd}/bin/demuxd nav next "#{client_name}"'} {next-window}
 
-            # common tmux actions without prefix
-            # toggle: M-s opens the session tree, M-s again closes it (like q)
-            bind -n M-s choose-tree -Zs
-            bind -T copy-mode-vi M-s send-keys -X cancel
+            # demux sidebar: M-s docks the list as a real pane on the left
+            # (herdr-style; main area stays your live panes), M-s again
+            # undocks and restores the exact layout. client passed explicitly
+            # — implicit targeting picks the wrong client whenever a second
+            # one is attached (the demux control client always is).
+            # (M-s previously toggled the native session tree — that stays
+            # reachable on prefix+s)
+            bind -n M-s run-shell -b '${demuxd}/bin/demuxd toggle "#{client_name}"'
             bind -n M-e run-shell -b '${tmuxEqualizeNvim}/bin/tmux-equalize-nvim'
             bind -n M-g send-keys C-l \; run-shell -b -d 0.05 -C 'clear-history -t "#{pane_id}"'
 
