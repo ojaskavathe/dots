@@ -378,7 +378,11 @@ func (d *daemon) dockMove(ctl *control, wid string, focusMain bool) error {
 	if sidN == "" {
 		return fmt.Errorf("scrub target %s unknown", wid)
 	}
-	qlines, err := ctl.run(snapQuery(wid))
+	// One round trip: snapshot of the window we enter, plus the CURRENT
+	// active pane of the one we leave (for its focus restore).
+	qlines, err := ctl.runSeq(
+		snapQuery(wid),
+		"display-message -p -t "+q(p.win)+" -F "+f("#{pane_id}"))
 	if err != nil {
 		return err
 	}
@@ -424,8 +428,14 @@ func (d *daemon) dockMove(ctl *control, wid string, focusMain bool) error {
 	}
 	// The old window keeps its docked geometry (the spacer fills the
 	// sidebar's slot) — the only restore is keyboard focus, so the spacer
-	// isn't the active pane if the user switches back by hand.
-	restore := []string{"select-pane -t " + q(p.snap.activePane)}
+	// isn't the active pane if the user switches back by hand. Prefer the
+	// pane the user was ACTUALLY in (they may have moved since docking);
+	// the dock-time snapshot is the fallback when the sidebar held focus.
+	leaveFocus := p.snap.activePane
+	if len(qlines) >= 2 && qlines[1] != "" && qlines[1] != d.br.pane {
+		leaveFocus = qlines[1]
+	}
+	restore := []string{"select-pane -t " + q(leaveFocus)}
 	if sidN != p.sess {
 		restore = append(restore, statusRestoreCmds(p.status)...)
 		restore = append(restore, "set-option -uq -t "+q(p.sess)+" @demux_docked")
@@ -567,8 +577,22 @@ func (d *daemon) dockClose(ctl *control, toOrigin bool) error {
 	d.scrubEnd(ctl, false)
 	d.dock = nil
 	log.Printf("undock client=%s win=%s to_origin=%v", p.client, p.win, toOrigin)
-	oldLayout, oldDirty := d.leaveInfo(ctl, p.win)
+	oldLayout, oldDirty, curActive := "", false, ""
+	if lines, err := ctl.run("display-message -p -t " + q(p.win) + " -F " +
+		f("#{window_layout}", "#{@demux_layout_dirty}", "#{pane_id}")); err == nil && len(lines) > 0 {
+		if lp := strings.Split(lines[0], sep); len(lp) == 3 {
+			oldLayout, oldDirty, curActive = lp[0], lp[1] == "1", lp[2]
+		}
+	}
 	restore := d.leaveLayout(p.win, p.snap.layout, oldLayout, oldDirty, d.br.pane)
+	// Focus after undock: whatever main pane the user is IN right now. Only
+	// when the sidebar itself holds focus does the dock-time snapshot apply
+	// — restoring the snapshot unconditionally yanked focus back to the
+	// pane that happened to be active when the sidebar opened.
+	focus := p.snap.activePane
+	if curActive != "" && curActive != d.br.pane {
+		focus = curActive
+	}
 
 	moving := toOrigin && p.originWin != p.win
 	undock := append([]string{"set-option -uq -t " + q(p.sess) + " @demux_docked"},
@@ -617,7 +641,7 @@ func (d *daemon) dockClose(ctl *control, toOrigin bool) error {
 	if restore != "" {
 		seq = append(seq, "select-layout -t "+q(p.win)+" "+q(restore))
 	}
-	seq = append(seq, "select-pane -t "+q(p.snap.activePane))
+	seq = append(seq, "select-pane -t "+q(focus))
 	lines, err := ctl.runSeq(seq...)
 	if err != nil {
 		log.Printf("undock: %v", err)

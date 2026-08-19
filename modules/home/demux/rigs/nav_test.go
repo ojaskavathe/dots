@@ -1,6 +1,9 @@
 package rigs
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // TestNavFollow: routed nav, scrub focus handoff, unrouted-switch follow,
 // undock restore, q mid-scrub.
@@ -64,4 +67,30 @@ func TestNavFollow(t *testing.T) {
 	r.Chk("q never moved the client", r.ClientWin() == r.W3)
 	r.Chk("q unzoomed, still docked", s.Win == r.W3 && s.Width == 40)
 	r.Chk("gamma unzoomed", !r.Zoomed(r.W3))
+
+	// undock keeps the pane the user is IN, not the dock-time active one:
+	// dock lands focused on w1's right main, user moves to the left main,
+	// M-s — focus must stay left.
+	leftMain, rightMain := "", ""
+	for _, ln := range strings.Split(r.T("list-panes", "-t", r.W1, "-F", "#{pane_id} #{pane_left} #{pane_current_command}"), "\n") {
+		f := strings.Fields(ln)
+		if len(f) != 3 || strings.Contains(f[2], "demux") {
+			continue
+		}
+		if f[1] == "0" || f[1] == "41" {
+			leftMain = f[0]
+		} else {
+			rightMain = f[0]
+		}
+	}
+	r.T("select-pane", "-t", rightMain) // w1's active while hidden
+	r.T("select-window", "-t", r.W1)
+	r.WaitUntil(100, func() bool { return r.Side().Win == r.W1 })
+	sleep(300)
+	r.T("select-pane", "-t", leftMain) // the user moves
+	sleep(300)
+	r.D("toggle", r.CL)
+	sleep(600)
+	active := r.T("display-message", "-p", "-t", r.W1, "#{pane_id}")
+	r.Chk("undock keeps the user's pane", active == leftMain)
 }
