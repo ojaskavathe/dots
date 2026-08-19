@@ -97,9 +97,9 @@
 
         home_sub() { sed "s|^$HOME|~|"; }
 
-        # dir segment: inside a git repo, show the repo root (not the deep cwd);
-        # append the branch when off the default branch, and the worktree when
-        # this is a linked worktree. Outside git, show the full path. Icons are
+        # dir segment: inside a git repo, show the repo folder name (not the deep
+        # cwd); append the branch when off the default branch, and the worktree
+        # when this is a linked worktree. Outside git, show the full path. Icons are
         # generated from codepoints (branch U+E0A0, worktree U+F487) so no literal
         # glyphs live in this source.
         seg=""
@@ -111,7 +111,7 @@
             */.worktrees/*) repo_root=$(printf '%s' "$toplevel" | sed 's|/\.worktrees/.*||') ;;
             *)              repo_root=$toplevel ;;
           esac
-          disp=$(printf '%s' "$repo_root" | home_sub)
+          disp=$(${pkgs.coreutils}/bin/basename "$repo_root")
 
           # branch, only when it isn't the repo's default branch
           branch=$(git -C "$raw" branch --show-current 2>/dev/null)
