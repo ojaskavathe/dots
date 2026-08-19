@@ -57,6 +57,15 @@ type daemon struct {
 	// scrub step is the daemon's main cost during a held-key scrub.
 	lastScrub time.Time
 
+	// pendingRelease: spacer-held windows awaiting restore after an undock.
+	// Drained one per releaseTick from the event loop (never inline with
+	// the undock — the release stalls tmux while it reflows scrollback, and
+	// inline that stall lands before the transition has painted). A re-dock
+	// adopts the queue back instead.
+	pendingRelease []releaseItem
+	releaseT       *time.Timer
+	releaseC       <-chan time.Time
+
 	// The preview stream: while browsing, the selected window is re-captured
 	// on this ticker (10fps) so previews stay LIVE — scrolling logs, agent
 	// output. Frames are dropped when content hasn't changed, and the ticker
@@ -442,7 +451,12 @@ func (d *daemon) preview(ctl *control, wid string, prefetch bool) error {
 	// docked reality — same wraps, same borders. Entering later is a
 	// geometry-free swap into that slot. Once per window while docked;
 	// skipped when another client is attached to that window's session
-	// (carving would visibly resize it under them).
+	// (carving would visibly resize it under them), and skipped for windows
+	// carrying huge scrollback — tmux reflows a pane's ENTIRE history
+	// synchronously on width change (~250ms at 660k lines, live-measured),
+	// which stalls the server mid-scrub for a billboard the user is only
+	// glancing at. Those windows billboard as scaled approximations and pay
+	// their carve if and when actually entered.
 	canCarve := d.dock != nil && (d.br == nil || !d.br.open) && wid != d.dock.win
 	skipPane := ""
 	if canCarve {
@@ -454,15 +468,19 @@ func (d *daemon) preview(ctl *control, wid string, prefetch bool) error {
 	var caps []string
 	for attempt := 0; ; attempt++ {
 		lines, err := ctl.run("list-panes -t " + q(wid) + " -F " +
-			f("#{pane_id}", "#{pane_left}", "#{pane_top}", "#{pane_width}", "#{pane_height}", "#{pane_active}"))
+			f("#{pane_id}", "#{pane_left}", "#{pane_top}", "#{pane_width}", "#{pane_height}", "#{pane_active}", "#{history_size}"))
 		if err != nil {
 			return err
 		}
 		panes, caps = panes[:0], caps[:0]
+		history := 0
 		for _, ln := range lines {
 			p := strings.Split(ln, sep)
-			if len(p) != 6 {
+			if len(p) != 7 {
 				continue
+			}
+			if h, _ := strconv.Atoi(p[6]); h > 0 {
+				history += h
 			}
 			if p[0] == d.br.pane || (skipPane != "" && p[0] == skipPane) {
 				continue
@@ -477,7 +495,8 @@ func (d *daemon) preview(ctl *control, wid string, prefetch bool) error {
 		if len(panes) == 0 {
 			return fmt.Errorf("no panes in %s", wid)
 		}
-		if canCarve && attempt == 0 && d.dock.carved[wid] == nil && !d.otherClientOn(wid) {
+		if canCarve && attempt == 0 && d.dock.carved[wid] == nil &&
+			history <= carveHistoryMax && !d.otherClientOn(wid) {
 			out, err := ctl.runSeq(
 				"display-message -p -t "+q(wid)+" -F "+f("#{window_layout}", "#{automatic-rename}"),
 				"set-option -w -t "+q(wid)+" automatic-rename off",

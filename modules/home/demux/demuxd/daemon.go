@@ -143,6 +143,22 @@ func consume(d *daemon, ctl *control, w world, sig chan os.Signal) bool {
 			if streaming && len(d.h.cmds) == 0 {
 				_ = d.preview(ctl, d.br.target, false)
 			}
+		case <-d.releaseC:
+			d.releaseC = nil
+			if len(d.pendingRelease) == 0 {
+				continue
+			}
+			if len(d.h.cmds) > 0 {
+				// User input first; the stall can wait another tick.
+				d.armRelease(releaseTick)
+				continue
+			}
+			it := d.pendingRelease[0]
+			d.pendingRelease = d.pendingRelease[1:]
+			d.releaseOne(ctl, it)
+			if len(d.pendingRelease) > 0 {
+				d.armRelease(releaseTick)
+			}
 		case <-ctl.done:
 			if timer != nil {
 				timer.Stop()

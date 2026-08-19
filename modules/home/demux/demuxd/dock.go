@@ -102,6 +102,73 @@ type carveState struct {
 // a startup sweep can identify spacers leaked by a crashed daemon exactly.
 const spacerCmd = "sleep 100000001"
 
+// carveHistoryMax caps how much scrollback a window may carry and still get
+// pre-carved during scrubbing. tmux reflows a pane's entire history
+// synchronously on width change — ~250ms at 660k lines (live-measured) —
+// and a carve + its later release would pay that stall TWICE per dock
+// session just for billboarding past the window. Above the cap the
+// billboard is a scaled approximation and the carve happens only on entry.
+const carveHistoryMax = 100_000
+
+// Releases (kill spacer + replay layout) stall the tmux server for the same
+// history-reflow reason, so they never run inline with an undock: the
+// transition paints first (releaseSettle), then pending windows drain one
+// per tick, yielding to any queued user input.
+const (
+	releaseSettle = 120 * time.Millisecond
+	releaseTick   = 50 * time.Millisecond
+)
+
+// releaseItem is one spacer-held window awaiting restore after undock.
+type releaseItem struct {
+	wid string
+	t   *carveState
+}
+
+// deferReleases queues every spacer-held window for restore and arms the
+// drain timer. Re-docking before the drain finishes ADOPTS the queue back
+// instead (dockOpen) — the carves are still valid, so a quick M-s round
+// trip costs nothing.
+func (d *daemon) deferReleases(p *dockState) {
+	for wid, t := range p.carved {
+		delete(p.carved, wid)
+		if t.spacer == "" {
+			continue
+		}
+		d.pendingRelease = append(d.pendingRelease, releaseItem{wid: wid, t: t})
+	}
+	if len(d.pendingRelease) > 0 {
+		d.armRelease(releaseSettle)
+	}
+}
+
+func (d *daemon) armRelease(after time.Duration) {
+	if d.releaseT != nil {
+		d.releaseT.Stop()
+	}
+	d.releaseT = time.NewTimer(after)
+	d.releaseC = d.releaseT.C
+}
+
+// releaseOne puts one spacer-held window back exactly as it was: kill the
+// spacer and replay the original layout in one batch (the two reflows
+// coalesce; letting tmux expand into the hole would drift borders ±1).
+func (d *daemon) releaseOne(ctl *control, it releaseItem) {
+	lay, dirty := d.leaveInfo(ctl, it.wid)
+	seq := []string{"kill-pane -t " + q(it.t.spacer)}
+	if rl := d.leaveLayout(it.wid, it.t.orig, lay, dirty, it.t.spacer); rl != "" {
+		seq = append(seq, "select-layout -t "+q(it.wid)+" "+q(rl))
+	}
+	seq = append(seq,
+		"set-option -w -t "+q(it.wid)+" automatic-rename "+it.t.autoRename,
+		"set-option -w -uq -t "+q(it.wid)+" @demux_layout_dirty")
+	if _, err := ctl.runSeq(seq...); err != nil {
+		log.Printf("release %s: %v", it.wid, err)
+	} else if bench {
+		log.Printf("bench release win=%s", it.wid)
+	}
+}
+
 // sweepSpacers kills spacer panes a previous daemon left behind (it died or
 // was killed while docked) — matched by their distinctive start command.
 func (d *daemon) sweepSpacers(ctl *control) {
@@ -210,12 +277,27 @@ func (d *daemon) dockOpen(ctl *control, client string) error {
 	if err := d.ensureSurface(ctl, cw, ch); err != nil {
 		return err
 	}
+	// Adopt releases still pending from the previous dock session: their
+	// carves are valid, so a quick M-s round trip re-uses them for free.
+	// The window being docked INTO can't keep a spacer (the sidebar joins
+	// beside it) — that one is released inline, before its snapshot.
+	adopted := map[string]*carveState{}
+	if len(d.pendingRelease) > 0 {
+		for _, it := range d.pendingRelease {
+			if it.wid == wid {
+				d.releaseOne(ctl, it)
+				continue
+			}
+			adopted[it.wid] = it.t
+		}
+		d.pendingRelease = nil
+	}
 	snap, err := d.winSnapshot(ctl, wid)
 	if err != nil {
 		return err
 	}
 	p := &dockState{client: client, win: wid, sess: sid, originSess: sid, originWin: wid, snap: snap,
-		carved: map[string]*carveState{}}
+		carved: adopted}
 	p.status = d.savedStatus(ctl, sid)
 	// Freeze rename BEFORE the join: the sidebar takes focus on join, and an
 	// automatic-rename window would flip its name to "demuxd" (the sh-era bug).
@@ -546,33 +628,8 @@ func (d *daemon) dockClose(ctl *control, toOrigin bool) error {
 			_, _ = ctl.run("set-option -wq -t " + q(d.br.win) + " automatic-rename off")
 		}
 	}
-	d.releaseCarved(ctl, p)
+	d.deferReleases(p)
 	return nil
-}
-
-// releaseCarved puts every spacer-held window back exactly as it was: kill
-// the spacer and replay the original layout in one batch (the two reflows
-// coalesce; letting tmux expand into the hole would drift borders ±1). One
-// sequence per window — a dead window must not abort the others. The window
-// hosting the sidebar itself (spacer empty) is dockClose's to restore.
-func (d *daemon) releaseCarved(ctl *control, p *dockState) {
-	for wid, t := range p.carved {
-		delete(p.carved, wid)
-		if t.spacer == "" {
-			continue
-		}
-		lay, dirty := d.leaveInfo(ctl, wid)
-		seq := []string{"kill-pane -t " + q(t.spacer)}
-		if rl := d.leaveLayout(wid, t.orig, lay, dirty, t.spacer); rl != "" {
-			seq = append(seq, "select-layout -t "+q(wid)+" "+q(rl))
-		}
-		seq = append(seq,
-			"set-option -w -t "+q(wid)+" automatic-rename "+t.autoRename,
-			"set-option -w -uq -t "+q(wid)+" @demux_layout_dirty")
-		if _, err := ctl.runSeq(seq...); err != nil {
-			log.Printf("release %s: %v", wid, err)
-		}
-	}
 }
 
 // leaveLayout picks what a window being released should get back: its exact
@@ -661,7 +718,7 @@ func (d *daemon) checkDock(ctl *control, w world) {
 		d.br = nil
 		_, _ = ctl.run("set-option -u -t " + q(p.sess) + " @demux_docked")
 		d.restoreStatus(ctl, p.status)
-		d.releaseCarved(ctl, p)
+		d.deferReleases(p)
 		return
 	}
 	var cl *tclient

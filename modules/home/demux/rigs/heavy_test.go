@@ -8,10 +8,10 @@ import (
 
 // TestHeavyHistory is the live-@4 scenario: a window whose pane carries
 // hundreds of thousands of scrollback lines. tmux reflows that history
-// synchronously on ANY width change (~200ms observed live), which is why
-// enters are swaps, not resizes. First billboard pays the one-time carve;
-// every enter/leave/re-enter must stay under the daemon's 25ms slow-log
-// threshold.
+// synchronously on ANY width change (~250ms observed live), so such windows
+// are never pre-carved during scrubbing (billboard = scaled approximation)
+// — only an actual Enter pays the carve, once, and the release drains
+// deferred after undock.
 func TestHeavyHistory(t *testing.T) {
 	if testing.Short() {
 		t.Skip("slow: fills 700k lines of scrollback")
@@ -19,6 +19,7 @@ func TestHeavyHistory(t *testing.T) {
 	r := New(t)
 	r.T("set-option", "-g", "history-limit", "100000000")
 	r.T("new-window", "-t", "work:", "-n", "heavy")
+	heavy := r.T("display-message", "-p", "-t", "work:heavy", "#{window_id}")
 	r.T("send-keys", "-t", "work:heavy",
 		`seq 700000 | awk '{print $0, $0*3, "pad pad pad pad pad"}'; clear`, "Enter")
 	r.T("split-window", "-h", "-t", "work:heavy")
@@ -29,7 +30,8 @@ func TestHeavyHistory(t *testing.T) {
 	r.D("toggle", r.CL)
 	sleep(1000)
 	sp := r.Side().Pane
-	// scrub onto heavy (carve happens here), enter, leave, re-enter, undock
+	// scrub onto heavy (no carve — over the history cap), enter (pays the
+	// carve, once), leave, re-enter (pure swaps), undock (deferred release)
 	r.SendKeys(sp, "j")
 	sleep(800)
 	r.SendKeys(sp, "Enter")
@@ -42,16 +44,25 @@ func TestHeavyHistory(t *testing.T) {
 	sleep(500)
 	r.SendKeys(sp, "Enter")
 	sleep(1000)
-	r.D("toggle", r.CL) // undock: release may be slow but is invisible
+	r.D("toggle", r.CL)
 	sleep(2500)
 
 	b, err := os.ReadFile(r.Sock + ".log")
 	if err != nil {
 		t.Fatalf("daemon log: %v", err)
 	}
-	// commits/toggles crossing 25ms log as "<cmd> took" — none allowed
-	for _, m := range regexp.MustCompile(`(?m)^.*(commit|toggle|nav) took.*$`).FindAllString(string(b), -1) {
-		t.Errorf("slow interaction: %s", m)
+	log := string(b)
+	// billboarding must never carve a heavy window
+	if regexp.MustCompile(`bench carve win=` + regexp.QuoteMeta(heavy)).MatchString(log) {
+		t.Errorf("scrub pre-carved the heavy window")
 	}
-	r.Chk("no spacers remain", r.Spacers() == 0)
+	// only the FIRST enter may cross the slow threshold (its one-time carve);
+	// re-enters are swaps and undock must not stall on the release
+	slow := regexp.MustCompile(`(?m)^.*(commit|toggle|nav) took.*$`).FindAllString(log, -1)
+	if len(slow) > 1 {
+		for _, m := range slow[1:] {
+			t.Errorf("slow interaction beyond the entry carve: %s", m)
+		}
+	}
+	r.Chk("deferred release drained", r.Spacers() == 0)
 }
