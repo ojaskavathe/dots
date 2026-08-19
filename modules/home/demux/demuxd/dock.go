@@ -675,7 +675,10 @@ func (d *daemon) leaveLayout(wid string, exact string, dockedLayout string, dirt
 // dockSessionCmds marks a session as docked: the bind-routing flag M-h/M-l
 // check, plus the status pad that shifts the status line past the sidebar.
 func dockSessionCmds(sid string) []string {
-	pad := strings.Repeat(" ", statusPad)
+	// bg=default makes the pad transparent (terminal background — what the
+	// sidebar paints on) instead of the status bar's themed background,
+	// so the strip above the sidebar reads as sidebar, not statusline.
+	pad := "#[bg=default,fg=default]" + strings.Repeat(" ", statusPad) + "#[default]"
 	return []string{
 		"set-option -t " + q(sid) + " @demux_docked 1",
 		"set-option -t " + q(sid) + " status-left " + q(pad),
