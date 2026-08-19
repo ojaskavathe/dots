@@ -235,12 +235,16 @@ func (d *daemon) toggle(ctl *control, client string) error {
 	if d.pin != nil {
 		if d.pin.scrubbing {
 			// M-s mid-scrub commits AND dismisses — browse-era muscle
-			// memory: one press lands you in the selection at full width.
+			// memory: one press lands you in the selection. Land the swap
+			// first (geometry-free, content in front of the user instantly),
+			// THEN undock in place — the expand-to-full-width reflow happens
+			// behind content the user is already reading, never before it.
 			// (Enter is the commit that keeps the sidebar docked.)
 			target := d.br.target
-			if sid := d.sessionOf(target); sid != "" && target != d.pin.win {
-				d.pin.originSess, d.pin.originWin = sid, target
-				return d.pinClose(ctl, true)
+			if d.sessionOf(target) != "" && target != d.pin.win {
+				if err := d.pinScrub(ctl, target, true); err != nil {
+					return err
+				}
 			}
 			return d.pinClose(ctl, false)
 		}
@@ -432,14 +436,20 @@ func (d *daemon) preview(ctl *control, wid string, prefetch bool) error {
 	if d.br == nil || (!d.br.open && d.pin == nil) {
 		return nil
 	}
-	// Pinned scrub targets get pre-rendered at the docked main-area size
-	// (window-size manual, hidden — the window's apps re-wrap for real):
-	// the billboard then IS the docked reality. A full-width capture scaled
-	// down only approximates it — different wraps, ±1 borders — which reads
-	// as content/split shifts on entry. Once per window while pinned;
-	// skipped when another client is attached to that window's session.
-	canReflow := d.pin != nil && (d.br == nil || !d.br.open) &&
-		wid != d.pin.win && d.pin.mainW > 0
+	// Pinned scrub targets get their spacer carved on first billboard: a
+	// hidden 40-col pane occupies the sidebar's slot (the dock's own split,
+	// so the carve arithmetic is identical), and the billboard then IS the
+	// docked reality — same wraps, same borders. Entering later is a
+	// geometry-free swap into that slot. Once per window while pinned;
+	// skipped when another client is attached to that window's session
+	// (carving would visibly resize it under them).
+	canCarve := d.pin != nil && (d.br == nil || !d.br.open) && wid != d.pin.win
+	skipPane := ""
+	if canCarve {
+		if t := d.pin.touched[wid]; t != nil {
+			skipPane = t.spacer
+		}
+	}
 	var panes []framePane
 	var caps []string
 	for attempt := 0; ; attempt++ {
@@ -449,20 +459,16 @@ func (d *daemon) preview(ctl *control, wid string, prefetch bool) error {
 			return err
 		}
 		panes, caps = panes[:0], caps[:0]
-		fw := 0
 		for _, ln := range lines {
 			p := strings.Split(ln, sep)
 			if len(p) != 6 {
 				continue
 			}
-			left, _ := strconv.Atoi(p[1])
-			width, _ := strconv.Atoi(p[3])
-			if left+width > fw {
-				fw = left + width
-			}
-			if p[0] == d.br.pane {
+			if p[0] == d.br.pane || (skipPane != "" && p[0] == skipPane) {
 				continue
 			}
+			left, _ := strconv.Atoi(p[1])
+			width, _ := strconv.Atoi(p[3])
 			top, _ := strconv.Atoi(p[2])
 			height, _ := strconv.Atoi(p[4])
 			panes = append(panes, framePane{Left: left, Top: top, Width: width, Height: height, Active: p[5] == "1"})
@@ -471,21 +477,24 @@ func (d *daemon) preview(ctl *control, wid string, prefetch bool) error {
 		if len(panes) == 0 {
 			return fmt.Errorf("no panes in %s", wid)
 		}
-		if canReflow && attempt == 0 && fw != d.pin.mainW && !d.otherClientOn(wid) {
+		if canCarve && attempt == 0 && d.pin.touched[wid] == nil && !d.otherClientOn(wid) {
 			out, err := ctl.runSeq(
-				"display-message -p -t "+q(wid)+" -F "+f("#{window_layout}"),
-				"set-option -wq -t "+q(wid)+" window-size manual",
-				fmt.Sprintf("resize-window -t %s -x %d -y %d", q(wid), d.pin.mainW, d.pin.mainH))
-			if err == nil {
-				if len(out) > 0 && d.pin.orig[wid] == "" {
-					d.pin.orig[wid] = out[0] // for byte-exact restores later
+				"display-message -p -t "+q(wid)+" -F "+f("#{window_layout}", "#{automatic-rename}"),
+				"set-option -w -t "+q(wid)+" automatic-rename off",
+				fmt.Sprintf("split-window -d -hb -f -l %d -P -F '#{pane_id}' -t %s %s",
+					listWidth, q(wid), q(spacerCmd)))
+			if err == nil && len(out) >= 2 {
+				t := &touchState{spacer: out[1]}
+				if parts := strings.Split(out[0], sep); len(parts) == 2 {
+					t.orig, t.autoRename = parts[0], parts[1]
 				}
-				d.pin.touched[wid] = true
+				d.pin.touched[wid] = t
+				skipPane = t.spacer
 				d.lastScrub = time.Now()
 				if bench {
-					log.Printf("bench prereflow win=%s %d -> %d", wid, fw, d.pin.mainW)
+					log.Printf("bench carve win=%s spacer=%s", wid, t.spacer)
 				}
-				continue // recapture at the docked size
+				continue // recapture at the docked geometry
 			}
 		}
 		break

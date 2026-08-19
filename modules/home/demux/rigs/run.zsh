@@ -8,7 +8,9 @@ set -eu
 cd ${0:a:h}
 BIN=${TMPDIR:-/tmp}/demuxd-rig
 (cd ../demuxd && go build -o $BIN .)
-echo "built $BIN"
+export EQUALIZE=${TMPDIR:-/tmp}/equalize-rig
+(cd ../../tmux-equalize-nvim && go build -o $EQUALIZE .)
+echo "built $BIN + $EQUALIZE"
 if (( $# )); then
   zsh ./$1.zsh $BIN
 else

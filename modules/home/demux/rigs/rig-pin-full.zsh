@@ -106,7 +106,9 @@ S=$(side)
 chk "client now on w1"           '[[ $(clientwin) == $W1 ]]'
 chk "sidebar docked in w1"       '[[ $(echo $S | awk "{print \$3}") == $W1 && $(echo $S | awk "{print \$5}") == 40 ]]'
 chk "zoom cleared"               '[[ $(zoomflag $W1) == 0 && $(zoomflag $W2) == 0 ]]'
-chk "beta layout exact"          '[[ $(T display-message -p -t $W2 "#{window_layout}" | cut -d, -f2-) == ${L_W2#*,} ]]'
+# leaving is geometry-free: beta keeps its docked shape, a spacer holding
+# the sidebar's slot (byte-exact restore happens at release, checked in C)
+chk "beta holds spacer at left"  '[[ $(T list-panes -t $W2 -F "#{pane_left} #{pane_width}" | awk "\$1==0&&\$2==40" | wc -l | tr -d " ") == 1 ]]'
 chk "commit focuses main"        '[[ $(echo $S | awk "{print \$6}") == 0 ]]'
 # billboard EXACTNESS: the marker column on the billboard must equal the
 # marker pane's real on-screen column after entering (pane_left is 0-based)
@@ -141,7 +143,9 @@ env -u TMUX -u TMUX_PANE $BIN -L $L toggle $CL || bad "toggle exit"
 sleep 0.8
 chk "M-s landed on play"          '[[ $(clientsess) == play ]]'
 chk "sidebar dismissed"           '[[ $(T list-panes -s -t work -F "#{pane_current_command}" | grep -c demux) == 0 && $(T list-panes -s -t play -F "#{pane_current_command}" | grep -c demux) == 0 ]]'
-chk "w1 layout exact after leave" '[[ $(T display-message -p -t $W1 "#{window_layout}" | cut -d, -f2-) == ${L_W1#*,} ]]'
+chk "w1 layout exact after unpin" '[[ $(T display-message -p -t $W1 "#{window_layout}" | cut -d, -f2-) == ${L_W1#*,} ]]'
+chk "beta layout exact after unpin" '[[ $(T display-message -p -t $W2 "#{window_layout}" | cut -d, -f2-) == ${L_W2#*,} ]]'
+chk "no spacers remain"           '[[ $(T list-panes -a -F "#{pane_start_command}" | grep -c "sleep 100000001") == 0 ]]'
 chk "@demux_pinned cleared"       '[[ -z $(T show-options -t play -v @demux_pinned 2>/dev/null) && -z $(T show-options -t work -v @demux_pinned 2>/dev/null) ]]'
 chk "status unpadded everywhere"  '[[ -z $(T show-options -t work status-left) && -z $(T show-options -t play status-left) ]]'
 env -u TMUX -u TMUX_PANE $BIN -L $L toggle $CL; sleep 0.8   # re-pin for D
@@ -212,7 +216,7 @@ S=$(side)
 chk "sidebar re-docked"           '[[ $(echo $S | awk "{print \$4}") == 0 && $(echo $S | awk "{print \$5}") == 40 ]]'
 env -u TMUX -u TMUX_PANE $BIN -L $L toggle $CL; sleep 0.4
 
-EQ=${0:A:h}/equalize-pin
+EQ=${EQUALIZE:-${0:A:h}/equalize-pin}
 RIGTMUX="/private/tmp/tmux-501/$L,1,0"
 mains() { T list-panes -t $W1 -F '#{pane_id} #{pane_left} #{pane_width} #{pane_current_command}' | grep -v demux }
 M0=$(mains | awk 'NR==1{print $1}')
@@ -234,7 +238,8 @@ chk "mains equalized"             '[[ $(( w0 > w1 ? w0-w1 : w1-w0 )) -le 1 ]]'
 chk "pane order preserved"        '[[ $(mains | awk -v m=$M0 "\$1==m{print \$2}") -lt $(mains | awk -v m=$M1 "\$1==m{print \$2}") ]]'
 chk "dirty marker set"            '[[ $(T show-options -wv -t $W1 @demux_layout_dirty 2>/dev/null) == 1 ]]'
 
-echo "== N: commit elsewhere -> proportional give-back =="
+echo "== N: commit elsewhere keeps geometry; unpin gives back =="
+we0=$(mains | awk -v m=$M0 '$1==m{print $3}'); we1=$(mains | awk -v m=$M1 '$1==m{print $3}')
 SP=$(side | awk '{print $1}')
 T select-pane -t $SP
 T send-keys -t $SP j
@@ -242,10 +247,19 @@ sleep 0.4
 T send-keys -t $SP Enter
 for i in {1..100}; do [[ $(clientwin) != $W1 ]] && break; sleep 0.01; done
 sleep 0.4
+# leaving is geometry-free: the equalized mains DON'T move, the spacer holds
+# the slot, dirty survives until release
+w0=$(mains | awk -v m=$M0 '$1==m{print $3}'); w1=$(mains | awk -v m=$M1 '$1==m{print $3}')
+chk "leave keeps equalized mains" '[[ $w0 == $we0 && $w1 == $we1 ]]'
+chk "spacer holds w1 slot"        '[[ $(T list-panes -t $W1 -F "#{pane_left} #{pane_width}" | awk "\$1==0&&\$2==40" | wc -l | tr -d " ") == 1 ]]'
+chk "dirty survives leave"        '[[ $(T show-options -wv -t $W1 @demux_layout_dirty 2>/dev/null) == 1 ]]'
+env -u TMUX -u TMUX_PANE $BIN -L $L toggle $CL; sleep 0.6   # unpin: release w1
 w0=$(mains | awk -v m=$M0 '$1==m{print $3}'); w1=$(mains | awk -v m=$M1 '$1==m{print $3}')
 chk "give-back full width"        '[[ $(( w0 + w1 )) == 199 ]]'
 chk "give-back proportional"      '[[ $(( w0 > w1 ? w0-w1 : w1-w0 )) -le 1 ]]'
 chk "dirty marker cleared"        '[[ -z $(T show-options -wv -t $W1 @demux_layout_dirty 2>/dev/null) ]]'
+chk "release swept w1 spacer"     '[[ $(T list-panes -t $W1 -F "#{pane_start_command}" | grep -c "sleep 100000001") == 0 ]]'
+env -u TMUX -u TMUX_PANE $BIN -L $L toggle $CL; sleep 0.6   # re-pin for O
 
 echo "== O: equalize then toggle-off give-back =="
 T select-window -t $W1
@@ -290,6 +304,15 @@ chk "pin auto-undocked"           '[[ $(T list-panes -t $PINWIN -F "#{pane_curre
 TP2=$(T list-panes -t _demux -s -F '#{pane_id} #{pane_current_command}' | awk '/demux/{print $1}')
 T send-keys -t $TP2 q; sleep 0.6
 chk "q from browse returns"       '[[ $(clientsess) != _demux ]]'
+
+# LAST behavioral section: the daemon restart leaves a reattach gap that
+# would flake any section racing it.
+echo "== S: daemon restart sweeps leaked spacers =="
+T split-window -d -hb -f -l 40 -t $W2 'sleep 100000001'   # fake a leak
+pkill -f "${BIN:t} -S /private/tmp/tmux-501/$L run"; sleep 0.5
+env -u TMUX -u TMUX_PANE $BIN -L $L ls >/dev/null; sleep 2
+chk "leaked spacer swept"         '[[ $(T list-panes -a -F "#{pane_start_command}" | grep -c "sleep 100000001") == 0 ]]'
+chk "beta layout intact"          '[[ $(T display-message -p -t $W2 "#{window_layout}" | cut -d, -f2-) == ${L_W2#*,} ]]'
 
 echo "== daemon health =="
 chk "daemon alive"                'pgrep -f "${BIN:t} -S /private/tmp/tmux-501/$L run" >/dev/null'
