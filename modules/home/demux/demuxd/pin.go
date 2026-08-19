@@ -525,6 +525,21 @@ func (d *daemon) checkPin(ctl *control, w world) {
 			return // client is on the browse surface itself; not ours to follow
 		}
 	}
+	if p.scrubbing {
+		for _, pn := range w.Panes {
+			if pn.ID == d.br.pane && pn.WindowID == p.win && pn.Width == listWidth {
+				// The zoom broke externally: selecting any other pane
+				// (vim-navigator C-h/C-l out of the billboard) auto-unzooms.
+				// Reality is the pinned window again — end the scrub state
+				// and snap the list highlight back, or the next j/k would
+				// stream billboards at a 40-col TUI that can't paint them.
+				log.Printf("pin: scrub unzoomed externally, ending")
+				d.scrubEnd(ctl, false)
+				d.h.sendRole("list", marshalLine(selectMsg{Type: "select", Window: p.win}))
+				break
+			}
+		}
+	}
 	cur := ""
 	for _, win := range w.Windows {
 		if win.SessionID == cl.SessionID && win.Active {

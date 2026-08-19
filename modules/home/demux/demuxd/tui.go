@@ -264,12 +264,20 @@ func cmdTui(tmuxSock, demuxSock string) {
 		if !ok || (win == paintedWin && c.gen == paintedGen) {
 			return
 		}
+		cols, _ := surfaceSize()
+		avail := cols - (listWidth + 1)
+		if avail <= 0 {
+			return // narrow (docked): no canvas; keep the cache unmarked
+		}
+		// Frames are cached RAW and scaled at paint time, so a resize (zoom
+		// in/out) just re-scales on the next paint — no cache invalidation.
+		scaled := scaleFrame(c.panes, avail)
 		var prev []framePane
-		if win == paintedWin && sameGeometry(paintedPanes, c.panes) {
+		if win == paintedWin && sameGeometry(paintedPanes, scaled) {
 			prev = paintedPanes
 		}
-		paintFrame(c.panes, prev)
-		paintedWin, paintedGen, paintedPanes = win, c.gen, c.panes
+		paintFrame(scaled, prev)
+		paintedWin, paintedGen, paintedPanes = win, c.gen, scaled
 	}
 	paintAll := func() {
 		rows = st.rows()
@@ -396,6 +404,99 @@ func cmdTui(tmuxSock, demuxSock string) {
 			paintAll()
 		}
 	}
+}
+
+// scaleFrame maps a frame captured at its window's real width onto the
+// canvas: pane rects scale proportionally — splits land where they will
+// actually be once the window is entered and docked — and every line is
+// truncated to its scaled cell so panes never bleed into a neighbor. A
+// plain crop (the old behavior) put a 100/99 split's border at col 100 of
+// a 159-col canvas and clipped the right pane to a sliver. Identity when
+// the frame already fits (the pinned window's own billboard).
+func scaleFrame(frame []framePane, avail int) []framePane {
+	fw := 0
+	for _, p := range frame {
+		if p.Left+p.Width > fw {
+			fw = p.Left + p.Width
+		}
+	}
+	if fw <= avail || fw <= 0 {
+		return frame
+	}
+	s := float64(avail) / float64(fw)
+	out := make([]framePane, len(frame))
+	for i, p := range frame {
+		// A pane with a left neighbor owns the column AFTER its scaled
+		// border; its neighbor ends AT the border. Scaling the border
+		// position (Left-1) keeps content and border from ever sharing a
+		// column — plain edge rounding collapses the gap and the border
+		// glyph eats the pane's first character.
+		x0 := 0
+		if p.Left > 0 {
+			x0 = int(float64(p.Left-1)*s+0.5) + 1
+		}
+		x1 := int(float64(p.Left+p.Width)*s + 0.5)
+		w := x1 - x0
+		if w < 1 {
+			w = 1
+		}
+		lines := make([]string, len(p.Lines))
+		for j, ln := range p.Lines {
+			lines[j] = truncANSI(ln, w)
+		}
+		out[i] = framePane{Left: x0, Top: p.Top, Width: w, Height: p.Height, Active: p.Active, Lines: lines}
+	}
+	return out
+}
+
+// truncANSI cuts a line at n display columns. Escape sequences pass through
+// unconsumed (they take no columns); east-asian wide runes count 2 — close
+// enough for previews without pulling in a width library. Trailing SGR state
+// is fine: paintFrame resets attributes after every line.
+func truncANSI(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	w := 0
+	esc := 0 // 0 plain, 1 saw ESC, 2 inside CSI
+	var b strings.Builder
+	for _, r := range s {
+		switch esc {
+		case 1:
+			b.WriteRune(r)
+			if r == '[' {
+				esc = 2
+			} else {
+				esc = 0 // two-byte ESC sequence
+			}
+			continue
+		case 2:
+			b.WriteRune(r)
+			if r >= 0x40 && r <= 0x7e {
+				esc = 0
+			}
+			continue
+		}
+		if r == 0x1b {
+			esc = 1
+			b.WriteRune(r)
+			continue
+		}
+		rw := 1
+		if r >= 0x1100 && (r <= 0x115f ||
+			(r >= 0x2e80 && r <= 0xa4cf) || (r >= 0xac00 && r <= 0xd7a3) ||
+			(r >= 0xf900 && r <= 0xfaff) || (r >= 0xfe30 && r <= 0xfe4f) ||
+			(r >= 0xff00 && r <= 0xff60) || (r >= 0xffe0 && r <= 0xffe6) ||
+			(r >= 0x1f300 && r <= 0x1faff) || (r >= 0x20000 && r <= 0x3fffd)) {
+			rw = 2
+		}
+		if w+rw > n {
+			break
+		}
+		w += rw
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 func framesEqual(a, b []framePane) bool {
@@ -601,7 +702,6 @@ func paintFrame(frame, prev []framePane) {
 		for y := 1; y <= height; y++ {
 			fmt.Fprintf(&b, "\033[%d;%dH%s", y, offX+1, blank)
 		}
-		paintBorders(&b, frame, cols, height, offX)
 	}
 	for pi, p := range frame {
 		if offX+p.Left >= cols || p.Top >= height {
@@ -635,6 +735,11 @@ func paintFrame(frame, prev []framePane) {
 				p.Top+1+i, offX+p.Left+1, blank,
 				p.Top+1+i, offX+p.Left+1, ln)
 		}
+	}
+	if prev == nil {
+		// Borders last: scaled-frame rounding can collapse a gap onto a
+		// pane's first column, and the border should win that cell.
+		paintBorders(&b, frame, cols, height, offX)
 	}
 	b.WriteString("\033[?2026l")
 	os.Stdout.WriteString(b.String())
