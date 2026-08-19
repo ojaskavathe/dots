@@ -74,7 +74,15 @@
           historyLimit = 100000000;
 
           plugins = with pkgs; [
-            tmuxPlugins.vim-tmux-navigator
+            {
+              plugin = tmuxPlugins.vim-tmux-navigator;
+              extraConfig = ''
+                # treat the demux sidebar like a vim split: navigator keys are
+                # sent INTO it (the TUI maps C-l to enter, C-j/C-k to j/k)
+                # instead of select-pane escaping out of a zoomed billboard
+                set -g @vim_navigator_pattern '(\S+/)?g?\.?(view|l?n?vim?x?|fzf|demuxd)(diff)?(-wrapped)?'
+              '';
+            }
             {
               plugin = tmuxPlugins.catppuccin;
               extraConfig = ''

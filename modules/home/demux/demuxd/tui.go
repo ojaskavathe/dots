@@ -389,11 +389,18 @@ func cmdTui(tmuxSock, demuxSock string) {
 				}
 			case b == 0x1b:
 				esc = 1
-			case b == 'j':
+			// vim-tmux-navigator hands its keys to this pane (the
+			// @vim_navigator_pattern includes demuxd), so the sidebar
+			// behaves like a vim split: C-l goes INTO what you're looking
+			// at — the billboarded window mid-scrub, the main pane when
+			// docked idle — never "escapes" back to the docked window's
+			// hidden panes via a raw unzoom. C-j/C-k mirror j/k. C-h has
+			// nowhere left to go and is ignored.
+			case b == 'j', b == 0x0a: // j, ctrl-j
 				move(1)
-			case b == 'k':
+			case b == 'k', b == 0x0b: // k, ctrl-k
 				move(-1)
-			case b == '\r':
+			case b == '\r', b == 0x0c: // enter, ctrl-l
 				send(cmdMsg{Cmd: "commit", Window: target()})
 			case b == 'q', b == 0x03: // q, ctrl-c
 				send(cmdMsg{Cmd: "close"})

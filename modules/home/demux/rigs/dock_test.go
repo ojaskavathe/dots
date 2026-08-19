@@ -116,6 +116,24 @@ func TestDockScrub(t *testing.T) {
 	sleep(500)
 	r.Chk("q settles back", !r.Zoomed(r.W1) && r.ClientWin() == r.W1)
 
+	// C-l mid-scrub is Enter, not escape: the navigator pattern includes
+	// demuxd, so tmux hands C-l to the TUI, which commits to the billboard
+	// you're looking at instead of unzooming back to the docked window.
+	r.T("select-pane", "-t", sp)
+	r.SendKeys(sp, "j") // billboard beta
+	sleep(500)
+	r.SendKeys(sp, "C-l")
+	r.WaitUntil(100, func() bool { return r.ClientWin() == r.W2 })
+	sleep(300)
+	r.Chk("C-l commits to billboard", r.ClientWin() == r.W2)
+	r.Chk("C-l keeps sidebar docked", r.Side().Win == r.W2 && r.Side().Width == 40)
+	r.T("select-pane", "-t", sp)
+	r.SendKeys(sp, "k") // back to w1 for the storm section
+	sleep(500)
+	r.SendKeys(sp, "Enter")
+	r.WaitUntil(100, func() bool { return r.ClientWin() == r.W1 })
+	sleep(300)
+
 	// C: storm kkkk + M-s commits AND dismisses
 	r.T("select-pane", "-t", sp)
 	r.SendKeys(sp, "k", "k", "k", "k")
