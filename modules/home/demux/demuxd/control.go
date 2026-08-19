@@ -5,11 +5,25 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 )
+
+// slowRT logs any control round trip the tmux server took long to answer —
+// the per-phase attribution for slow commands (which RT inside a handler ate
+// the time, and what the server was chewing on when it did).
+func slowRT(start time.Time, line string) {
+	if dur := time.Since(start); dur > 20*time.Millisecond {
+		if len(line) > 80 {
+			line = line[:80]
+		}
+		log.Printf("slow rt %s: %s", dur, line)
+	}
+}
 
 // control is one persistent `tmux -C attach` connection. Notifications become
 // dirty-kicks (never queued per-event: milestone 1 only needs "something
@@ -179,15 +193,18 @@ func (c *control) run(command string) ([]string, error) {
 // between them, and an error in one aborts the rest (order critical-first).
 func (c *control) runSeq(commands ...string) ([]string, error) {
 	p := &pendingCmd{n: len(commands), ch: make(chan cmdReply, 1)}
+	line := strings.Join(commands, " ; ")
 	c.mu.Lock()
 	c.pending = append(c.pending, p)
-	_, err := io.WriteString(c.stdin, strings.Join(commands, " ; ")+"\n")
+	start := time.Now()
+	_, err := io.WriteString(c.stdin, line+"\n")
 	c.mu.Unlock()
 	if err != nil {
 		return nil, err
 	}
 	select {
 	case r := <-p.ch:
+		slowRT(start, line)
 		return r.lines, r.err
 	case <-c.done:
 		return nil, errors.New("control connection closed")
@@ -209,6 +226,7 @@ func (c *control) runPipelined(lines ...[]string) ([][]string, []error) {
 	}
 	c.mu.Lock()
 	c.pending = append(c.pending, ps...)
+	start := time.Now()
 	_, werr := io.WriteString(c.stdin, buf.String())
 	c.mu.Unlock()
 	outs := make([][]string, len(lines))
@@ -223,6 +241,7 @@ func (c *control) runPipelined(lines ...[]string) ([][]string, []error) {
 		select {
 		case r := <-p.ch:
 			outs[i], errs[i] = r.lines, r.err
+			slowRT(start, strings.Join(lines[i], " ; "))
 		case <-c.done:
 			errs[i] = errors.New("control connection closed")
 		}

@@ -125,8 +125,10 @@ func consume(d *daemon, ctl *control, w world, sig chan os.Signal) bool {
 			d.h.setWorld(w, ops, false, d.tmuxSock)
 			d.checkBrowse(ctl, w)
 			d.checkPin(ctl, w)
-			if bench {
-				log.Printf("bench relist ops=%d dur_us=%d", len(ops), time.Since(start).Microseconds())
+			if dur := time.Since(start); dur > 25*time.Millisecond {
+				log.Printf("relist took %s ops=%d", dur, len(ops))
+			} else if bench {
+				log.Printf("bench relist ops=%d dur_us=%d", len(ops), dur.Microseconds())
 			}
 		case env := <-d.h.cmds:
 			d.handleCmd(ctl, env)

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net"
 	"sync"
+	"time"
 )
 
 // hub owns the published world and fans messages out to subscribers.
@@ -66,8 +67,9 @@ type replyMsg struct {
 }
 
 type cmdEnvelope struct {
-	msg cmdMsg
-	sub *subscriber
+	msg  cmdMsg
+	sub  *subscriber
+	recv time.Time // enqueue time: runCmd logs how long a command sat queued
 }
 
 func newHub() *hub {
@@ -218,9 +220,9 @@ func serve(ln net.Listener, h *hub, tmuxSock string) {
 						h.setRole(s, m.Role)
 						// Let the daemon replay state (frame, selection)
 						// to a client that connected after it was sent.
-						h.cmds <- cmdEnvelope{msg: cmdMsg{Type: "cmd", Cmd: "hello-" + m.Role}, sub: s}
+						h.cmds <- cmdEnvelope{msg: cmdMsg{Type: "cmd", Cmd: "hello-" + m.Role}, sub: s, recv: time.Now()}
 					case "cmd":
-						h.cmds <- cmdEnvelope{msg: m, sub: s}
+						h.cmds <- cmdEnvelope{msg: m, sub: s, recv: time.Now()}
 					}
 				}
 				h.remove(s)

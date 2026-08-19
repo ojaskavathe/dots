@@ -197,8 +197,11 @@ func (d *daemon) runCmd(ctl *control, env cmdEnvelope) {
 	default:
 		err = fmt.Errorf("unknown cmd %q", env.msg.Cmd)
 	}
-	if dur := time.Since(start); dur > 25*time.Millisecond {
-		log.Printf("%s took %s", env.msg.Cmd, dur)
+	wait := start.Sub(env.recv)
+	if dur := time.Since(start); dur > 25*time.Millisecond || wait > 25*time.Millisecond {
+		// wait = time queued behind whatever the event loop was doing
+		// (a re-list, a stream tick, an earlier command) before this ran.
+		log.Printf("%s took %s (queued %s)", env.msg.Cmd, dur, wait)
 	} else if bench {
 		log.Printf("bench cmd=%s prefetch=%v dur_us=%d", env.msg.Cmd, env.msg.Prefetch, dur.Microseconds())
 	}
