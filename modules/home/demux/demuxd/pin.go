@@ -381,25 +381,43 @@ func (d *daemon) pinClose(ctl *control, toOrigin bool) error {
 	if p == nil {
 		return nil
 	}
-	d.scrubEnd(ctl, true) // settle any zoom before undocking
+	// State only: break-pane below yanks the sidebar even zoomed
+	// (rig-verified), and an explicit early unzoom would flash the origin
+	// panes before a toOrigin switch lands.
+	d.scrubEnd(ctl, false)
 	d.pin = nil
 	log.Printf("pin close client=%s win=%s to_origin=%v", p.client, p.win, toOrigin)
-	if toOrigin && p.originWin != p.win {
-		_, err := ctl.runSeq(
-			"select-window -t "+q(p.originWin),
-			"switch-client -c "+q(p.client)+" -t "+q(p.originSess))
-		if err != nil {
-			// Origin may have died; session alone, then stay where we are.
-			_, _ = ctl.run("switch-client -c " + q(p.client) + " -t " + q(p.originSess))
-		}
-	}
 	oldLayout, oldDirty := d.leaveInfo(ctl, p.win)
 	restore := d.leaveLayout(p.win, p.snap, oldLayout, oldDirty)
+
+	moving := toOrigin && p.originWin != p.win
+	unpin := append([]string{"set-option -uq -t " + q(p.sess) + " @demux_pinned"},
+		statusRestoreCmds(p.status)...)
+	if moving {
+		// Land first, with the session bookkeeping in the SAME batch — an
+		// unpad arriving a round trip after the switch flickers the status.
+		seq := append([]string{
+			"select-window -t " + q(p.originWin),
+			"switch-client -c " + q(p.client) + " -t " + q(p.originSess)},
+			unpin...)
+		if _, err := ctl.runSeq(seq...); err != nil {
+			// Origin may have died; session alone, then keep cleaning.
+			_, _ = ctl.run("switch-client -c " + q(p.client) + " -t " + q(p.originSess))
+			for _, c := range unpin {
+				_, _ = ctl.run(c)
+			}
+		}
+	}
 	seq := []string{
 		"break-pane -d -P -F " + f("#{session_id}", "#{window_id}") +
 			" -s " + q(d.br.pane) + " -t " + q(demuxSession+":"),
 		"set-option -w -t " + q(p.win) + " automatic-rename " + p.snap.autoRename,
 		"set-option -w -uq -t " + q(p.win) + " @demux_layout_dirty",
+	}
+	if !moving {
+		// Staying put: everything (undock, unpad, restore) in one batch so
+		// the redraw coalesces.
+		seq = append(seq, unpin...)
 	}
 	if restore != "" {
 		seq = append(seq, "select-layout -t "+q(p.win)+" "+q(restore))
@@ -415,8 +433,6 @@ func (d *daemon) pinClose(ctl *control, toOrigin bool) error {
 			_, _ = ctl.run("set-option -wq -t " + q(d.br.win) + " automatic-rename off")
 		}
 	}
-	_, _ = ctl.run("set-option -u -t " + q(p.sess) + " @demux_pinned")
-	d.restoreStatus(ctl, p.status)
 	return nil
 }
 

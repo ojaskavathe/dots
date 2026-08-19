@@ -231,8 +231,15 @@ func (d *daemon) toggle(ctl *control, client string) error {
 	}
 	if d.pin != nil {
 		if d.pin.scrubbing {
-			// M-s mid-scrub commits to the selection, like Enter.
-			return d.commitScrub(ctl, d.br.target)
+			// M-s mid-scrub commits AND dismisses — browse-era muscle
+			// memory: one press lands you in the selection at full width.
+			// (Enter is the commit that keeps the sidebar docked.)
+			target := d.br.target
+			if sid := d.sessionOf(target); sid != "" && target != d.pin.win {
+				d.pin.originSess, d.pin.originWin = sid, target
+				return d.pinClose(ctl, true)
+			}
+			return d.pinClose(ctl, false)
 		}
 		return d.pinClose(ctl, false)
 	}
