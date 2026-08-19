@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// Pinned mode: the herdr layout on tmux. The TUI pane docks as a real 40-col
+// Docked mode: the herdr layout on tmux. The TUI pane docks as a real 40-col
 // pane at the left edge of the client's current window; the main area is the
 // user's actual panes — live, focusable, typable. Scrubbing the list moves
 // the MAIN AREA for real (join sidebar into the target window + select it in
@@ -16,20 +16,20 @@ import (
 // capture. M-s toggles the dock; Enter drops focus into the main pane; q
 // undocks and returns to the origin window.
 //
-// Rig-verified (tmux 3.7b, scratchpad/rig-pin*.zsh):
+// Rig-verified (tmux 3.7b, rigs/):
 //   - `join-pane -hb -f -l 40` lands at the window's left edge no matter
 //     which pane is targeted, and the joined pane takes focus (no -d)
 //   - undocking hands the sidebar's 40 cols to the ADJACENT pane, not back
 //     proportionally — layout restore from a saved #{window_layout} string is
 //     mandatory, and restores exactly
-//   - select-layout with a stale string (user split while pinned) fails
+//   - select-layout with a stale string (user split while docked) fails
 //     cleanly; restores therefore run after the critical commands
 //   - moving the only pane out of _demux kills the session — a placeholder
 //     window keeps it alive as the undock target
 //
 // Sequencing rules that keep transitions invisible:
 //   - everything the arriving window needs (join, select-window, status pad,
-//     @demux_pinned) rides ONE control sequence BEFORE switch-client — the
+//     @demux_docked) rides ONE control sequence BEFORE switch-client — the
 //     status pad landing after the switch is a visible flicker
 //   - undock + layout restore ride ONE sequence — as separate round trips,
 //     apps in the window (nvim) see two SIGWINCH resizes and jitter
@@ -61,10 +61,10 @@ type statusSave struct {
 	leftLen string
 }
 
-type pinState struct {
+type dockState struct {
 	client     string
 	win        string // window currently hosting the sidebar
-	sess       string // session of win (tracks @demux_pinned + status pad)
+	sess       string // session of win (tracks @demux_docked + status pad)
 	originSess string // where q returns to
 	originWin  string
 	snap       winSnap    // pre-dock snapshot of win
@@ -75,10 +75,10 @@ type pinState struct {
 	// hidden panes untouched (rig-verified: sizes byte-exact, zero app
 	// reflows) — scrubbing costs captures, not window mutations. The real
 	// window materializes on commit (swap-from-zoomed auto-unzooms), and
-	// landing back on the pinned window is a free unzoom.
+	// landing back on the docked window is a free unzoom.
 	scrubbing bool
 
-	// touched: every window that holds the dock geometry while pinned. A
+	// carved: every window that holds the dock geometry while docked. A
 	// 40-col spacer pane occupies the sidebar's slot whenever the sidebar
 	// itself is elsewhere, so a window's mains NEVER resize between visits:
 	// entering is a geometry-free swap-pane (sidebar and spacer trade
@@ -88,11 +88,11 @@ type pinState struct {
 	// to the main-area width and back) reflows every pane's entire
 	// scrollback history in tmux, which stalls the server ~200ms per big
 	// agent pane and flushes intermediate frames (the enter flicker).
-	touched map[string]*touchState
+	carved map[string]*carveState
 }
 
-// touchState is one spacer-held window's restore info.
-type touchState struct {
+// carveState is one spacer-held window's restore info.
+type carveState struct {
 	spacer     string // spacer pane id; empty while the sidebar is in this window
 	orig       string // pre-carve full-width layout, replayed at release
 	autoRename string // effective automatic-rename, frozen at carve, restored at release
@@ -103,7 +103,7 @@ type touchState struct {
 const spacerCmd = "sleep 100000001"
 
 // sweepSpacers kills spacer panes a previous daemon left behind (it died or
-// was killed while pinned) — matched by their distinctive start command.
+// was killed while docked) — matched by their distinctive start command.
 func (d *daemon) sweepSpacers(ctl *control) {
 	lines, err := ctl.run("list-panes -a -F " + f("#{pane_id}", "#{pane_start_command}"))
 	if err != nil {
@@ -165,7 +165,7 @@ func (d *daemon) leaveInfo(ctl *control, wid string) (layout string, dirty bool)
 	return p[0], p[1] == "1"
 }
 
-// otherClientOn reports whether any client besides the pinned one is
+// otherClientOn reports whether any client besides the docked one is
 // attached to the window's session — pre-rendering a window such a client
 // might be viewing would visibly resize it under them.
 func (d *daemon) otherClientOn(wid string) bool {
@@ -181,7 +181,7 @@ func (d *daemon) otherClientOn(wid string) bool {
 		return true // unknown window: don't touch it
 	}
 	for _, c := range w.Clients {
-		if c.SessionID == sid && (d.pin == nil || c.Name != d.pin.client) {
+		if c.SessionID == sid && (d.dock == nil || c.Name != d.dock.client) {
 			return true
 		}
 	}
@@ -198,10 +198,10 @@ func (d *daemon) sessionOf(wid string) string {
 	return ""
 }
 
-// pinOpen docks the sidebar into the client's current window.
-func (d *daemon) pinOpen(ctl *control, client string) error {
+// dockOpen docks the sidebar into the client's current window.
+func (d *daemon) dockOpen(ctl *control, client string) error {
 	if client == "" {
-		return errors.New("pin needs a client name")
+		return errors.New("dock needs a client name")
 	}
 	sid, wid, cw, ch, err := d.clientView(ctl, client)
 	if err != nil {
@@ -214,8 +214,8 @@ func (d *daemon) pinOpen(ctl *control, client string) error {
 	if err != nil {
 		return err
 	}
-	p := &pinState{client: client, win: wid, sess: sid, originSess: sid, originWin: wid, snap: snap,
-		touched: map[string]*touchState{}}
+	p := &dockState{client: client, win: wid, sess: sid, originSess: sid, originWin: wid, snap: snap,
+		carved: map[string]*carveState{}}
 	p.status = d.savedStatus(ctl, sid)
 	// Freeze rename BEFORE the join: the sidebar takes focus on join, and an
 	// automatic-rename window would flip its name to "demuxd" (the sh-era bug).
@@ -224,23 +224,23 @@ func (d *daemon) pinOpen(ctl *control, client string) error {
 		"set-option -p -t " + q(d.br.pane) + " @demux_sidebar 1",
 		fmt.Sprintf("join-pane -hb -f -l %d -s %s -t %s", listWidth, q(d.br.pane), q(wid)),
 	}
-	seq = append(seq, pinSessionCmds(sid)...)
+	seq = append(seq, dockSessionCmds(sid)...)
 	if _, err := ctl.runSeq(seq...); err != nil {
-		d.pin = nil
+		d.dock = nil
 		return err
 	}
-	d.pin = p
+	d.dock = p
 	n := d.h.sendRole("list", marshalLine(selectMsg{Type: "select", Window: wid}))
-	log.Printf("pin open client=%s win=%s/%s size=%dx%d select_receivers=%d", client, sid, wid, cw, ch, n)
+	log.Printf("dock open client=%s win=%s/%s size=%dx%d select_receivers=%d", client, sid, wid, cw, ch, n)
 	return nil
 }
 
 // scrubStart begins billboard scrubbing: capture the target FIRST (the TUI
 // caches the frame before its WINCH repaint, so the canvas fills instantly),
-// then zoom the sidebar to full window. The client never leaves the pinned
+// then zoom the sidebar to full window. The client never leaves the docked
 // window — status line, layouts, and every hidden pane stay untouched.
 func (d *daemon) scrubStart(ctl *control, wid string) error {
-	p := d.pin
+	p := d.dock
 	if p == nil || p.scrubbing {
 		return nil
 	}
@@ -259,11 +259,11 @@ func (d *daemon) scrubStart(ctl *control, wid string) error {
 }
 
 // scrubEnd stops billboard scrubbing. unzoom=true is the landed-back-home
-// path (Enter/q on the pinned window): the real panes reappear exactly as
+// path (Enter/q on the docked window): the real panes reappear exactly as
 // they were. unzoom=false is for paths where a join/break is about to move
 // the zoomed sidebar anyway (tmux auto-unzooms on both — rig-verified).
 func (d *daemon) scrubEnd(ctl *control, unzoom bool) {
-	p := d.pin
+	p := d.dock
 	if p == nil || !p.scrubbing {
 		return
 	}
@@ -275,7 +275,7 @@ func (d *daemon) scrubEnd(ctl *control, unzoom bool) {
 	log.Printf("scrub end win=%s unzoom=%v", p.win, unzoom)
 }
 
-// pinScrub moves the main area to wid FOR REAL. On a spacer-held window this
+// dockMove moves the main area to wid FOR REAL. On a spacer-held window this
 // is a geometry-free swap-pane — the sidebar and the spacer trade places, no
 // pane in either window changes size, so there is nothing to reflow, no
 // intermediate frame to flush, and nothing to restore on the way out. A
@@ -283,12 +283,12 @@ func (d *daemon) scrubEnd(ctl *control, unzoom bool) {
 // the sidebar swapped into it, all in one batch. Either way the OLD window
 // inherits the spacer and keeps its docked geometry until release. Used by
 // commit-from-scrub, routed nav, and unrouted-switch follow. Everything the
-// arriving session needs (status pad, @demux_pinned) is in the sequence
+// arriving session needs (status pad, @demux_docked) is in the sequence
 // BEFORE switch-client — after it, the pad lands a frame late and the status
 // line visibly flickers. focusMain puts the keyboard in the window's own
 // pane; false keeps focus in the sidebar.
-func (d *daemon) pinScrub(ctl *control, wid string, focusMain bool) error {
-	p := d.pin
+func (d *daemon) dockMove(ctl *control, wid string, focusMain bool) error {
+	p := d.dock
 	if p == nil || wid == "" || wid == p.win {
 		return nil
 	}
@@ -307,7 +307,7 @@ func (d *daemon) pinScrub(ctl *control, wid string, focusMain bool) error {
 	if err != nil {
 		return err
 	}
-	tgt := p.touched[wid]
+	tgt := p.carved[wid]
 	if tgt != nil {
 		// Spacer-held: the live layout is the docked one; a later release
 		// must replay the pre-carve original, and rename was frozen at carve.
@@ -331,7 +331,7 @@ func (d *daemon) pinScrub(ctl *control, wid string, focusMain bool) error {
 	}
 	critical = append(critical, "select-window -t "+q(wid))
 	if sidN != p.sess {
-		critical = append(critical, pinSessionCmds(sidN)...)
+		critical = append(critical, dockSessionCmds(sidN)...)
 		critical = append(critical, "switch-client -c "+q(p.client)+" -t "+q(sidN))
 	}
 	if focusMain {
@@ -346,16 +346,16 @@ func (d *daemon) pinScrub(ctl *control, wid string, focusMain bool) error {
 	restore := []string{"select-pane -t " + q(p.snap.activePane)}
 	if sidN != p.sess {
 		restore = append(restore, statusRestoreCmds(p.status)...)
-		restore = append(restore, "set-option -uq -t "+q(p.sess)+" @demux_pinned")
+		restore = append(restore, "set-option -uq -t "+q(p.sess)+" @demux_docked")
 	}
 	outs, errs := ctl.runPipelined(critical, restore)
 	if errs[0] != nil {
 		if tgt != nil && tgt.spacer != "" {
 			// The spacer died under us (user closed it): forget the entry and
 			// retry once as a first visit — tgt is nil then, no recursion.
-			delete(p.touched, wid)
+			delete(p.carved, wid)
 			log.Printf("scrub swap %s failed (%v), retrying as first visit", wid, errs[0])
-			return d.pinScrub(ctl, wid, focusMain)
+			return d.dockMove(ctl, wid, focusMain)
 		}
 		// Carve path: if the batch died after the split, don't leak the spacer.
 		for _, ln := range outs[0] {
@@ -385,8 +385,8 @@ func (d *daemon) pinScrub(ctl *control, wid string, focusMain bool) error {
 	if spacerOld == "" {
 		log.Printf("scrub: no spacer id for %s — release will not restore it", p.win)
 	}
-	p.touched[p.win] = &touchState{spacer: spacerOld, orig: p.snap.layout, autoRename: p.snap.autoRename}
-	delete(p.touched, wid)
+	p.carved[p.win] = &carveState{spacer: spacerOld, orig: p.snap.layout, autoRename: p.snap.autoRename}
+	delete(p.carved, wid)
 	if sidN != p.sess {
 		p.status = statusN
 	}
@@ -399,12 +399,12 @@ func (d *daemon) pinScrub(ctl *control, wid string, focusMain bool) error {
 	return nil
 }
 
-// pinNav is the routed M-h / M-l: previous/next window of the current
+// dockNav is the routed M-h / M-l: previous/next window of the current
 // session with the sidebar riding along atomically.
-func (d *daemon) pinNav(ctl *control, dir string) error {
-	p := d.pin
+func (d *daemon) dockNav(ctl *control, dir string) error {
+	p := d.dock
 	if p == nil {
-		return errors.New("nav while not pinned")
+		return errors.New("nav while not docked")
 	}
 	var wins []window
 	for _, w := range d.h.getWorld().Windows {
@@ -429,17 +429,17 @@ func (d *daemon) pinNav(ctl *control, dir string) error {
 		step = -1
 	}
 	target := wins[(cur+step+len(wins))%len(wins)].ID
-	if err := d.pinScrub(ctl, target, true); err != nil {
+	if err := d.dockMove(ctl, target, true); err != nil {
 		return err
 	}
 	d.h.sendRole("list", marshalLine(selectMsg{Type: "select", Window: target}))
 	return nil
 }
 
-// pinCommit is Enter in the docked list: keep the sidebar, put the keyboard
+// dockCommit is Enter in the docked list: keep the sidebar, put the keyboard
 // in the main area. The origin resets — q now returns here.
-func (d *daemon) pinCommit(ctl *control) error {
-	p := d.pin
+func (d *daemon) dockCommit(ctl *control) error {
+	p := d.dock
 	if p == nil {
 		return nil
 	}
@@ -464,18 +464,18 @@ func (d *daemon) pinCommit(ctl *control) error {
 		return errors.New("no main pane to focus")
 	}
 	p.originSess, p.originWin = p.sess, p.win
-	log.Printf("pin commit focus=%s win=%s", target, p.win)
+	log.Printf("dock commit focus=%s win=%s", target, p.win)
 	_, err := ctl.run("select-pane -t " + q(target))
 	return err
 }
 
-// pinClose undocks. toOrigin (q) returns the client to where it was pinned
+// dockClose undocks. toOrigin (q) returns the client to where it was docked
 // or last committed; otherwise (M-s) it stays put and the layout snaps back.
 // Undock and restore ride ONE sequence: split across round trips, the
 // window's apps see two resizes (break-pane's give-all-to-the-neighbor, then
 // the restore) and visibly jitter.
-func (d *daemon) pinClose(ctl *control, toOrigin bool) error {
-	p := d.pin
+func (d *daemon) dockClose(ctl *control, toOrigin bool) error {
+	p := d.dock
 	if p == nil {
 		return nil
 	}
@@ -483,19 +483,19 @@ func (d *daemon) pinClose(ctl *control, toOrigin bool) error {
 	// (rig-verified), and an explicit early unzoom would flash the origin
 	// panes before a toOrigin switch lands.
 	d.scrubEnd(ctl, false)
-	d.pin = nil
-	log.Printf("pin close client=%s win=%s to_origin=%v", p.client, p.win, toOrigin)
+	d.dock = nil
+	log.Printf("undock client=%s win=%s to_origin=%v", p.client, p.win, toOrigin)
 	oldLayout, oldDirty := d.leaveInfo(ctl, p.win)
 	restore := d.leaveLayout(p.win, p.snap.layout, oldLayout, oldDirty, d.br.pane)
 
 	moving := toOrigin && p.originWin != p.win
-	unpin := append([]string{"set-option -uq -t " + q(p.sess) + " @demux_pinned"},
+	undock := append([]string{"set-option -uq -t " + q(p.sess) + " @demux_docked"},
 		statusRestoreCmds(p.status)...)
 	if moving {
 		// Land first, with the session bookkeeping in the SAME batch — an
 		// unpad arriving a round trip after the switch flickers the status.
 		var seq []string
-		if t := p.touched[p.originWin]; t != nil && t.spacer != "" {
+		if t := p.carved[p.originWin]; t != nil && t.spacer != "" {
 			// Landing on a spacer-held window: drop the spacer and replay the
 			// original layout in the batch with the switch — one coalesced
 			// reflow, and the window arrives already full width.
@@ -507,16 +507,16 @@ func (d *daemon) pinClose(ctl *control, toOrigin bool) error {
 			seq = append(seq,
 				"set-option -w -t "+q(p.originWin)+" automatic-rename "+t.autoRename,
 				"set-option -w -uq -t "+q(p.originWin)+" @demux_layout_dirty")
-			delete(p.touched, p.originWin)
+			delete(p.carved, p.originWin)
 		}
 		seq = append(seq,
 			"select-window -t "+q(p.originWin),
 			"switch-client -c "+q(p.client)+" -t "+q(p.originSess))
-		seq = append(seq, unpin...)
+		seq = append(seq, undock...)
 		if _, err := ctl.runSeq(seq...); err != nil {
 			// Origin may have died; session alone, then keep cleaning.
 			_, _ = ctl.run("switch-client -c " + q(p.client) + " -t " + q(p.originSess))
-			for _, c := range unpin {
+			for _, c := range undock {
 				_, _ = ctl.run(c)
 			}
 		}
@@ -530,7 +530,7 @@ func (d *daemon) pinClose(ctl *control, toOrigin bool) error {
 	if !moving {
 		// Staying put: everything (undock, unpad, restore) in one batch so
 		// the redraw coalesces.
-		seq = append(seq, unpin...)
+		seq = append(seq, undock...)
 	}
 	if restore != "" {
 		seq = append(seq, "select-layout -t "+q(p.win)+" "+q(restore))
@@ -538,7 +538,7 @@ func (d *daemon) pinClose(ctl *control, toOrigin bool) error {
 	seq = append(seq, "select-pane -t "+q(p.snap.activePane))
 	lines, err := ctl.runSeq(seq...)
 	if err != nil {
-		log.Printf("pin undock: %v", err)
+		log.Printf("undock: %v", err)
 	}
 	if len(lines) > 0 {
 		if parts := strings.Split(lines[0], sep); len(parts) == 2 {
@@ -546,18 +546,18 @@ func (d *daemon) pinClose(ctl *control, toOrigin bool) error {
 			_, _ = ctl.run("set-option -wq -t " + q(d.br.win) + " automatic-rename off")
 		}
 	}
-	d.releaseTouched(ctl, p)
+	d.releaseCarved(ctl, p)
 	return nil
 }
 
-// releaseTouched puts every spacer-held window back exactly as it was: kill
+// releaseCarved puts every spacer-held window back exactly as it was: kill
 // the spacer and replay the original layout in one batch (the two reflows
 // coalesce; letting tmux expand into the hole would drift borders ±1). One
 // sequence per window — a dead window must not abort the others. The window
-// hosting the sidebar itself (spacer empty) is pinClose's to restore.
-func (d *daemon) releaseTouched(ctl *control, p *pinState) {
-	for wid, t := range p.touched {
-		delete(p.touched, wid)
+// hosting the sidebar itself (spacer empty) is dockClose's to restore.
+func (d *daemon) releaseCarved(ctl *control, p *dockState) {
+	for wid, t := range p.carved {
+		delete(p.carved, wid)
 		if t.spacer == "" {
 			continue
 		}
@@ -591,12 +591,12 @@ func (d *daemon) leaveLayout(wid string, exact string, dockedLayout string, dirt
 	return s
 }
 
-// pinSessionCmds marks a session as pinned: the bind-routing flag M-h/M-l
+// dockSessionCmds marks a session as docked: the bind-routing flag M-h/M-l
 // check, plus the status pad that shifts the status line past the sidebar.
-func pinSessionCmds(sid string) []string {
+func dockSessionCmds(sid string) []string {
 	pad := strings.Repeat(" ", statusPad)
 	return []string{
-		"set-option -t " + q(sid) + " @demux_pinned 1",
+		"set-option -t " + q(sid) + " @demux_docked 1",
 		"set-option -t " + q(sid) + " status-left " + q(pad),
 		fmt.Sprintf("set-option -t %s status-left-length %d", q(sid), statusPad),
 	}
@@ -643,12 +643,12 @@ func (d *daemon) restoreStatus(ctl *control, s statusSave) {
 	}
 }
 
-// checkPin runs after every re-list: follow the client when it switched
+// checkDock runs after every re-list: follow the client when it switched
 // windows by a path we don't route (choose-tree, prefix keys), clean up when
 // the client detached or the sidebar pane died, and keep the sidebar at its
 // fixed width when a client resize rescaled it.
-func (d *daemon) checkPin(ctl *control, w world) {
-	p := d.pin
+func (d *daemon) checkDock(ctl *control, w world) {
+	p := d.dock
 	if p == nil {
 		return
 	}
@@ -656,12 +656,12 @@ func (d *daemon) checkPin(ctl *control, w world) {
 		// Sidebar pane died (kill-window on the host, kill-pane): the dock is
 		// gone, only session state needs cleaning. Layout restore would fight
 		// whatever the user just did — skip it.
-		log.Printf("pin: sidebar pane gone, cleaning up")
-		d.pin = nil
+		log.Printf("dock: sidebar pane gone, cleaning up")
+		d.dock = nil
 		d.br = nil
-		_, _ = ctl.run("set-option -u -t " + q(p.sess) + " @demux_pinned")
+		_, _ = ctl.run("set-option -u -t " + q(p.sess) + " @demux_docked")
 		d.restoreStatus(ctl, p.status)
-		d.releaseTouched(ctl, p)
+		d.releaseCarved(ctl, p)
 		return
 	}
 	var cl *tclient
@@ -672,8 +672,8 @@ func (d *daemon) checkPin(ctl *control, w world) {
 		}
 	}
 	if cl == nil {
-		log.Printf("pin: client %s detached, undocking", p.client)
-		_ = d.pinClose(ctl, false)
+		log.Printf("dock: client %s detached, undocking", p.client)
+		_ = d.dockClose(ctl, false)
 		return
 	}
 	for _, s := range w.Sessions {
@@ -686,10 +686,10 @@ func (d *daemon) checkPin(ctl *control, w world) {
 			if pn.ID == d.br.pane && pn.WindowID == p.win && pn.Width == listWidth {
 				// The zoom broke externally: selecting any other pane
 				// (vim-navigator C-h/C-l out of the billboard) auto-unzooms.
-				// Reality is the pinned window again — end the scrub state
+				// Reality is the docked window again — end the scrub state
 				// and snap the list highlight back, or the next j/k would
 				// stream billboards at a 40-col TUI that can't paint them.
-				log.Printf("pin: scrub unzoomed externally, ending")
+				log.Printf("dock: scrub unzoomed externally, ending")
 				d.scrubEnd(ctl, false)
 				d.h.sendRole("list", marshalLine(selectMsg{Type: "select", Window: p.win}))
 				break
@@ -704,9 +704,9 @@ func (d *daemon) checkPin(ctl *control, w world) {
 		}
 	}
 	if cur != "" && cur != p.win {
-		log.Printf("pin: follow %s -> %s (unrouted switch)", p.win, cur)
-		if err := d.pinScrub(ctl, cur, true); err != nil {
-			log.Printf("pin follow: %v", err)
+		log.Printf("dock: follow %s -> %s (unrouted switch)", p.win, cur)
+		if err := d.dockMove(ctl, cur, true); err != nil {
+			log.Printf("dock follow: %v", err)
 			return
 		}
 		d.h.sendRole("list", marshalLine(selectMsg{Type: "select", Window: cur}))

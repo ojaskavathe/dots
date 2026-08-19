@@ -127,7 +127,7 @@ func cmdToggle(tmuxSock, demuxSock, client string) {
 	os.Exit(1)
 }
 
-// cmdNav is the routed M-h / M-l while pinned: previous/next window with the
+// cmdNav is the routed M-h / M-l while docked: previous/next window with the
 // sidebar riding along in one atomic server sequence. Hot path — one conn,
 // one cmd, wait for the reply so bind errors surface in tmux.
 func cmdNav(tmuxSock, demuxSock, dir, client string) {
@@ -158,7 +158,7 @@ func cmdNav(tmuxSock, demuxSock, dir, client string) {
 	}
 }
 
-// cmdBrowse opens the full-screen billboard browser (the pre-pin M-s).
+// cmdBrowse opens the full-screen billboard browser (the pre-dock M-s).
 func cmdBrowse(tmuxSock, demuxSock, client string) {
 	conn, err := dialEnsure(tmuxSock, demuxSock)
 	if err != nil {

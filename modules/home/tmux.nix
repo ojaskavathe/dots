@@ -130,11 +130,11 @@
             set -g status-position top
 
             # window cycling: native normally; while the demux sidebar is
-            # docked (@demux_pinned set on the session) the switch routes
+            # docked (@demux_docked set on the session) the switch routes
             # through the daemon so the sidebar arrives WITH the window —
             # never a frame of the target without it
-            bind -n M-h if-shell -F "#{@demux_pinned}" {run-shell -b '${demuxd}/bin/demuxd nav prev "#{client_name}"'} {previous-window}
-            bind -n M-l if-shell -F "#{@demux_pinned}" {run-shell -b '${demuxd}/bin/demuxd nav next "#{client_name}"'} {next-window}
+            bind -n M-h if-shell -F "#{@demux_docked}" {run-shell -b '${demuxd}/bin/demuxd nav prev "#{client_name}"'} {previous-window}
+            bind -n M-l if-shell -F "#{@demux_docked}" {run-shell -b '${demuxd}/bin/demuxd nav next "#{client_name}"'} {next-window}
 
             # demux sidebar: M-s docks the list as a real pane on the left
             # (herdr-style; main area stays your live panes), M-s again

@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// Mini layout engine for pinned-mode give-back. When the user reshapes a
+// Mini layout engine for docked-mode give-back. When the user reshapes a
 // window WHILE the sidebar is docked (tmux-equalize-nvim sets
 // @demux_layout_dirty), restoring the pre-dock snapshot on leave would undo
 // their change. Instead: parse the docked #{window_layout}, drop the sidebar

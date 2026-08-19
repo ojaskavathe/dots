@@ -16,7 +16,7 @@ import (
 // session teardown emits dozens), short enough to be imperceptible.
 const debounce = 15 * time.Millisecond
 
-// scrubQuiet suppresses re-lists while pin scrubs are landing: each scrub
+// scrubQuiet suppresses re-lists while dock moves are landing: each scrub
 // step mutates the world, and one whole-server re-list per keystroke is
 // wasted heat. The world settles this long after the last scrub. Bookkeeping
 // only — key handling and painting never wait on this.
@@ -125,7 +125,7 @@ func consume(d *daemon, ctl *control, w world, sig chan os.Signal) bool {
 			w = next
 			d.h.setWorld(w, ops, false, d.tmuxSock)
 			d.checkBrowse(ctl, w)
-			d.checkPin(ctl, w)
+			d.checkDock(ctl, w)
 			if dur := time.Since(start); dur > 25*time.Millisecond {
 				log.Printf("relist took %s ops=%d", dur, len(ops))
 			} else if bench {
@@ -135,11 +135,11 @@ func consume(d *daemon, ctl *control, w world, sig chan os.Signal) bool {
 			d.handleCmd(ctl, env)
 		case <-d.tickC:
 			// Live preview stream: nil (never fires) unless the billboards
-			// are showing — full-screen browse or a pinned zoom-scrub. Yield
+			// are showing — full-screen browse or a docked zoom-scrub. Yield
 			// to queued commands — a mid-scrub tick would capture a target
 			// that's about to change anyway.
 			streaming := d.br != nil && d.br.target != "" &&
-				(d.br.open || (d.pin != nil && d.pin.scrubbing))
+				(d.br.open || (d.dock != nil && d.dock.scrubbing))
 			if streaming && len(d.h.cmds) == 0 {
 				_ = d.preview(ctl, d.br.target, false)
 			}

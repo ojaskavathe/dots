@@ -292,7 +292,7 @@ func cmdTui(tmuxSock, demuxSock string) {
 		paintFrameFor(target())
 	}
 	// Browse mode: cached frame paints locally NOW; the daemon refreshes it
-	// (and streams it live) right behind, neighbors prefetched warm. Pinned
+	// (and streams it live) right behind, neighbors prefetched warm. Docked
 	// (narrow) mode: the same preview cmd IS the scrub — the daemon moves
 	// the real main area to the target window; prefetch means nothing.
 	requestFrames := func() {
@@ -412,7 +412,7 @@ func cmdTui(tmuxSock, demuxSock string) {
 // truncated to its scaled cell so panes never bleed into a neighbor. A
 // plain crop (the old behavior) put a 100/99 split's border at col 100 of
 // a 159-col canvas and clipped the right pane to a sliver. Identity when
-// the frame already fits (the pinned window's own billboard).
+// the frame already fits (the docked window's own billboard).
 func scaleFrame(frame []framePane, avail int) []framePane {
 	fw := 0
 	for _, p := range frame {

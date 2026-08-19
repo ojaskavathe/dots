@@ -50,9 +50,9 @@ type daemon struct {
 	tmuxSock string
 	h        *hub
 	br       *browseState
-	pin      *pinState
+	dock     *dockState
 
-	// lastScrub gates re-lists: world churn within scrubQuiet of a pin
+	// lastScrub gates re-lists: world churn within scrubQuiet of a dock
 	// scrub is our own doing, and re-listing the whole server once per
 	// scrub step is the daemon's main cost during a held-key scrub.
 	lastScrub time.Time
@@ -139,14 +139,14 @@ func (d *daemon) runCmd(ctl *control, env cmdEnvelope) {
 	case "browse":
 		err = d.browseOpen(ctl, env.msg.Client)
 	case "nav":
-		err = d.pinNav(ctl, env.msg.Dir)
+		err = d.dockNav(ctl, env.msg.Dir)
 	case "preview":
-		if d.pin != nil && !browsing {
-			// Pinned: selection leaving the real window starts billboard
+		if d.dock != nil && !browsing {
+			// Docked: selection leaving the real window starts billboard
 			// scrubbing (zoom + captures); while scrubbing, previews and
 			// prefetches are plain billboards. Nothing real moves until
 			// commit.
-			p := d.pin
+			p := d.dock
 			switch {
 			case p.scrubbing:
 				err = d.preview(ctl, env.msg.Window, env.msg.Prefetch)
@@ -157,32 +157,32 @@ func (d *daemon) runCmd(ctl *control, env cmdEnvelope) {
 			err = d.preview(ctl, env.msg.Window, env.msg.Prefetch)
 		}
 	case "commit":
-		if d.pin != nil && !browsing {
-			if d.pin.scrubbing {
+		if d.dock != nil && !browsing {
+			if d.dock.scrubbing {
 				err = d.commitScrub(ctl, env.msg.Window)
 			} else {
-				err = d.pinCommit(ctl)
+				err = d.dockCommit(ctl)
 			}
 		} else {
 			err = d.commit(ctl, env.msg.Window)
 		}
 	case "close":
-		if d.pin != nil && !browsing {
-			if d.pin.scrubbing {
+		if d.dock != nil && !browsing {
+			if d.dock.scrubbing {
 				// q mid-scrub: unzoom — the origin panes reappear untouched.
 				d.scrubEnd(ctl, true)
-				d.h.sendRole("list", marshalLine(selectMsg{Type: "select", Window: d.pin.win}))
+				d.h.sendRole("list", marshalLine(selectMsg{Type: "select", Window: d.dock.win}))
 			} else {
-				err = d.pinClose(ctl, true)
+				err = d.dockClose(ctl, true)
 			}
 		} else {
 			err = d.closeBrowse(ctl)
 		}
 	case "hello-list":
 		// A TUI connected after state went out; replay selection + frame.
-		if d.pin != nil {
-			d.h.send(env.sub, marshalLine(selectMsg{Type: "select", Window: d.pin.win}))
-			log.Printf("hello-list: replay pinned select=%s", d.pin.win)
+		if d.dock != nil {
+			d.h.send(env.sub, marshalLine(selectMsg{Type: "select", Window: d.dock.win}))
+			log.Printf("hello-list: replay docked select=%s", d.dock.win)
 			break
 		}
 		replaySel := browsing && d.br.target != ""
@@ -212,7 +212,7 @@ func (d *daemon) runCmd(ctl *control, env cmdEnvelope) {
 	d.h.send(env.sub, marshalLine(r))
 }
 
-// toggle is M-s: browsing (full-screen) -> commit/close as before; pinned ->
+// toggle is M-s: browsing (full-screen) -> commit/close as before; docked ->
 // undock in place; otherwise dock the sidebar into the current window.
 func (d *daemon) toggle(ctl *control, client string) error {
 	if client == "" {
@@ -232,8 +232,8 @@ func (d *daemon) toggle(ctl *control, client string) error {
 			return d.closeBrowse(ctl)
 		}
 	}
-	if d.pin != nil {
-		if d.pin.scrubbing {
+	if d.dock != nil {
+		if d.dock.scrubbing {
 			// M-s mid-scrub commits AND dismisses — browse-era muscle
 			// memory: one press lands you in the selection. Land the swap
 			// first (geometry-free, content in front of the user instantly),
@@ -241,31 +241,31 @@ func (d *daemon) toggle(ctl *control, client string) error {
 			// behind content the user is already reading, never before it.
 			// (Enter is the commit that keeps the sidebar docked.)
 			target := d.br.target
-			if d.sessionOf(target) != "" && target != d.pin.win {
-				if err := d.pinScrub(ctl, target, true); err != nil {
+			if d.sessionOf(target) != "" && target != d.dock.win {
+				if err := d.dockMove(ctl, target, true); err != nil {
 					return err
 				}
 			}
-			return d.pinClose(ctl, false)
+			return d.dockClose(ctl, false)
 		}
-		return d.pinClose(ctl, false)
+		return d.dockClose(ctl, false)
 	}
-	return d.pinOpen(ctl, client)
+	return d.dockOpen(ctl, client)
 }
 
-// commitScrub lands a billboard scrub: on the pinned window itself it is a
+// commitScrub lands a billboard scrub: on the docked window itself it is a
 // free unzoom; anywhere else the sidebar docks into the target for real.
 // Either way the origin resets — q now returns here.
 func (d *daemon) commitScrub(ctl *control, wid string) error {
-	p := d.pin
+	p := d.dock
 	if p == nil {
 		return nil
 	}
 	if wid == "" || wid == p.win {
 		d.scrubEnd(ctl, true)
-		return d.pinCommit(ctl)
+		return d.dockCommit(ctl)
 	}
-	if err := d.pinScrub(ctl, wid, true); err != nil {
+	if err := d.dockMove(ctl, wid, true); err != nil {
 		return err
 	}
 	p.originSess, p.originWin = p.sess, p.win
@@ -274,13 +274,13 @@ func (d *daemon) commitScrub(ctl *control, wid string) error {
 
 // browseOpen is the full-screen billboard browser (`demuxd browse`): switch
 // the client to the _demux window and stream capture frames. No longer on
-// M-s — pinned mode replaced it there — but fully functional.
+// M-s — docked mode replaced it there — but fully functional.
 func (d *daemon) browseOpen(ctl *control, client string) error {
 	if client == "" {
 		return errors.New("browse needs a client name")
 	}
-	if d.pin != nil {
-		if err := d.pinClose(ctl, false); err != nil {
+	if d.dock != nil {
+		if err := d.dockClose(ctl, false); err != nil {
 			return err
 		}
 	}
@@ -379,7 +379,7 @@ func (d *daemon) ensureSurface(ctl *control, cw, ch int) error {
 					}
 				}
 				_, _ = ctl.run("set-option -q -t " + q(d.br.sess) + " status off")
-			case nDemuxWins == 1 && d.pin == nil:
+			case nDemuxWins == 1 && d.dock == nil:
 				// TUI home is the only window: docking it away would kill the
 				// session. Keep the placeholder ahead of need.
 				_, _ = ctl.run("new-window -d -t " + q(demuxSession+":") + " " + q(placeholderCmd))
@@ -429,24 +429,24 @@ const frameMarker = "\x1fdemux-frame\x1f"
 
 // preview captures wid and ships it as a frame. A prefetch warms the TUI's
 // cache for adjacent rows without becoming the streamed target. Serves both
-// the full-screen browser and pinned billboard scrubbing; the sidebar pane
+// the full-screen browser and docked billboard scrubbing; the sidebar pane
 // itself is never billboarded (a docked window's frame is its mains,
 // shifted to the canvas origin — near-pixel-parity with entering it).
 func (d *daemon) preview(ctl *control, wid string, prefetch bool) error {
-	if d.br == nil || (!d.br.open && d.pin == nil) {
+	if d.br == nil || (!d.br.open && d.dock == nil) {
 		return nil
 	}
-	// Pinned scrub targets get their spacer carved on first billboard: a
+	// Docked scrub targets get their spacer carved on first billboard: a
 	// hidden 40-col pane occupies the sidebar's slot (the dock's own split,
 	// so the carve arithmetic is identical), and the billboard then IS the
 	// docked reality — same wraps, same borders. Entering later is a
-	// geometry-free swap into that slot. Once per window while pinned;
+	// geometry-free swap into that slot. Once per window while docked;
 	// skipped when another client is attached to that window's session
 	// (carving would visibly resize it under them).
-	canCarve := d.pin != nil && (d.br == nil || !d.br.open) && wid != d.pin.win
+	canCarve := d.dock != nil && (d.br == nil || !d.br.open) && wid != d.dock.win
 	skipPane := ""
 	if canCarve {
-		if t := d.pin.touched[wid]; t != nil {
+		if t := d.dock.carved[wid]; t != nil {
 			skipPane = t.spacer
 		}
 	}
@@ -477,18 +477,18 @@ func (d *daemon) preview(ctl *control, wid string, prefetch bool) error {
 		if len(panes) == 0 {
 			return fmt.Errorf("no panes in %s", wid)
 		}
-		if canCarve && attempt == 0 && d.pin.touched[wid] == nil && !d.otherClientOn(wid) {
+		if canCarve && attempt == 0 && d.dock.carved[wid] == nil && !d.otherClientOn(wid) {
 			out, err := ctl.runSeq(
 				"display-message -p -t "+q(wid)+" -F "+f("#{window_layout}", "#{automatic-rename}"),
 				"set-option -w -t "+q(wid)+" automatic-rename off",
 				fmt.Sprintf("split-window -d -hb -f -l %d -P -F '#{pane_id}' -t %s %s",
 					listWidth, q(wid), q(spacerCmd)))
 			if err == nil && len(out) >= 2 {
-				t := &touchState{spacer: out[1]}
+				t := &carveState{spacer: out[1]}
 				if parts := strings.Split(out[0], sep); len(parts) == 2 {
 					t.orig, t.autoRename = parts[0], parts[1]
 				}
-				d.pin.touched[wid] = t
+				d.dock.carved[wid] = t
 				skipPane = t.spacer
 				d.lastScrub = time.Now()
 				if bench {
@@ -523,6 +523,13 @@ func (d *daemon) preview(ctl *control, wid string, prefetch bool) error {
 		if idx < len(panes) {
 			panes[idx].Lines = append(panes[idx].Lines, ln)
 		}
+	}
+	if bench {
+		rects := make([]string, len(panes))
+		for i, p := range panes {
+			rects[i] = fmt.Sprintf("%d,%d %dx%d", p.Left, p.Top, p.Width, p.Height)
+		}
+		log.Printf("bench frame win=%s prefetch=%v rects=%v", wid, prefetch, rects)
 	}
 	payload := marshalLine(frameMsg{Type: "frame", Window: wid, Panes: panes})
 	if prefetch {
