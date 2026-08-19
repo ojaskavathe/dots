@@ -165,6 +165,12 @@ func (d *daemon) runCmd(ctl *control, env cmdEnvelope) {
 		} else {
 			err = d.preview(ctl, env.msg.Window, env.msg.Prefetch)
 		}
+	case "focus":
+		// C-l from the docked idle sidebar: select the pane geometrically
+		// right of it — vim-tmux-navigator semantics, no origin reset.
+		if d.dock != nil && !browsing && !d.dock.scrubbing {
+			_, err = ctl.run("select-pane -R -t " + q(d.br.pane))
+		}
 	case "commit":
 		if d.dock != nil && !browsing {
 			if d.dock.scrubbing {

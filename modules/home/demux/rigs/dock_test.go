@@ -116,6 +116,30 @@ func TestDockScrub(t *testing.T) {
 	sleep(500)
 	r.Chk("q settles back", !r.Zoomed(r.W1) && r.ClientWin() == r.W1)
 
+	// C-l docked-idle focuses the pane geometrically RIGHT of the sidebar
+	// (navigator semantics) — not the window's last-active pane, which
+	// would skip splits.
+	leftMain, rightMain := "", ""
+	for _, ln := range strings.Split(r.T("list-panes", "-t", r.W1, "-F", "#{pane_id} #{pane_left}"), "\n") {
+		f := strings.Fields(ln)
+		if len(f) != 2 {
+			continue
+		}
+		if f[1] == "41" {
+			leftMain = f[0]
+		} else if n, _ := strconv.Atoi(f[1]); n > 41 {
+			rightMain = f[0]
+		}
+	}
+	r.T("select-pane", "-t", rightMain) // last-active = the far main
+	sleep(200)
+	r.T("select-pane", "-t", sp)
+	sleep(200)
+	r.SendKeys(sp, "C-l")
+	sleep(400)
+	active := r.T("display-message", "-p", "-t", r.W1, "#{pane_id}")
+	r.Chk("C-l idle focuses adjacent main", active == leftMain)
+
 	// C-l mid-scrub is Enter, not escape: the navigator pattern includes
 	// demuxd, so tmux hands C-l to the TUI, which commits to the billboard
 	// you're looking at instead of unzooming back to the docked window.

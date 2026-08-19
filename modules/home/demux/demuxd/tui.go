@@ -400,8 +400,19 @@ func cmdTui(tmuxSock, demuxSock string) {
 				move(1)
 			case b == 'k', b == 0x0b: // k, ctrl-k
 				move(-1)
-			case b == '\r', b == 0x0c: // enter, ctrl-l
+			case b == '\r': // enter
 				send(cmdMsg{Cmd: "commit", Window: target()})
+			case b == 0x0c: // ctrl-l
+				if narrowMode() {
+					// Docked idle: C-l is the navigator's "pane to the
+					// right" — the pane NEXT to the sidebar, not the
+					// window's last-active one (commit would skip splits).
+					send(cmdMsg{Cmd: "focus"})
+				} else {
+					// Zoomed billboard / full-screen browse: C-l goes INTO
+					// what you're looking at, like Enter.
+					send(cmdMsg{Cmd: "commit", Window: target()})
+				}
 			case b == 'q', b == 0x03: // q, ctrl-c
 				send(cmdMsg{Cmd: "close"})
 			default:
