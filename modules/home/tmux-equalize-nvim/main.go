@@ -168,6 +168,7 @@ func checksum(layout string) string {
 type paneInfo struct {
 	command string
 	server  string
+	fixed   bool
 }
 
 func tmux(args ...string) (string, error) {
@@ -365,20 +366,88 @@ func assign(n *node, left, top, width, height int, counts map[string]map[string]
 	}
 }
 
+// equalizeDocked equalizes everything EXCEPT the fixed sidebar pane, which
+// must be a direct child of the root row (demux docks with join-pane -hb -f).
+// Targets are computed by the normal weighted assign over the main region,
+// then applied as absolute per-leaf resize-pane calls in geometric order —
+// once every boundary left of / above a leaf is settled, setting the leaf's
+// width/height lands its own boundary exactly. One tmux invocation, so the
+// server coalesces the redraw.
+func equalizeDocked(root *node, fixed, window string, counts map[string]map[string]int) bool {
+	if root.kind != '{' {
+		return false
+	}
+	idx := -1
+	for i, child := range root.children {
+		if child.kind == 'l' && child.pane == fixed {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return false
+	}
+	mains := make([]*node, 0, len(root.children)-1)
+	for i, child := range root.children {
+		if i != idx {
+			mains = append(mains, child)
+		}
+	}
+	if len(mains) == 0 {
+		return false
+	}
+	left := mains[0].left
+	width := len(mains) - 1 // separators
+	for _, child := range mains {
+		if child.left < left {
+			left = child.left
+		}
+		width += child.width
+	}
+	pseudo := &node{kind: '{', children: mains}
+	assign(pseudo, left, root.top, width, root.height, counts)
+
+	args := []string{"set-option", "-w", "-t", window, "@demux_layout_dirty", "1"}
+	add := func(cmd ...string) {
+		args = append(args, ";")
+		args = append(args, cmd...)
+	}
+	emitLeafResizes(pseudo, root.left+root.width, root.top+root.height, add)
+	return tmuxOK(args...)
+}
+
+// emitLeafResizes walks leaves in geometric order and pins each internal
+// boundary with an absolute resize; leaves on the window's right/bottom edge
+// are skipped (tmux would move their opposite edge).
+func emitLeafResizes(n *node, right, bottom int, add func(...string)) {
+	if n.kind == 'l' {
+		if n.left+n.width < right {
+			add("resize-pane", "-t", "%"+n.pane, "-x", strconv.Itoa(n.width))
+		}
+		if n.top+n.height < bottom {
+			add("resize-pane", "-t", "%"+n.pane, "-y", strconv.Itoa(n.height))
+		}
+		return
+	}
+	for _, child := range n.children {
+		emitLeafResizes(child, right, bottom, add)
+	}
+}
+
 func isNvim(command string) bool {
 	return command == "nvim" || command == "vim" || command == "view" || strings.HasPrefix(command, "nvim-")
 }
 
 func currentPanes(window string) map[string]paneInfo {
-	lines, err := tmux("list-panes", "-t", window, "-F", "#{pane_id}\t#{pane_dead}\t#{pane_current_command}\t#{@nvim_server}")
+	lines, err := tmux("list-panes", "-t", window, "-F", "#{pane_id}\t#{pane_dead}\t#{pane_current_command}\t#{@nvim_server}\t#{@demux_sidebar}")
 	if err != nil {
 		return nil
 	}
 
 	panes := map[string]paneInfo{}
 	for _, line := range strings.Split(lines, "\n") {
-		parts := strings.SplitN(line, "\t", 4)
-		for len(parts) < 4 {
+		parts := strings.SplitN(line, "\t", 5)
+		for len(parts) < 5 {
 			parts = append(parts, "")
 		}
 		if parts[1] != "0" {
@@ -387,6 +456,7 @@ func currentPanes(window string) map[string]paneInfo {
 		panes[strings.TrimPrefix(parts[0], "%")] = paneInfo{
 			command: parts[2],
 			server:  parts[3],
+			fixed:   parts[4] == "1",
 		}
 	}
 	return panes
@@ -458,17 +528,37 @@ func run() error {
 		return err
 	}
 
-	counts, clients := nvimLayoutCounts(currentPanes(currentWindow))
+	panes := currentPanes(currentWindow)
+	fixed := ""
+	for id, pane := range panes {
+		if pane.fixed {
+			fixed = id
+		}
+	}
+	counts, clients := nvimLayoutCounts(panes)
 	defer func() {
 		for _, client := range clients {
 			_ = client.Close()
 		}
 	}()
 
-	assign(root, root.left, root.top, root.width, root.height, counts)
-	body = render(root)
-	if !tmuxOK("select-layout", "-t", currentWindow, checksum(body)+","+body) {
-		tmuxOK("select-layout", "-t", currentWindow, "-E")
+	if fixed != "" {
+		// A demux sidebar is docked. select-layout assigns geometry by pane
+		// index order, not by the ids in the string; with a joined sidebar,
+		// index and geometric order diverge and a whole-window layout would
+		// shuffle pane contents. Instead: equalize the main region only,
+		// via id-targeted resize-pane (content-safe), and mark the window
+		// dirty so the demux daemon gives the columns back proportionally
+		// on undock instead of restoring the pre-dock snapshot.
+		if !equalizeDocked(root, fixed, currentWindow, counts) {
+			return nil
+		}
+	} else {
+		assign(root, root.left, root.top, root.width, root.height, counts)
+		body = render(root)
+		if !tmuxOK("select-layout", "-t", currentWindow, checksum(body)+","+body) {
+			tmuxOK("select-layout", "-t", currentWindow, "-E")
+		}
 	}
 
 	for paneID, client := range clients {

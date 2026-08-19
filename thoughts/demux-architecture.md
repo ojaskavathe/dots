@@ -1,0 +1,282 @@
+# demux architecture
+
+herdr-class agent awareness (status, navigation, previews, notifications) built
+natively on tmux. tmux stays the runtime and the UI host; demux adds the world
+model and the surfaces.
+
+## goals
+
+- every tmux entity (session / window / pane) and every agent modeled in one
+  place, updated by events only — zero poll loops against tmux
+- sidebar TUI with navigation (jump, kill, spawn) and live previews
+- agent lifecycle (working / blocked / idle / done) exact for hooked agents,
+  best-effort for the rest
+- ambient signal in the tmux status line + notifications on blocked
+- fully custom rendering — no dependence on choose-tree / display-menu
+- packaged and wired through nix (hm module in dots)
+
+## non-goals
+
+- replacing tmux persistence (resurrect/continuum already handle it)
+- remote/web access (a later client could add it; the protocol allows it)
+- cross-machine fleets
+
+## the one big decision: control mode, not hooks
+
+the spike used `set-hook` + `run-shell`, which forks a process per event. fine
+for 10 hooks; wrong for a world model, and it can't see output at all.
+
+tmux **control mode** (`tmux -C attach`) is a persistent text protocol over the
+server socket: one connection that receives every server event as a notification
+line — `%session-changed`, `%sessions-changed`, `%window-add`, `%window-close`,
+`%window-renamed`, `%layout-change`, `%pane-mode-changed`, `%output` (live pane
+output), `%exit`. this is how iTerm2's tmux integration maintains a full mirror
+of the server; it is almost certainly what herdr itself does under the hood.
+
+consequences:
+
+- **zero process spawns** on the event path. one long-lived connection.
+- **pane output is an event.** activity detection and previews come from
+  `%output` notifications, not `capture-pane` polling.
+- tmux 3.2+ `refresh-client -A %pane:on` / `-B` subscriptions let the daemon opt
+  into exactly the panes/formats it wants pushed.
+- the daemon can also _send_ commands down the same connection (list-panes on
+  startup for the initial snapshot, switch-client on jump, etc.)
+
+hooks remain only where control mode has no equivalent: none known. claude code
+hooks stay, but they talk to the daemon socket, not to tmux.
+
+## components
+
+```
+                 ┌────────────────────────────────────────────┐
+                 │              demuxd (daemon)                │
+ tmux server ◄──►│  control-mode client ──► reducer ──► state │
+                 │                                    │       │
+ agent hooks ───►│  unix socket /demux.sock ◄── pub/sub┘       │
+ (demux emit)     └───────────▲────────────────▲───────────────┘
+                             │                │
+                   ┌─────────┴───┐   ┌────────┴─────────┐
+                   │ sidebar TUI │   │ statusline bridge │
+                   │ (per pane)  │   │ notifier          │
+                   └─────────────┘   │ demux CLI          │
+                                     └───────────────────┘
+```
+
+### demuxd — the daemon
+
+one per tmux server socket. owns everything:
+
+- **ingest**: control-mode notifications + agent events on the unix socket
+- **reducer**: events → state mutations → diffs
+- **pub/sub**: clients connect to `$XDG_RUNTIME_DIR/demux/<server>.sock`,
+  receive a full snapshot then diffs (NDJSON)
+- **timers**: the only time-based logic allowed — debounce `%output` bursts,
+  classify "no output for Ns" as idle for unhooked agents. these are internal
+  state-machine timers, not polls of tmux.
+- **command execution**: jump/kill/spawn requests from clients go out through
+  the control-mode connection
+
+lifecycle: lazily started by the first client (`demux` CLI or the toggle keybind
+runs `demux daemon --ensure`), dies when the tmux server dies (`%exit`),
+restartable at any time — state is rebuilt from a `list-sessions` /
+`list-windows` / `list-panes` snapshot on connect, so the daemon is disposable
+by design.
+
+### event sources
+
+1. **tmux** via control mode — topology, layout, activity, output
+2. **hooked agents** — claude code (`Stop`, `Notification`, `PermissionRequest`,
+   `UserPromptSubmit`, …) and anything else that can run a command on lifecycle
+   events. hook scripts call
+   `demux emit --pane "$TMUX_PANE" --state blocked --note "wants to run rm"` →
+   daemon socket. exact, instant, no heuristics.
+3. **unhooked agents** — daemon-side heuristics over `%output` streams +
+   `pane_current_command`: known-agent process names, spinner/prompt patterns,
+   output-silence timers. best-effort tier, clearly marked in the model so UIs
+   can render certainty differently.
+
+### clients (all thin, all subscribers)
+
+- **sidebar TUI** — the flagship surface. runs inside a tmux pane (same
+  toggle/layout mechanics as the spike). subscribes, renders the tree + agent
+  states + preview, owns its input: j/k navigation, enter=jump, x=kill,
+  p=preview focus, mouse clicks. rendering is fully ours (lipgloss/ratatui) —
+  herdr-look achievable pixel for pixel.
+- **statusline bridge** — on diff:
+  `tmux set -g @demux_status "…" ; refresh-client -S`. the status line stays a
+  dumb `#{@demux_status}` format reference: zero-cost render, instant updates,
+  no `#()`.
+- **notifier** — on working→blocked: `tmux display-message`, bell, or
+  terminal-notifier. policy lives here, not in the daemon.
+- **demux CLI** — `demux ls`, `demux jump <target>`, `demux emit …`, scripting
+  surface for everything else (and the hook entrypoint).
+
+one binary, subcommands (`demux daemon`, `demux sidebar`, `demux emit`, …) —
+single nix package, shared model/protocol code.
+
+## data model
+
+```
+Server   { sessions: [Session], clients: [Client] }
+Session  { id, name, attached, windows: [Window] }
+Window   { id, index, name, active, layout, panes: [Pane] }
+Pane     { id, active, cmd, path, title,
+           agent?: Agent, activity: { lastOutput, rate } }
+Agent    { kind,                    # claude-code | codex | …
+           state,                   # working | blocked | idle | done
+           certainty,               # hooked | heuristic
+           since, note }            # note: "waiting on permission: …"
+```
+
+ids are tmux's own (`$0`, `@1`, `%2`) — never indexes, which shift.
+
+## protocol (daemon ⇄ clients)
+
+NDJSON over the unix socket. deliberately boring.
+
+- `→ {"v":1,"type":"hello","client":"sidebar"}`
+- `← {"type":"snapshot","state":{…}}`
+- `← {"type":"diff","ops":[{"op":"set","path":"panes.%12.agent.state","value":"blocked"},…]}`
+- `→ {"type":"cmd","cmd":"jump","target":"%12"}`
+- `→ {"type":"emit","pane":"%12","agent":{"kind":"claude-code","state":"working"}}`
+- `→ {"type":"preview","pane":"%12","follow":true}` /
+  `← {"type":"preview-frame","pane":"%12","lines":[…]}`
+
+versioned from day one; a future web client speaks the same protocol.
+
+## previews
+
+two tiers, both event-driven:
+
+1. **on selection** — sidebar highlights a pane → sends `preview` → daemon
+   replies with a frame (`capture-pane -e -p` once, on demand — an event: the
+   user navigated).
+2. **follow mode** — daemon subscribes to that pane's `%output`
+   (`refresh-client -A`), debounces (~50ms), pushes incremental frames while
+   selected. unsubscribes on deselect. live preview with zero standing cost for
+   unselected panes.
+
+frames carry SGR escapes; the TUI paints them into the preview region verbatim
+(with clipping). no vt-emulation layer unless/until we want scrollback in
+previews — capture-pane already returns a rendered screen.
+
+## navigation
+
+- sidebar sends `jump` → daemon issues `switch-client -t` for the requesting
+  client (daemon knows which client to move via the sidebar's pane→client
+  mapping)
+- kill/spawn follow the same path (`kill-pane`, `split-window` for "new agent
+  here", worktree-aware spawn later)
+- **pinned sidebar (M-s, the default surface, 2026-08-11)** — the herdr
+  layout on tmux: the TUI pane docks as a REAL 40-col pane at the window's
+  left edge (`join-pane -hb -f -l 40`); the main area is the user's actual
+  panes, live and enterable. scrubbing j/k shows LIVE BILLBOARDS: the
+  sidebar pane ZOOMS to full window (rig-verified: hidden panes keep sizes
+  byte-exact, zero app reflows) and the canvas paints capture frames of the
+  selection, 10fps-streamed, sized to the main area (width-41) with the
+  sidebar pane filtered out of its own window's frame. nothing real moves
+  until commit: Enter/M-s dock into the target (join-from-zoomed
+  auto-unzooms, one control sequence, target never visible without the
+  sidebar); Enter/q landing on the pinned window itself is a free unzoom.
+  measured on a held 120-key scrub: 0 real switches, 0 re-lists, 0 nvim
+  reflows (the join-per-scrub design cost 28/28/54 on the same load —
+  that was the cpu spike). M-h/M-l route through `demuxd nav` only while
+  `@demux_pinned` is set (`if-shell -F` bind), native otherwise; unrouted
+  switches (choose-tree) are followed from the notification path. the
+  status line shifts past the sidebar via a 41-space session `status-left`
+  (saved/restored, padded before switch-client in the same sequence).
+  rig-verified mechanics:
+  `-hb -f` always lands at the window edge; the joined pane takes focus;
+  undocking hands the 40 cols to the ADJACENT pane, so exact restore comes
+  from replaying the saved `#{window_layout}` string — `select-layout` with
+  an exact saved string is SAFE and restores byte-identically (the old
+  blanket ban was about positional/equalizing use, which stays banned);
+  stale strings (user split while docked) fail cleanly and are skipped.
+  `automatic-rename` is frozen per-window before each join (the sidebar
+  takes focus, which would rename windows to "demuxd") and restored on
+  leave. a placeholder window keeps `_demux` alive while the TUI is docked
+  out (a session dies when its only pane is joined away — verified).
+- **billboard browser (`demuxd browse`, off the key)** — the full-screen
+  list + preview canvas in `_demux`: j/k paints captured frames, 10fps live
+  capture stream while open, Enter/M-s commit, q cancels. kept fully
+  working; pinned mode auto-undocks before entering it.
+- still-load-bearing rules: sequences abort at first error (critical
+  commands first, best-effort restores last, on their own); all switching
+  client-explicit (`-c`); per-client truth via list-clients rows, never
+  `display-message -c`; geometry queried at point-of-use, never from the
+  cached world.
+
+## language
+
+go. matches the existing pattern in dots (`tmux-equalize-nvim`, buildGoModule),
+bubbletea/lipgloss for the TUI, stdlib for sockets. rust + ratatui is equally
+capable — choose go purely for repo consistency and iteration speed.
+
+## nix / deployment
+
+- flake package `demux` (buildGoModule) — its own repo once it stabilizes;
+  starts life under `modules/home/demux/`
+- hm module wires: toggle keybind (`prefix b` →
+  `demux sidebar --toggle "#{pane_id}"`), claude code hook entries pointing at
+  `demux emit`, statusline format reference, launchd/systemd user service
+  optional (lazy start is the default)
+- no tmux hooks needed anymore → the spike's 10 `set-hook` lines disappear
+
+## failure semantics
+
+- daemon crash: clients show "disconnected", retry with backoff; restart
+  rebuilds from snapshot. no persistent state to corrupt.
+- tmux server gone: `%exit` → daemon exits; next toggle restarts everything.
+- hook fires with no daemon: `demux emit` starts it (`--ensure`) or drops the
+  event after a short timeout — hooks must never block the agent.
+
+## milestones
+
+1. **demuxd core** — control-mode ingest, reducer, snapshot+diff protocol,
+   `demux ls`. proves the event path end to end. **done (2026-08-10).**
+2. **sidebar TUI** — tree render, j/k/enter/x, mouse, toggle mechanics ported
+   from spike. replaces sidebar.sh. **shipped (2026-08-10/11): pinned mode
+   (dock as a real pane, real-window scrub, routed M-h/M-l, layout
+   save/restore, status shift) is the M-s default; the billboard browser
+   survives as `demuxd browse`. still open: x=kill, mouse, styling.**
+3. **agents** — claude code hooks → `demux emit`, agent states in sidebar,
+   statusline bridge, blocked notifications.
+4. **previews** — selection frames, then follow mode.
+5. **heuristic tier** — unhooked agent detection from `%output` patterns.
+6. **polish** — spawn-with-worktree, mission-control window, theming.
+
+each milestone is independently useful; stop anywhere and the previous
+milestones keep working.
+
+## notification coverage (verified, tmux 3.7b, 2026-08-10)
+
+measured with a single control client attached to one session while mutating
+others:
+
+- **topology crosses sessions**: `%unlinked-window-add` / `-close` /
+  `-renamed`, `%session-window-changed`, `%session-renamed $id`,
+  `%sessions-changed`, `%window-pane-changed` all arrive for changes in any
+  session
+- **geometry does not**: `%layout-change` is own-session only; `resize-pane`
+  in another session emits *nothing*; `refresh-client -B` subscriptions with
+  `%*` only evaluate panes of the attached session
+- `%output` is own-session only by default
+- killing the attached session emits `%exit` while the server lives
+  (detach-on-destroy) — the daemon reattaches, republishing a snapshot
+- the attach itself produces one unsolicited `%begin/%end` block that must be
+  discarded before reply correlation starts
+
+consequence, implemented in demuxd: notifications are dirty-triggers only;
+each trigger debounces (15ms) into one whole-world re-list over the same
+connection. that self-heals the geometry gap at every event. anything acting
+on another session's *current* layout (the sidebar, right before a join) must
+re-query at point-of-use — which the daemon does over the live connection,
+serialized, so the answer cannot be stale.
+
+## open questions
+
+- diff granularity: per-field ops vs whole-entity replacement (start with
+  whole-entity, measure)
+- whether the sidebar should also host the "blocked queue" herdr shows, or that
+  becomes a separate popup client
