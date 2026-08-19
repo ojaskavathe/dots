@@ -675,10 +675,12 @@ func (d *daemon) leaveLayout(wid string, exact string, dockedLayout string, dirt
 // dockSessionCmds marks a session as docked: the bind-routing flag M-h/M-l
 // check, plus the status pad that shifts the status line past the sidebar.
 func dockSessionCmds(sid string) []string {
-	// bg=default makes the pad transparent (terminal background — what the
-	// sidebar paints on) instead of the status bar's themed background,
-	// so the strip above the sidebar reads as sidebar, not statusline.
-	pad := "#[bg=default,fg=default]" + strings.Repeat(" ", statusPad) + "#[default]"
+	// bg=terminal (tmux >= 3.4) is the TERMINAL's default background — what
+	// the sidebar paints on — so the strip above the sidebar reads as
+	// sidebar, not statusline. (bg=default would NOT work: inside the
+	// status line "default" means inherit status-style, i.e. the themed
+	// statusline background — a no-op.)
+	pad := "#[bg=terminal,fg=terminal]" + strings.Repeat(" ", statusPad) + "#[default]"
 	return []string{
 		"set-option -t " + q(sid) + " @demux_docked 1",
 		"set-option -t " + q(sid) + " status-left " + q(pad),
