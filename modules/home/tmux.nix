@@ -105,7 +105,9 @@
             bind -n M-l next-window
 
             # common tmux actions without prefix
-            bind -n M-s if-shell -F '#{==:#{pane_mode},tree-mode}' 'send-keys -X cancel' 'choose-tree -Zs'
+            # toggle: M-s opens the session tree, M-s again closes it (like q)
+            bind -n M-s choose-tree -Zs
+            bind -T copy-mode-vi M-s send-keys -X cancel
             bind -n M-e run-shell -b '${tmuxEqualizeNvim}/bin/tmux-equalize-nvim'
             bind -n M-g send-keys C-l \; run-shell -b -d 0.05 -C 'clear-history -t "#{pane_id}"'
 
