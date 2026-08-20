@@ -283,6 +283,28 @@ func cmdTui(tmuxSock, demuxSock string) {
 		paintedWin, paintedGen = "", -1 // size/world may have shifted regions
 		paintFrameFor(target())
 	}
+	// clearCanvas blanks everything right of the list column, called just
+	// before commit/close leaves wide mode. tmux REWRAPS a pane's grid on
+	// width change: a ~480-col canvas shrunk to 40 cols mashes the billboard
+	// into a wall of wrapped text for the instant before the narrow list
+	// repaint covers it (the "blob of text" flicker at commit). With the
+	// canvas blank the shrink rewraps nothing — list rows already fit. If
+	// the command fails or scrubbing resumes, the next stream frame repaints
+	// the canvas within a tick.
+	clearCanvas := func() {
+		cols, height := surfaceSize()
+		if cols <= listWidth+2 {
+			return
+		}
+		var b strings.Builder
+		b.WriteString("\033[?2026h")
+		for y := 1; y <= height; y++ {
+			fmt.Fprintf(&b, "\033[%d;%dH\033[K", y, listWidth+1)
+		}
+		b.WriteString("\033[?2026l")
+		os.Stdout.WriteString(b.String())
+		paintedWin, paintedGen = "", -1 // canvas is gone; never skip a repaint
+	}
 	// Browse mode: cached frame paints locally NOW; the daemon refreshes it
 	// (and streams it live) right behind, neighbors prefetched warm. Docked
 	// (narrow) mode: the same preview cmd IS the scrub — the daemon moves
@@ -434,6 +456,7 @@ func cmdTui(tmuxSock, demuxSock string) {
 				case b == 'k', b == 0x0b: // k, ctrl-k
 					moved = moveSel(-1) || moved
 				case b == '\r': // enter
+					clearCanvas()
 					send(cmdMsg{Cmd: "commit", Window: target()})
 				case b == 0x0c: // ctrl-l
 					if narrowMode() {
@@ -444,9 +467,11 @@ func cmdTui(tmuxSock, demuxSock string) {
 					} else {
 						// Zoomed billboard / full-screen browse: C-l goes INTO
 						// what you're looking at, like Enter.
+						clearCanvas()
 						send(cmdMsg{Cmd: "commit", Window: target()})
 					}
 				case b == 'q', b == 0x03: // q, ctrl-c
+					clearCanvas()
 					send(cmdMsg{Cmd: "close"})
 				default:
 					esc = 0
