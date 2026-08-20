@@ -283,28 +283,16 @@ func cmdTui(tmuxSock, demuxSock string) {
 		paintedWin, paintedGen = "", -1 // size/world may have shifted regions
 		paintFrameFor(target())
 	}
-	// clearCanvas blanks everything right of the list column, called just
-	// before commit/close leaves wide mode. tmux REWRAPS a pane's grid on
-	// width change: a ~480-col canvas shrunk to 40 cols mashes the billboard
-	// into a wall of wrapped text for the instant before the narrow list
-	// repaint covers it (the "blob of text" flicker at commit). With the
-	// canvas blank the shrink rewraps nothing — list rows already fit. If
-	// the command fails or scrubbing resumes, the next stream frame repaints
-	// the canvas within a tick.
-	clearCanvas := func() {
-		cols, height := surfaceSize()
-		if cols <= listWidth+2 {
-			return
-		}
-		var b strings.Builder
-		b.WriteString("\033[?2026h")
-		for y := 1; y <= height; y++ {
-			fmt.Fprintf(&b, "\033[%d;%dH\033[K", y, listWidth+1)
-		}
-		b.WriteString("\033[?2026l")
-		os.Stdout.WriteString(b.String())
-		paintedWin, paintedGen = "", -1 // canvas is gone; never skip a repaint
-	}
+	// shrinkExpected: a commit/close was sent from wide mode, so the pane is
+	// about to shrink to 40 cols. tmux REWRAPS the grid on width change —
+	// the canvas mashes into a wall of wrapped text in the 40-col strip (the
+	// "blob" flicker) until the winch repaint covers it. Painting anything
+	// more into the canvas meanwhile only widens that window (a 100KB frame
+	// write can delay the covering repaint ~100ms), so canvas paints pause
+	// until the winch lands. Pre-CLEARING instead is worse: tmux flushes the
+	// clear as its own sync-wrapped frame (probe-verified), which blanks the
+	// billboard visibly before the swap.
+	shrinkExpected := false
 	// Browse mode: cached frame paints locally NOW; the daemon refreshes it
 	// (and streams it live) right behind, neighbors prefetched warm. Docked
 	// (narrow) mode: the same preview cmd IS the scrub — the daemon moves
@@ -356,6 +344,13 @@ func cmdTui(tmuxSock, demuxSock string) {
 				return
 			}
 			switch m.Type {
+			case "reply":
+				// A failed commit/close means the shrink is never coming —
+				// unfreeze canvas painting (the stream refills it in a tick).
+				if shrinkExpected && m.OK != nil && !*m.OK {
+					shrinkExpected = false
+					paintFrameFor(target())
+				}
 			case "snapshot", "diff":
 				// Selection is sticky to the ROW IDENTITY, not the index:
 				// world churn (a window or session appearing/dying — agents
@@ -390,8 +385,10 @@ func cmdTui(tmuxSock, demuxSock string) {
 				}
 				tlogf("select win=%s found=%v sel=%d rows=%d", m.Window, found, sel, len(rows))
 				paintList(rows, sel)
-				paintFrameFor(target())
-				requestFrames()
+				if !shrinkExpected {
+					paintFrameFor(target())
+					requestFrames()
+				}
 			case "frame":
 				benchf("frame win=%s current=%v", m.Window, m.Window == target())
 				// Input outranks painting: with keys already queued, a full
@@ -399,7 +396,7 @@ func cmdTui(tmuxSock, demuxSock string) {
 				// behind the selection the user has already left. The frame
 				// is cached either way — the key batch paints it if the
 				// target still matches, the stream re-covers it otherwise.
-				quiet := len(keys) == 0
+				quiet := len(keys) == 0 && !shrinkExpected
 				if prev, ok := frames[m.Window]; ok && framesEqual(prev.panes, m.Frame) {
 					// Confirming frame, content unchanged: no repaint, but
 					// the cache is proven current — restamp it, or a
@@ -456,7 +453,7 @@ func cmdTui(tmuxSock, demuxSock string) {
 				case b == 'k', b == 0x0b: // k, ctrl-k
 					moved = moveSel(-1) || moved
 				case b == '\r': // enter
-					clearCanvas()
+					shrinkExpected = !narrowMode()
 					send(cmdMsg{Cmd: "commit", Window: target()})
 				case b == 0x0c: // ctrl-l
 					if narrowMode() {
@@ -467,11 +464,11 @@ func cmdTui(tmuxSock, demuxSock string) {
 					} else {
 						// Zoomed billboard / full-screen browse: C-l goes INTO
 						// what you're looking at, like Enter.
-						clearCanvas()
+						shrinkExpected = true
 						send(cmdMsg{Cmd: "commit", Window: target()})
 					}
 				case b == 'q', b == 0x03: // q, ctrl-c
-					clearCanvas()
+					shrinkExpected = !narrowMode()
 					send(cmdMsg{Cmd: "close"})
 				default:
 					esc = 0
@@ -492,10 +489,13 @@ func cmdTui(tmuxSock, demuxSock string) {
 			if moved {
 				benchf("key sel=%d target=%s cached=%v", sel, target(), frames[target()].panes != nil)
 				paintList(rows, sel)
-				paintFrameFor(target())
-				requestFrames()
+				if !shrinkExpected {
+					paintFrameFor(target())
+					requestFrames()
+				}
 			}
 		case <-winch:
+			shrinkExpected = false // the resize this was armed for has landed
 			paintAll()
 			// A client resize (monitor switch) rescales the docked sidebar
 			// off its fixed width, and no tmux notification crosses sessions
