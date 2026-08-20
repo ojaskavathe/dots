@@ -47,7 +47,9 @@ func TestClientResize(t *testing.T) {
 	r.Chk("sidebar back at 40 after resize", s.Width == 40)
 	r.Chk("sidebar still at left edge", s.Left == 0)
 
-	// scrub still works at the new size
+	// scrub still works at the new size (commits hand off to a fresh TUI
+	// pane — re-fetch after the landing above)
+	sp = r.Side().Pane
 	r.T("select-pane", "-t", sp)
 	r.SendKeys(sp, "j")
 	sleep(600)

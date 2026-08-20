@@ -104,7 +104,13 @@ func TestDockScrub(t *testing.T) {
 	}
 	r.Chk("billboard == docked reality", pos > 0 && abs(pos-mreal) <= 1)
 
-	// P: escaping a billboard (vim-navigator C-l) recovers
+	r.Chk("commit was a handoff", r.LogHas("bench handoff finish"))
+	r.Chk("handoff go-signal was the hello, not the timer", !r.LogHas("never said hello"))
+
+	// P: escaping a billboard (vim-navigator C-l) recovers.
+	// Commits HAND OFF to a fresh TUI pane (the old one becomes the
+	// origin's spacer) — re-fetch the sidebar after every landing.
+	sp = r.Side().Pane
 	r.T("select-pane", "-t", sp)
 	r.SendKeys(sp, "j")
 	sleep(500)
@@ -163,6 +169,7 @@ func TestDockScrub(t *testing.T) {
 	sleep(300)
 	r.Chk("C-l commits to billboard", r.ClientWin() == r.W2)
 	r.Chk("C-l keeps sidebar docked", r.Side().Win == r.W2 && r.Side().Width == 40)
+	sp = r.Side().Pane
 	r.T("select-pane", "-t", sp)
 	r.SendKeys(sp, "k") // back to w1 for the storm section
 	sleep(500)
@@ -171,6 +178,7 @@ func TestDockScrub(t *testing.T) {
 	sleep(300)
 
 	// C: storm kkkk + M-s commits AND dismisses
+	sp = r.Side().Pane
 	r.T("select-pane", "-t", sp)
 	r.SendKeys(sp, "k", "k", "k", "k")
 	sleep(600)

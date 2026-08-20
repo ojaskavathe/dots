@@ -60,6 +60,12 @@ func (d *daemon) handleCmd(ctl *control, env cmdEnvelope) {
 func (d *daemon) runCmd(ctl *control, env cmdEnvelope) {
 	start := time.Now()
 	var err error
+	if d.handoff != nil && env.msg.Cmd != "hello-list" {
+		// A commit is mid-handoff (≤300ms): the world is half-moved, so
+		// anything else acks and drops rather than racing it.
+		d.h.send(env.sub, marshalLine(replyMsg{Type: "reply", OK: true}))
+		return
+	}
 	switch env.msg.Cmd {
 	case "toggle":
 		err = d.toggle(ctl, env.msg.Client)
@@ -96,7 +102,7 @@ func (d *daemon) runCmd(ctl *control, env cmdEnvelope) {
 	case "commit":
 		if d.dock != nil {
 			if d.dock.scrubbing {
-				err = d.commitScrub(ctl, env.msg.Window)
+				err = d.commitScrub(ctl, env.msg.Window, env.msg.Pane)
 			} else {
 				err = d.dockCommit(ctl)
 			}
@@ -112,7 +118,15 @@ func (d *daemon) runCmd(ctl *control, env cmdEnvelope) {
 			}
 		}
 	case "hello-list":
-		// The TUI dockOpen just spawned connected; replay the selection it
+		// A fresh TUI connected. Mid-handoff this IS the go signal: it has
+		// the world, gets the target selection, paints, and the client
+		// switches onto an already-painted sidebar.
+		if d.handoff != nil {
+			d.h.send(env.sub, marshalLine(selectMsg{Type: "select", Window: d.handoff.wid}))
+			d.handoffFinish(ctl)
+			break
+		}
+		// Otherwise dockOpen just spawned it; replay the selection it
 		// missed (and the current frame, when browse pre-zoomed into a scrub).
 		if d.dock != nil {
 			d.h.send(env.sub, marshalLine(selectMsg{Type: "select", Window: d.dock.win}))

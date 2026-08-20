@@ -38,6 +38,12 @@ type daemon struct {
 	pendingRelease []releaseItem
 	releaseT       *time.Timer
 	releaseC       <-chan time.Time
+
+	// handoff: a scrub commit waiting for its fresh TUI to paint before the
+	// client switches (dock.go handoffState).
+	handoff  *handoffState
+	handoffT *time.Timer
+	handoffC <-chan time.Time
 }
 
 // clientView: the client's current session, window, and size, from
@@ -170,7 +176,9 @@ func consume(d *daemon, ctl *control, w world, sig chan os.Signal) bool {
 			ops := diffWorlds(w, next)
 			w = next
 			d.h.setWorld(w, ops, false, d.tmuxSock)
-			d.checkDock(ctl, w)
+			if d.handoff == nil { // mid-handoff the world is ours, half-moved
+				d.checkDock(ctl, w)
+			}
 			if dur := time.Since(start); dur > 25*time.Millisecond {
 				log.Printf("relist took %s ops=%d", dur, len(ops))
 			} else if bench {
@@ -183,10 +191,15 @@ func consume(d *daemon, ctl *control, w world, sig chan os.Signal) bool {
 			// are showing (a docked zoom-scrub). Yield to queued commands —
 			// a mid-scrub tick would capture a target that's about to change
 			// anyway.
-			streaming := d.pv.target != "" && d.dock != nil && d.dock.scrubbing
+			streaming := d.pv.target != "" && d.dock != nil && d.dock.scrubbing &&
+				d.handoff == nil
 			if streaming && len(d.h.cmds) == 0 {
 				_ = d.preview(ctl, d.pv.target, false)
 			}
+		case <-d.handoffC:
+			d.handoffC = nil
+			log.Printf("handoff: fresh TUI never said hello, switching anyway")
+			d.handoffFinish(ctl)
 		case <-d.releaseC:
 			d.releaseC = nil
 			if len(d.pendingRelease) == 0 {
