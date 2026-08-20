@@ -303,9 +303,11 @@ func cmdTui(tmuxSock, demuxSock string) {
 			}
 		}
 	}
-	move := func(delta int) {
+	// moveSel clamps and applies a selection delta; painting is the caller's
+	// job — the key loop coalesces a drained batch into one paint.
+	moveSel := func(delta int) bool {
 		if len(rows) == 0 {
-			return
+			return false
 		}
 		next := sel + delta
 		if next < 0 {
@@ -315,13 +317,10 @@ func cmdTui(tmuxSock, demuxSock string) {
 			next = len(rows) - 1
 		}
 		if next == sel {
-			return
+			return false
 		}
 		sel = next
-		benchf("key sel=%d target=%s cached=%v", sel, target(), frames[target()].panes != nil)
-		paintList(rows, sel)
-		paintFrameFor(target())
-		requestFrames()
+		return true
 	}
 
 	// The process is per-dock: spawned by dockOpen, killed with its pane at
@@ -373,6 +372,12 @@ func cmdTui(tmuxSock, demuxSock string) {
 				requestFrames()
 			case "frame":
 				benchf("frame win=%s current=%v", m.Window, m.Window == target())
+				// Input outranks painting: with keys already queued, a full
+				// frame paint (20-120ms in a saturated tmux) would land
+				// behind the selection the user has already left. The frame
+				// is cached either way — the key batch paints it if the
+				// target still matches, the stream re-covers it otherwise.
+				quiet := len(keys) == 0
 				if prev, ok := frames[m.Window]; ok && framesEqual(prev.panes, m.Frame) {
 					// Confirming frame, content unchanged: no repaint, but
 					// the cache is proven current — restamp it, or a
@@ -381,14 +386,14 @@ func cmdTui(tmuxSock, demuxSock string) {
 					// canvas waiting for exactly this confirmation.
 					prev.at = time.Now()
 					frames[m.Window] = prev
-					if m.Window == target() {
+					if m.Window == target() && quiet {
 						paintFrameFor(m.Window)
 					}
 					break
 				}
 				gen++
 				frames[m.Window] = cached{gen: gen, panes: m.Frame, at: time.Now()}
-				if m.Window == target() {
+				if m.Window == target() && quiet {
 					paintFrameFor(m.Window)
 				}
 			}
@@ -396,46 +401,74 @@ func cmdTui(tmuxSock, demuxSock string) {
 			if !ok {
 				return
 			}
-			switch {
-			case esc == 1 && b == '[':
-				esc = 2
-			case esc == 2:
-				esc = 0
-				if b == 'A' {
-					move(-1)
-				} else if b == 'B' {
-					move(1)
-				}
-			case b == 0x1b:
-				esc = 1
-			// vim-tmux-navigator hands its keys to this pane (the
-			// @vim_navigator_pattern includes demuxd), so the sidebar
-			// behaves like a vim split: C-l goes INTO what you're looking
-			// at — the billboarded window mid-scrub, the main pane when
-			// docked idle — never "escapes" back to the docked window's
-			// hidden panes via a raw unzoom. C-j/C-k mirror j/k. C-h has
-			// nowhere left to go and is ignored.
-			case b == 'j', b == 0x0a: // j, ctrl-j
-				move(1)
-			case b == 'k', b == 0x0b: // k, ctrl-k
-				move(-1)
-			case b == '\r': // enter
-				send(cmdMsg{Cmd: "commit", Window: target()})
-			case b == 0x0c: // ctrl-l
-				if narrowMode() {
-					// Docked idle: C-l is the navigator's "pane to the
-					// right" — the pane NEXT to the sidebar, not the
-					// window's last-active one (commit would skip splits).
-					send(cmdMsg{Cmd: "focus"})
-				} else {
-					// Zoomed billboard / full-screen browse: C-l goes INTO
-					// what you're looking at, like Enter.
+			// Coalesce: drain every key already queued and paint ONCE for
+			// the final selection. A held j autorepeats faster than tmux
+			// drains full-canvas paints (20-120ms each, log-measured on a
+			// 440x95 client); painting every intermediate row shoves ~100KB
+			// a step into the saturated pty and the input queue backs up —
+			// the held-scrub mush. NOT a debounce: nothing waits, a lone key
+			// finds the queue empty and paints immediately.
+			moved := false
+			for {
+				switch {
+				case esc == 1 && b == '[':
+					esc = 2
+				case esc == 2:
+					esc = 0
+					if b == 'A' {
+						moved = moveSel(-1) || moved
+					} else if b == 'B' {
+						moved = moveSel(1) || moved
+					}
+				case b == 0x1b:
+					esc = 1
+				// vim-tmux-navigator hands its keys to this pane (the
+				// @vim_navigator_pattern includes demuxd), so the sidebar
+				// behaves like a vim split: C-l goes INTO what you're looking
+				// at — the billboarded window mid-scrub, the main pane when
+				// docked idle — never "escapes" back to the docked window's
+				// hidden panes via a raw unzoom. C-j/C-k mirror j/k. C-h has
+				// nowhere left to go and is ignored.
+				case b == 'j', b == 0x0a: // j, ctrl-j
+					moved = moveSel(1) || moved
+				case b == 'k', b == 0x0b: // k, ctrl-k
+					moved = moveSel(-1) || moved
+				case b == '\r': // enter
 					send(cmdMsg{Cmd: "commit", Window: target()})
+				case b == 0x0c: // ctrl-l
+					if narrowMode() {
+						// Docked idle: C-l is the navigator's "pane to the
+						// right" — the pane NEXT to the sidebar, not the
+						// window's last-active one (commit would skip splits).
+						send(cmdMsg{Cmd: "focus"})
+					} else {
+						// Zoomed billboard / full-screen browse: C-l goes INTO
+						// what you're looking at, like Enter.
+						send(cmdMsg{Cmd: "commit", Window: target()})
+					}
+				case b == 'q', b == 0x03: // q, ctrl-c
+					send(cmdMsg{Cmd: "close"})
+				default:
+					esc = 0
 				}
-			case b == 'q', b == 0x03: // q, ctrl-c
-				send(cmdMsg{Cmd: "close"})
-			default:
-				esc = 0
+				more := false
+				select {
+				case b, ok = <-keys:
+					if !ok {
+						return
+					}
+					more = true
+				default:
+				}
+				if !more {
+					break
+				}
+			}
+			if moved {
+				benchf("key sel=%d target=%s cached=%v", sel, target(), frames[target()].panes != nil)
+				paintList(rows, sel)
+				paintFrameFor(target())
+				requestFrames()
 			}
 		case <-winch:
 			paintAll()
