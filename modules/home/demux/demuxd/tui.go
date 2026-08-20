@@ -555,32 +555,40 @@ func scaleFrame(frame []framePane, avail int) []framePane {
 		}
 		lines := make([]string, len(p.Lines))
 		for j, ln := range p.Lines {
-			lines[j] = truncANSI(ln, w)
+			lines[j], _ = cleanLine(ln, w)
 		}
-		out[i] = framePane{Left: x0, Top: p.Top, Width: w, Height: p.Height, Active: p.Active, Lines: lines}
+		out[i] = framePane{ID: p.ID, Left: x0, Top: p.Top, Width: w, Height: p.Height, Active: p.Active, Lines: lines}
 	}
 	return out
 }
 
-// truncANSI cuts a line at n display columns. Escape sequences pass through
-// unconsumed (they take no columns); east-asian wide runes count 2 — close
-// enough for previews without pulling in a width library. Trailing SGR state
-// is fine: paintFrame resets attributes after every line.
-func truncANSI(s string, n int) string {
-	if n <= 0 {
-		return ""
-	}
+// cleanLine renders a captured line paint-safe: truncated at max display
+// columns (max < 0 means no limit), CSI sequences passed through unconsumed
+// (they take no columns), OSC sequences STRIPPED — capture emits them for
+// hyperlinks (grok's TUI), their payload is zero-width so counting it skews
+// the pad math, and a truncation cutting one mid-way leaves a dangling OSC
+// that swallows everything painted after it. Returns the line and its
+// display width; east-asian wide runes count 2 — close enough for previews
+// without a width library. Trailing SGR state is deliberate: paintFrame
+// pads in it (BCE bars), then resets.
+func cleanLine(s string, max int) (string, int) {
 	w := 0
-	esc := 0 // 0 plain, 1 saw ESC, 2 inside CSI
+	esc := 0 // 0 plain, 1 ESC, 2 CSI, 3 OSC, 4 ESC-in-OSC (ST?)
 	var b strings.Builder
 	for _, r := range s {
 		switch esc {
 		case 1:
-			b.WriteRune(r)
-			if r == '[' {
+			switch r {
+			case '[':
+				b.WriteRune(0x1b)
+				b.WriteRune(r)
 				esc = 2
-			} else {
-				esc = 0 // two-byte ESC sequence
+			case ']':
+				esc = 3
+			default: // two-byte ESC sequence
+				b.WriteRune(0x1b)
+				b.WriteRune(r)
+				esc = 0
 			}
 			continue
 		case 2:
@@ -589,20 +597,33 @@ func truncANSI(s string, n int) string {
 				esc = 0
 			}
 			continue
+		case 3:
+			if r == 0x07 {
+				esc = 0
+			} else if r == 0x1b {
+				esc = 4
+			}
+			continue
+		case 4:
+			if r == '\\' || r == 0x07 {
+				esc = 0
+			} else if r != 0x1b {
+				esc = 3
+			}
+			continue
 		}
 		if r == 0x1b {
 			esc = 1
-			b.WriteRune(r)
 			continue
 		}
 		rw := runeWidth(r)
-		if w+rw > n {
+		if max >= 0 && w+rw > max {
 			break
 		}
 		w += rw
 		b.WriteRune(r)
 	}
-	return b.String()
+	return b.String(), w
 }
 
 // runeWidth: east-asian wide runes count 2 — close enough for previews
@@ -618,32 +639,6 @@ func runeWidth(r rune) int {
 	return 1
 }
 
-// displayWidth is a line's rendered column count, escape sequences skipped.
-func displayWidth(s string) int {
-	w, esc := 0, 0
-	for _, r := range s {
-		switch esc {
-		case 1:
-			if r == '[' {
-				esc = 2
-			} else {
-				esc = 0
-			}
-			continue
-		case 2:
-			if r >= 0x40 && r <= 0x7e {
-				esc = 0
-			}
-			continue
-		}
-		if r == 0x1b {
-			esc = 1
-			continue
-		}
-		w += runeWidth(r)
-	}
-	return w
-}
 
 func framesEqual(a, b []framePane) bool {
 	if len(a) != len(b) {
@@ -932,10 +927,8 @@ func paintFrame(frame, prev []framePane) {
 			// (probe-verified) — padding in that live state reconstructs
 			// the bar; lines ending in default state pad blank as before.
 			// Reset per line so pane edges never bleed attributes.
-			if width < p.Width {
-				ln = truncANSI(ln, width)
-			}
-			pad := width - displayWidth(ln)
+			ln, dw := cleanLine(ln, width)
+			pad := width - dw
 			if pad < 0 {
 				pad = 0
 			}
