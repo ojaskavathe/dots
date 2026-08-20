@@ -337,8 +337,24 @@ func cmdTui(tmuxSock, demuxSock string) {
 			}
 			switch m.Type {
 			case "snapshot", "diff":
+				// Selection is sticky to the ROW IDENTITY, not the index:
+				// world churn (a window or session appearing/dying — agents
+				// do this constantly) rebuilds rows, and an index-anchored
+				// highlight visibly jumps to whatever slid into its slot.
+				prevWin, prevSession := "", false
+				if sel >= 0 && sel < len(rows) {
+					prevWin, prevSession = rows[sel].window, rows[sel].session
+				}
 				st.apply(m)
 				rows = st.rows()
+				if prevWin != "" {
+					for i, r := range rows {
+						if r.window == prevWin && r.session == prevSession {
+							sel = i
+							break
+						}
+					}
+				}
 				if sel >= len(rows) {
 					sel = len(rows) - 1
 				}
