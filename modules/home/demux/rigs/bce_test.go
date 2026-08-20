@@ -24,8 +24,11 @@ func TestBCEBillboard(t *testing.T) {
 	// printed output contains the contiguous strings. Second line: an OSC 8
 	// hyperlink (grok's TUI emits these) — its payload is zero-width and
 	// must not skew padding or leak into the billboard.
+	// Third block: a bg opened on one row and NEVER reset — capture emits
+	// the following row with no sequence at all (state carries across
+	// lines); the frame must self-contain it or the row paints black.
 	r.SendKeys(shell,
-		`clear; B=BCE; printf '\033[44m'"$B"'BAR\033[K\033[0m\n\033]8;;http://osc-leak.test\033\\'"$B"'LINK\033]8;;\033\\ \033[45m'"$B"'BAR2\033[K\033[0m\n'`,
+		`clear; B=BCE; printf '\033[44m'"$B"'BAR\033[K\033[0m\n\033]8;;http://osc-leak.test\033\\'"$B"'LINK\033]8;;\033\\ \033[45m'"$B"'BAR2\033[K\033[0m\n\033[48;2;30;30;99m\033[K\n'"$B"'CARRY\033[0m\n'`,
 		"Enter")
 	sleep(500)
 
@@ -50,6 +53,7 @@ func TestBCEBillboard(t *testing.T) {
 	r.Chk("hyperlink text kept", strings.Contains(out, "BCELINK"))
 	r.Chk("OSC payload stripped", !strings.Contains(out, "osc-leak.test"))
 	r.Chk("bar after link intact", regexp.MustCompile(`45m[^\x1b]*BCEBAR2 {5,}`).MatchString(out))
+	r.Chk("carried bg reaches its row", regexp.MustCompile(`48;2;30;30;99m[^\x1b]*BCECARRY`).MatchString(out))
 	for _, ln := range strings.Split(out, "\n") {
 		if strings.Contains(ln, "BCEBAR") {
 			t.Logf("bar line: %q", ln)

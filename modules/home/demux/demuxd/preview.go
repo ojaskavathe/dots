@@ -44,6 +44,61 @@ func (d *daemon) stopStream() {
 	}
 }
 
+// selfContain rewrites captured lines so each stands alone. capture-pane -e
+// emits per-line sequences RELATIVE to the previous line's ending state
+// (probe-verified: a bg opened on one row and never reset paints following
+// rows with no sequence at all). The billboard painter positions and resets
+// per line — carried state would be lost, washing panel backgrounds off
+// rows seemingly at random — so each line gets its carry-in prepended.
+func selfContain(lines []string) {
+	var state []string
+	for i, ln := range lines {
+		if len(state) > 0 {
+			lines[i] = "\x1b[" + strings.Join(state, ";") + "m" + ln
+		}
+		state = sgrFold(state, ln)
+	}
+}
+
+// sgrFold accumulates the SGR parameters a line leaves active. Parameters
+// are replayed in order, so compound forms (38;2;r;g;b) survive intact; a
+// bare 0 (or empty) resets. Capped so a pathological pane can't balloon
+// every following line.
+func sgrFold(state []string, ln string) []string {
+	for i := 0; i < len(ln); {
+		j := strings.Index(ln[i:], "\x1b[")
+		if j < 0 {
+			break
+		}
+		i += j + 2
+		k := i
+		for k < len(ln) && !(ln[k] >= 0x40 && ln[k] <= 0x7e) {
+			k++
+		}
+		if k >= len(ln) {
+			break
+		}
+		if ln[k] == 'm' {
+			params := ln[i:k]
+			if params == "" {
+				params = "0"
+			}
+			for _, p := range strings.Split(params, ";") {
+				if p == "0" || p == "" {
+					state = state[:0]
+				} else {
+					state = append(state, p)
+				}
+			}
+			if len(state) > 64 {
+				state = append(state[:0], state[len(state)-64:]...)
+			}
+		}
+		i = k + 1
+	}
+	return state
+}
+
 // parseDims splits a "W<sep>H" display-message line.
 func parseDims(line string) (int, int) {
 	p := strings.Split(line, sep)
@@ -209,6 +264,9 @@ func (d *daemon) preview(ctl *control, wid string, prefetch bool) error {
 		if idx < len(panes) {
 			panes[idx].Lines = append(panes[idx].Lines, ln)
 		}
+	}
+	for i := range panes {
+		selfContain(panes[i].Lines)
 	}
 	if bench {
 		rects := make([]string, len(panes))
