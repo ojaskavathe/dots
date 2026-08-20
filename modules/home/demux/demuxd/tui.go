@@ -623,6 +623,25 @@ func narrowMode() bool {
 	return cols <= listWidth+2
 }
 
+// listTop is the scroll offset paintList uses; click mapping shares it so
+// a clicked y always lands on the row that was painted there.
+func listTop(n, sel, height int) int {
+	top := 0
+	if n > height && sel > height/2 {
+		top = sel - height/2
+		if top > n-height {
+			top = n - height
+		}
+	}
+	return top
+}
+
+// benchListPrev remembers the last painted list content (bench mode only):
+// a "list flicker" is by definition rows whose cells actually changed —
+// tmux ships nothing for identical repaints — so diffing consecutive
+// paints names exactly what was written.
+var benchListPrev []string
+
 // paintList redraws the list column and border only. Fixed width, padded
 // with spaces — no clears, so unchanged cells cost nothing downstream.
 // Wrapped in synchronized output (DECSET 2026) so tmux applies it atomically.
@@ -633,12 +652,10 @@ func paintList(rows []row, sel int) {
 	if cols <= listWidth+2 {
 		lw, border = cols, false
 	}
-	top := 0
-	if len(rows) > height && sel > height/2 {
-		top = sel - height/2
-		if top > len(rows)-height {
-			top = len(rows) - height
-		}
+	top := listTop(len(rows), sel, height)
+	var cur []string
+	if benchLog != nil {
+		cur = make([]string, 0, height)
 	}
 	var b strings.Builder
 	b.WriteString("\033[?2026h\033[0m")
@@ -659,8 +676,20 @@ func paintList(rows []row, sel int) {
 			default:
 				b.WriteString("\033[2m" + string(label) + pad + "\033[22m")
 			}
+			if benchLog != nil {
+				cls := byte(' ')
+				if i == sel {
+					cls = '>'
+				} else if rows[i].session {
+					cls = 'S'
+				}
+				cur = append(cur, string(cls)+string(label))
+			}
 		} else {
 			b.WriteString(strings.Repeat(" ", lw))
+			if benchLog != nil {
+				cur = append(cur, "")
+			}
 		}
 		if border {
 			b.WriteString("\033[2m│\033[22m")
@@ -668,6 +697,28 @@ func paintList(rows []row, sel int) {
 	}
 	b.WriteString("\033[?2026l")
 	os.Stdout.WriteString(b.String())
+	if benchLog != nil {
+		logged := 0
+		for y := 0; y < len(cur) || y < len(benchListPrev); y++ {
+			o, n := "", ""
+			if y < len(benchListPrev) {
+				o = benchListPrev[y]
+			}
+			if y < len(cur) {
+				n = cur[y]
+			}
+			if o != n {
+				if logged < 8 {
+					benchf("list row %d: %q -> %q", y, o, n)
+				}
+				logged++
+			}
+		}
+		if logged > 8 {
+			benchf("list rows changed: %d total", logged)
+		}
+		benchListPrev = cur
+	}
 	benchf("paint_list dur_us=%d bytes=%d", time.Since(start).Microseconds(), b.Len())
 }
 

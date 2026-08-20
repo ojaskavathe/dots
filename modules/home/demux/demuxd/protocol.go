@@ -28,6 +28,7 @@ type cmdMsg struct {
 	Role     string `json:"role,omitempty"`
 	Dir      string `json:"dir,omitempty"`   // nav: "next" | "prev"
 	Width    int    `json:"width,omitempty"` // winch: the TUI's new cols
+	Pane     string `json:"pane,omitempty"`  // commit: focus this pane (billboard click)
 	Prefetch bool   `json:"prefetch,omitempty"`
 }
 
@@ -68,6 +69,7 @@ type frameMsg struct {
 }
 
 type framePane struct {
+	ID     string   `json:"id,omitempty"` // real pane id — billboard clicks target it
 	Left   int      `json:"left"`
 	Top    int      `json:"top"`
 	Width  int      `json:"width"`
