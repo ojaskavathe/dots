@@ -156,6 +156,19 @@
             set -g status-interval 15
             set -g status-position top
 
+            # vim-tmux-navigator's is_vim shells out to `ps -o state=`, and
+            # macOS 26.5 hides the process state field behind an entitlement
+            # — the blank field breaks its regex, so C-hjkl silently degraded
+            # to raw select-pane everywhere: escaping demux billboards,
+            # ignoring nvim splits. Rebind over the plugin with tmux's own
+            # format regex on pane_current_command — no ps, no subprocess
+            # per keypress.
+            bind -n C-h if -F '#{m/r:^(view|l?n?vim?x?|fzf|demuxd)(diff)?(-wrapped)?$,#{pane_current_command}}' 'send-keys C-h' 'select-pane -L'
+            bind -n C-j if -F '#{m/r:^(view|l?n?vim?x?|fzf|demuxd)(diff)?(-wrapped)?$,#{pane_current_command}}' 'send-keys C-j' 'select-pane -D'
+            bind -n C-k if -F '#{m/r:^(view|l?n?vim?x?|fzf|demuxd)(diff)?(-wrapped)?$,#{pane_current_command}}' 'send-keys C-k' 'select-pane -U'
+            bind -n C-l if -F '#{m/r:^(view|l?n?vim?x?|fzf|demuxd)(diff)?(-wrapped)?$,#{pane_current_command}}' 'send-keys C-l' 'select-pane -R'
+            bind -n 'C-\' if -F '#{m/r:^(view|l?n?vim?x?|fzf|demuxd)(diff)?(-wrapped)?$,#{pane_current_command}}' 'send-keys C-\\' 'select-pane -l'
+
             # window cycling: native normally; while the demux sidebar is
             # docked (@demux_docked set on the session) the switch routes
             # through the daemon so the sidebar arrives WITH the window —
