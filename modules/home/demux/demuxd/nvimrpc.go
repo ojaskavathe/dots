@@ -1,3 +1,5 @@
+//go:build !noequalize
+
 package main
 
 import (
