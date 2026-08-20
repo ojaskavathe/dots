@@ -47,9 +47,12 @@ func TestStaleBillboard(t *testing.T) {
 	r.SendKeys(sp, "k") // back to ptwo
 	sleep(500)
 
-	// sit past frameTTL while w1's content changes under the cache
+	// Sit well past frameTTL (3s) while w1's content changes under the
+	// cache. Generous margin: under full-suite parallel load the prefetch
+	// that stamps the cache can land seconds late, and a cache younger than
+	// the TTL painting old content is accepted behavior, not the bug.
 	r.SendKeys(shell, "clear; while :; do echo FRESHMARK; sleep 2; done", "Enter")
-	sleep(4200)
+	sleep(7000)
 
 	r.StartRecord()
 	r.SendKeys(sp, "j") // -> work header row, target w1: stale cache moment

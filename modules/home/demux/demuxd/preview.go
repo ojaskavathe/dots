@@ -45,6 +45,17 @@ func (d *daemon) stopStream() {
 	}
 }
 
+// parseDims splits a "W<sep>H" display-message line.
+func parseDims(line string) (int, int) {
+	p := strings.Split(line, sep)
+	if len(p) != 2 {
+		return 0, 0
+	}
+	w, _ := strconv.Atoi(p[0])
+	h, _ := strconv.Atoi(p[1])
+	return w, h
+}
+
 // Geometry is queried fresh (cross-session geometry emits no events), then
 // every pane is captured in one sequence with marker lines between panes:
 // capture output line counts are not reliable (trailing blanks), markers are.
@@ -80,11 +91,29 @@ func (d *daemon) preview(ctl *control, wid string, prefetch bool) error {
 	var panes []framePane
 	var caps []string
 	for attempt := 0; ; attempt++ {
-		lines, err := ctl.run("list-panes -t " + q(wid) + " -F " +
-			f("#{pane_id}", "#{pane_left}", "#{pane_top}", "#{pane_width}", "#{pane_height}", "#{pane_active}", "#{history_size}"))
+		query := []string{"list-panes -t " + q(wid) + " -F " +
+			f("#{pane_id}", "#{pane_left}", "#{pane_top}", "#{pane_width}", "#{pane_height}", "#{pane_active}", "#{history_size}")}
+		if d.dock != nil {
+			query = append(query,
+				"display-message -p -t "+q(wid)+" -F "+f("#{window_width}", "#{window_height}"),
+				"display-message -p -t "+q(d.dock.win)+" -F "+f("#{window_width}", "#{window_height}"))
+		}
+		lines, err := ctl.runSeq(query...)
 		if err != nil {
 			return err
 		}
+		tgtW, tgtH, dockW, dockH := 0, 0, 0, 0
+		if d.dock != nil && len(lines) >= 2 {
+			tgtW, tgtH = parseDims(lines[len(lines)-2])
+			dockW, dockH = parseDims(lines[len(lines)-1])
+			lines = lines[:len(lines)-2]
+		}
+		// A window not viewed since the client changed size (monitor switch,
+		// other sessions) keeps STALE dimensions until entered: its billboard
+		// paints offset (content clipped or short) and the eventual entry
+		// pays a surprise resize reflow. Normalize to the docked window's
+		// size while billboarding instead.
+		sizeStale := dockW > 0 && (tgtW != dockW || tgtH != dockH)
 		panes, caps = panes[:0], caps[:0]
 		history := 0
 		for _, ln := range lines {
@@ -110,11 +139,24 @@ func (d *daemon) preview(ctl *control, wid string, prefetch bool) error {
 		}
 		if canCarve && attempt == 0 && d.dock.carved[wid] == nil &&
 			history <= carveHistoryMax && !d.otherClientOn(wid) {
-			out, err := ctl.runSeq(
+			// The resize (when stale) rides the carve batch: the orig layout
+			// is captured AFTER it, so a later release restores the window
+			// full-width at its normalized size. window-size snaps back to
+			// latest immediately — the size sticks (no client event), and
+			// future client resizes propagate normally.
+			var seq []string
+			if sizeStale {
+				seq = append(seq, fmt.Sprintf("resize-window -x %d -y %d -t %s", dockW, dockH, q(wid)))
+			}
+			seq = append(seq,
 				"display-message -p -t "+q(wid)+" -F "+f("#{window_layout}", "#{automatic-rename}"),
 				"set-option -w -t "+q(wid)+" automatic-rename off",
 				fmt.Sprintf("split-window -d -hb -f -l %d -P -F '#{pane_id}' -t %s %s",
 					listWidth, q(wid), q(spacerCmd)))
+			if sizeStale {
+				seq = append(seq, "set-option -w -t "+q(wid)+" window-size latest")
+			}
+			out, err := ctl.runSeq(seq...)
 			if err == nil && len(out) >= 2 {
 				t := &carveState{spacer: out[1]}
 				if parts := strings.Split(out[0], sep); len(parts) == 2 {
@@ -127,6 +169,20 @@ func (d *daemon) preview(ctl *control, wid string, prefetch bool) error {
 					log.Printf("bench carve win=%s spacer=%s", wid, t.spacer)
 				}
 				continue // recapture at the docked geometry
+			}
+		}
+		// Carve-skipped windows (huge scrollback) still get the CHEAP half:
+		// height-only normalization never rewraps history — only width
+		// changes pay the reflow — so their billboards align vertically for
+		// free. A stale WIDTH on such a window stays stale (the reflow is
+		// the very thing being avoided); its billboard remains an X-scaled
+		// approximation.
+		if attempt == 0 && d.dock != nil && wid != d.dock.win && d.dock.carved[wid] == nil &&
+			sizeStale && tgtW == dockW && !d.otherClientOn(wid) {
+			if _, err := ctl.runSeq(
+				fmt.Sprintf("resize-window -y %d -t %s", dockH, q(wid)),
+				"set-option -w -t "+q(wid)+" window-size latest"); err == nil {
+				continue // recapture at the corrected height
 			}
 		}
 		break

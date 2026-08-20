@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -206,6 +207,26 @@ func parseSnap(line string) (winSnap, error) {
 	return winSnap{layout: p[0], activePane: p[1], autoRename: p[2], name: p[3]}, nil
 }
 
+// layoutDims reads the window dimensions off a #{window_layout} string's
+// "checksum,WxH,..." prefix.
+func layoutDims(layout string) (int, int) {
+	_, rest, ok := strings.Cut(layout, ",")
+	if !ok {
+		return 0, 0
+	}
+	ws, rest, ok := strings.Cut(rest, "x")
+	if !ok {
+		return 0, 0
+	}
+	hs, _, ok := strings.Cut(rest, ",")
+	if !ok {
+		return 0, 0
+	}
+	w, _ := strconv.Atoi(ws)
+	h, _ := strconv.Atoi(hs)
+	return w, h
+}
+
 func (d *daemon) winSnapshot(ctl *control, wid string) (winSnap, error) {
 	lines, err := ctl.run(snapQuery(wid))
 	if err != nil {
@@ -399,7 +420,7 @@ func (d *daemon) dockMove(ctl *control, wid string, focusMain bool) error {
 	// active pane of the one we leave (for its focus restore).
 	qlines, err := ctl.runSeq(
 		snapQuery(wid),
-		"display-message -p -t "+q(p.win)+" -F "+f("#{pane_id}"))
+		"display-message -p -t "+q(p.win)+" -F "+f("#{pane_id}", "#{window_width}", "#{window_height}"))
 	if err != nil {
 		return err
 	}
@@ -409,6 +430,14 @@ func (d *daemon) dockMove(ctl *control, wid string, focusMain bool) error {
 	snapN, err := parseSnap(qlines[0])
 	if err != nil {
 		return err
+	}
+	curActive, dockW, dockH := "", 0, 0
+	if len(qlines) >= 2 {
+		if pp := strings.Split(qlines[1], sep); len(pp) == 3 {
+			curActive = pp[0]
+			dockW, _ = strconv.Atoi(pp[1])
+			dockH, _ = strconv.Atoi(pp[2])
+		}
 	}
 	tgt := p.carved[wid]
 	if tgt != nil {
@@ -422,10 +451,20 @@ func (d *daemon) dockMove(ctl *control, wid string, focusMain bool) error {
 		statusN = d.savedStatus(ctl, sidN) // before the pad, or we save our own pad
 	}
 	var critical []string
+	sizeStale := false
 	if tgt != nil && tgt.spacer != "" {
 		critical = append(critical,
 			"swap-pane -d -s "+q(d.sur.pane)+" -t "+q(tgt.spacer))
 	} else {
+		// First visit at entry (never billboarded, or too heavy to carve
+		// during scrub): normalize a stale-sized window in the same batch —
+		// splitting at stale dimensions and letting select-window resize it
+		// after would shift every border the billboard promised.
+		if tW, tH := layoutDims(snapN.layout); tW > 0 && dockW > 0 && (tW != dockW || tH != dockH) {
+			sizeStale = true
+			critical = append(critical,
+				fmt.Sprintf("resize-window -x %d -y %d -t %s", dockW, dockH, q(wid)))
+		}
 		critical = append(critical,
 			"set-option -w -t "+q(wid)+" automatic-rename off",
 			fmt.Sprintf("split-window -d -hb -f -l %d -P -F '#{pane_id}' -t %s %s",
@@ -433,6 +472,12 @@ func (d *daemon) dockMove(ctl *control, wid string, focusMain bool) error {
 			"swap-pane -d -s "+q(d.sur.pane)+" -t "+q(wid+".{top-left}"))
 	}
 	critical = append(critical, "select-window -t "+q(wid))
+	if sizeStale {
+		// After select-window the client is on the window: latest resolves
+		// to the size just set — no second resize, sizing follows the
+		// client again from here.
+		critical = append(critical, "set-option -w -t "+q(wid)+" window-size latest")
+	}
 	if sidN != p.sess {
 		critical = append(critical, dockSessionCmds(sidN)...)
 		critical = append(critical, "switch-client -c "+q(p.client)+" -t "+q(sidN))
@@ -449,8 +494,8 @@ func (d *daemon) dockMove(ctl *control, wid string, focusMain bool) error {
 	// pane the user was ACTUALLY in (they may have moved since docking);
 	// the dock-time snapshot is the fallback when the sidebar held focus.
 	leaveFocus := p.snap.activePane
-	if len(qlines) >= 2 && qlines[1] != "" && qlines[1] != d.sur.pane {
-		leaveFocus = qlines[1]
+	if curActive != "" && curActive != d.sur.pane {
+		leaveFocus = curActive
 	}
 	restore := []string{"select-pane -t " + q(leaveFocus)}
 	if sidN != p.sess {
