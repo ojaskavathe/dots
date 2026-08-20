@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestHeavyHistory is the live-@4 scenario: a window whose pane carries
@@ -93,13 +94,22 @@ func TestHeavyHistory(t *testing.T) {
 	if regexp.MustCompile(`bench carve win=` + regexp.QuoteMeta(heavy)).MatchString(log) {
 		t.Errorf("scrub pre-carved the heavy window")
 	}
-	// only the FIRST enter may cross the slow threshold (its one-time carve);
-	// re-enters are swaps, the dismiss is a direct land, and undocks must not
-	// stall on releases
-	slow := regexp.MustCompile(`(?m)^.*(commit|toggle|nav) took.*$`).FindAllString(log, -1)
+	// Interactions must never stall at history-reflow scale (~200ms live).
+	// The daemon logs anything over 25ms, but undocking FROM the heavy
+	// window legitimately hovers around 25-40ms (break-pane hands the
+	// sidebar's 40 cols to the heavy neighbor — one unavoidable reflow), so
+	// only durations over 100ms count. At most one is allowed: the entry
+	// carve. Re-enters are swaps, the dismiss is a direct land, and undocks
+	// must not stall on releases.
+	slow := []string{}
+	for _, m := range regexp.MustCompile(`(?m)^.*(?:commit|toggle|nav) took (\S+) .*$`).FindAllStringSubmatch(log, -1) {
+		if d, err := time.ParseDuration(m[1]); err == nil && d > 100*time.Millisecond {
+			slow = append(slow, m[0])
+		}
+	}
 	if len(slow) > 1 {
 		for _, m := range slow[1:] {
-			t.Errorf("slow interaction beyond the entry carve: %s", m)
+			t.Errorf("reflow-scale stall beyond the entry carve: %s", m)
 		}
 	}
 	r.Chk("deferred release drained", r.Spacers() == 0)

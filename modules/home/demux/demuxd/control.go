@@ -249,6 +249,17 @@ func (c *control) runPipelined(lines ...[]string) ([][]string, []error) {
 	return outs, errs
 }
 
+// q quotes an argument for tmux's command parser: single quotes, with any
+// embedded single quote spliced shell-style ('\'' — verified accepted by the
+// control-mode parser). Window names and saved status lines are user
+// content; without the splice one quote would corrupt a whole sequence.
+func q(s string) string {
+	if strings.ContainsRune(s, '\'') {
+		s = strings.ReplaceAll(s, "'", `'\''`)
+	}
+	return "'" + s + "'"
+}
+
 func (c *control) close() {
 	_ = c.stdin.Close()
 	_ = c.cmd.Process.Kill()

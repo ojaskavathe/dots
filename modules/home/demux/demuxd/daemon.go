@@ -8,9 +8,57 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 )
+
+var bench = os.Getenv("DEMUX_BENCH") != ""
+
+// daemon is the single-threaded core: every field is touched only from the
+// consume loop, so none of it needs locking.
+type daemon struct {
+	tmuxSock string
+	h        *hub
+
+	sur    *surface     // the TUI pane + its _demux home (surface.go)
+	browse browseState  // full-screen browse mode (browse.go)
+	pv     previewState // billboard capture engine (preview.go)
+	dock   *dockState   // docked sidebar mode (dock.go)
+
+	// lastScrub gates re-lists: world churn within scrubQuiet of a dock
+	// scrub is our own doing, and re-listing the whole server once per
+	// scrub step is the daemon's main cost during a held-key scrub.
+	lastScrub time.Time
+
+	// pendingRelease: spacer-held windows awaiting restore after an undock.
+	// Drained one per releaseTick from the event loop (never inline with
+	// the undock — the release stalls tmux while it reflows scrollback, and
+	// inline that stall lands before the transition has painted). A re-dock
+	// adopts the queue back instead.
+	pendingRelease []releaseItem
+	releaseT       *time.Timer
+	releaseC       <-chan time.Time
+}
+
+// clientView: the client's current session, window, and size, from
+// list-clients rows (each row expands in that client's own context).
+func (d *daemon) clientView(ctl *control, client string) (sid, wid string, cw, ch int, err error) {
+	lines, err := ctl.run("list-clients -F " + f("#{client_name}", "#{session_id}", "#{window_id}", "#{client_width}", "#{client_height}"))
+	if err != nil {
+		return "", "", 0, 0, err
+	}
+	for _, ln := range lines {
+		p := strings.Split(ln, sep)
+		if len(p) == 5 && p[0] == client {
+			cw, _ = strconv.Atoi(p[3])
+			ch, _ = strconv.Atoi(p[4])
+			return p[1], p[2], cw, ch, nil
+		}
+	}
+	return "", "", 0, 0, errors.New("no client " + client)
+}
 
 // debounce for notification bursts: long enough to coalesce a storm (a
 // session teardown emits dozens), short enough to be imperceptible.
@@ -133,15 +181,15 @@ func consume(d *daemon, ctl *control, w world, sig chan os.Signal) bool {
 			}
 		case env := <-d.h.cmds:
 			d.handleCmd(ctl, env)
-		case <-d.tickC:
+		case <-d.pv.tickC:
 			// Live preview stream: nil (never fires) unless the billboards
 			// are showing — full-screen browse or a docked zoom-scrub. Yield
 			// to queued commands — a mid-scrub tick would capture a target
 			// that's about to change anyway.
-			streaming := d.br != nil && d.br.target != "" &&
-				(d.br.open || (d.dock != nil && d.dock.scrubbing))
+			streaming := d.pv.target != "" &&
+				(d.browse.open || (d.dock != nil && d.dock.scrubbing))
 			if streaming && len(d.h.cmds) == 0 {
-				_ = d.preview(ctl, d.br.target, false)
+				_ = d.preview(ctl, d.pv.target, false)
 			}
 		case <-d.releaseC:
 			d.releaseC = nil

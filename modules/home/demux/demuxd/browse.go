@@ -1,24 +1,19 @@
 package main
 
 import (
-	"bytes"
 	"errors"
-	"fmt"
 	"log"
-	"os"
-	"strconv"
-	"strings"
-	"time"
 )
 
-// The browse surface: choose-tree mechanics, our UI. A persistent
-// demux-owned window (list pane + preview canvas) lives in a hidden
-// "_demux" session. M-s switches the client TO it; scrolling paints
-// capture-pane frames into the canvas; Enter switches the client to the
-// target; q returns to origin. User windows are never joined into, resized,
-// renamed, or otherwise touched — the entire baseline/restore problem class
-// of the join-based sidebar (git history: f2538c2) does not exist here, and
-// scrubbing costs one capture round trip instead of a window-wide reflow.
+// Full-screen browse mode: choose-tree mechanics, our UI. The TUI's home
+// window becomes the whole screen (list pane + preview canvas). M-s/`demuxd
+// browse` switches the client TO it; scrolling paints capture frames into
+// the canvas; Enter switches the client to the target; q returns to origin.
+// User windows are never joined into, resized, renamed, or otherwise touched
+// — the entire baseline/restore problem class of the join-based sidebar (git
+// history: f2538c2) does not exist here, and scrubbing costs one capture
+// round trip instead of a window-wide reflow. No longer on M-s — docked mode
+// replaced it there — but fully functional.
 //
 // Rules carried from the spike, still load-bearing:
 //   - sequences abort at the first error -> critical commands first, targets
@@ -29,288 +24,17 @@ import (
 //   - `display-message -p -c X` does NOT expand formats in X's context;
 //     per-client truth comes from list-clients rows
 
-const listWidth = 40
-
-const demuxSession = "_demux"
-
+// browseState is the mode's state: whether the client is parked on the
+// browse surface, which client, and where q returns to.
 type browseState struct {
-	sess string // $id of the _demux session
-	win  string // @id of the browse window
-	pane string // the single full-window pane running `demuxd tui`
-
 	open       bool
 	client     string // browsing client (explicit switching)
 	originSess string // where q returns to
 	originWin  string
-	target     string // currently previewed window
-	lastFrame  []byte // last target frame, replayed to late-connecting TUIs
-}
-
-type daemon struct {
-	tmuxSock string
-	h        *hub
-	br       *browseState
-	dock     *dockState
-
-	// lastScrub gates re-lists: world churn within scrubQuiet of a dock
-	// scrub is our own doing, and re-listing the whole server once per
-	// scrub step is the daemon's main cost during a held-key scrub.
-	lastScrub time.Time
-
-	// pendingRelease: spacer-held windows awaiting restore after an undock.
-	// Drained one per releaseTick from the event loop (never inline with
-	// the undock — the release stalls tmux while it reflows scrollback, and
-	// inline that stall lands before the transition has painted). A re-dock
-	// adopts the queue back instead.
-	pendingRelease []releaseItem
-	releaseT       *time.Timer
-	releaseC       <-chan time.Time
-
-	// The preview stream: while browsing, the selected window is re-captured
-	// on this ticker (10fps) so previews stay LIVE — scrolling logs, agent
-	// output. Frames are dropped when content hasn't changed, and the ticker
-	// exists only while the browse surface is open (tickC is nil otherwise,
-	// so the select case simply never fires). %output can narrow this later
-	// for same-session targets; cross-session panes emit no output events at
-	// all, so capture is the only universal source.
-	ticker *time.Ticker
-	tickC  <-chan time.Time
-}
-
-func (d *daemon) startStream() {
-	if d.ticker == nil {
-		d.ticker = time.NewTicker(100 * time.Millisecond)
-		d.tickC = d.ticker.C
-	}
-}
-
-func (d *daemon) stopStream() {
-	if d.ticker != nil {
-		d.ticker.Stop()
-		d.ticker = nil
-		d.tickC = nil
-	}
-}
-
-// handleCmd drains everything already queued and executes only what still
-// matters: every non-preview command in order, the NEWEST real preview, and
-// the prefetches that came after it (they describe the final position).
-// Stale previews and stale prefetches are acked without running — during a
-// fast scrub they'd otherwise serialize ahead of the frame the user is
-// actually looking at. Remaining prefetches are abandoned the moment fresher
-// input arrives.
-func (d *daemon) handleCmd(ctl *control, env cmdEnvelope) {
-	batch := []cmdEnvelope{env}
-	for {
-		select {
-		case next := <-d.h.cmds:
-			batch = append(batch, next)
-			continue
-		default:
-		}
-		break
-	}
-	lastReal := -1
-	for i, e := range batch {
-		if e.msg.Cmd == "preview" && !e.msg.Prefetch {
-			lastReal = i
-		}
-	}
-	for i, e := range batch {
-		isPreview := e.msg.Cmd == "preview"
-		switch {
-		case !isPreview:
-			d.runCmd(ctl, e)
-		case !e.msg.Prefetch && i == lastReal:
-			d.runCmd(ctl, e)
-		case e.msg.Prefetch && i > lastReal:
-			if len(d.h.cmds) > 0 {
-				// Fresher input queued: this prefetch is already history.
-				d.h.send(e.sub, marshalLine(replyMsg{Type: "reply", OK: true}))
-				continue
-			}
-			d.runCmd(ctl, e)
-		default:
-			d.h.send(e.sub, marshalLine(replyMsg{Type: "reply", OK: true}))
-		}
-	}
-}
-
-var bench = os.Getenv("DEMUX_BENCH") != ""
-
-func (d *daemon) runCmd(ctl *control, env cmdEnvelope) {
-	start := time.Now()
-	browsing := d.br != nil && d.br.open
-	var err error
-	switch env.msg.Cmd {
-	case "toggle":
-		err = d.toggle(ctl, env.msg.Client)
-	case "browse":
-		err = d.browseOpen(ctl, env.msg.Client)
-	case "nav":
-		err = d.dockNav(ctl, env.msg.Dir)
-	case "preview":
-		if d.dock != nil && !browsing {
-			// Docked: selection leaving the real window starts billboard
-			// scrubbing (zoom + captures); while scrubbing, previews and
-			// prefetches are plain billboards. Nothing real moves until
-			// commit.
-			p := d.dock
-			switch {
-			case p.scrubbing:
-				err = d.preview(ctl, env.msg.Window, env.msg.Prefetch)
-			case !env.msg.Prefetch && env.msg.Window != "" && env.msg.Window != p.win:
-				err = d.scrubStart(ctl, env.msg.Window)
-			}
-		} else {
-			err = d.preview(ctl, env.msg.Window, env.msg.Prefetch)
-		}
-	case "winch":
-		// The TUI's pane changed size. Docked idle that means a client
-		// resize (monitor switch) rescaled the sidebar off its fixed width;
-		// nothing else will tell us — geometry events don't cross sessions.
-		// Zoomed (scrubbing) the sidebar is full-width by design, and the
-		// full-screen browser owns its whole window: both skip.
-		if d.dock != nil && !browsing && !d.dock.scrubbing && env.msg.Width != listWidth {
-			_, err = ctl.run(fmt.Sprintf("resize-pane -t %s -x %d", q(d.br.pane), listWidth))
-		}
-	case "focus":
-		// C-l from the docked idle sidebar: select the pane geometrically
-		// right of it — vim-tmux-navigator semantics, no origin reset.
-		if d.dock != nil && !browsing && !d.dock.scrubbing {
-			_, err = ctl.run("select-pane -R -t " + q(d.br.pane))
-		}
-	case "commit":
-		if d.dock != nil && !browsing {
-			if d.dock.scrubbing {
-				err = d.commitScrub(ctl, env.msg.Window)
-			} else {
-				err = d.dockCommit(ctl)
-			}
-		} else {
-			err = d.commit(ctl, env.msg.Window)
-		}
-	case "close":
-		if d.dock != nil && !browsing {
-			if d.dock.scrubbing {
-				// q mid-scrub: unzoom — the origin panes reappear untouched.
-				d.scrubEnd(ctl, true)
-				d.h.sendRole("list", marshalLine(selectMsg{Type: "select", Window: d.dock.win}))
-			} else {
-				err = d.dockClose(ctl, true)
-			}
-		} else {
-			err = d.closeBrowse(ctl)
-		}
-	case "hello-list":
-		// A TUI connected after state went out; replay selection + frame.
-		if d.dock != nil {
-			d.h.send(env.sub, marshalLine(selectMsg{Type: "select", Window: d.dock.win}))
-			log.Printf("hello-list: replay docked select=%s", d.dock.win)
-			break
-		}
-		replaySel := browsing && d.br.target != ""
-		if replaySel {
-			d.h.send(env.sub, marshalLine(selectMsg{Type: "select", Window: d.br.target}))
-		}
-		log.Printf("hello-list: replay select=%v target=%s frame=%v",
-			replaySel, brTarget(d.br), d.br != nil && d.br.lastFrame != nil)
-		if d.br != nil && d.br.lastFrame != nil {
-			d.h.send(env.sub, d.br.lastFrame)
-		}
-	default:
-		err = fmt.Errorf("unknown cmd %q", env.msg.Cmd)
-	}
-	wait := start.Sub(env.recv)
-	if dur := time.Since(start); dur > 25*time.Millisecond || wait > 25*time.Millisecond {
-		// wait = time queued behind whatever the event loop was doing
-		// (a re-list, a stream tick, an earlier command) before this ran.
-		log.Printf("%s took %s (queued %s)", env.msg.Cmd, dur, wait)
-	} else if bench {
-		log.Printf("bench cmd=%s prefetch=%v dur_us=%d", env.msg.Cmd, env.msg.Prefetch, dur.Microseconds())
-	}
-	r := replyMsg{Type: "reply", OK: err == nil}
-	if err != nil {
-		r.Err = err.Error()
-	}
-	d.h.send(env.sub, marshalLine(r))
-}
-
-// toggle is M-s: browsing (full-screen) -> commit/close as before; docked ->
-// undock in place; otherwise dock the sidebar into the current window.
-func (d *daemon) toggle(ctl *control, client string) error {
-	if client == "" {
-		return errors.New("toggle needs a client name")
-	}
-	if d.br != nil && d.br.open {
-		sid, _, _, _, err := d.clientView(ctl, client)
-		if err == nil && sid == d.br.sess {
-			d.br.client = client
-			// M-s while browsing commits to the current selection, like Enter —
-			// muscle memory from the join-sidebar era. q / Ctrl-C remain
-			// cancel-to-origin.
-			if d.br.target != "" && d.br.target != d.br.originWin {
-				log.Printf("toggle-off commits to %s", d.br.target)
-				return d.commit(ctl, d.br.target)
-			}
-			return d.closeBrowse(ctl)
-		}
-	}
-	if d.dock != nil {
-		if d.dock.scrubbing {
-			// M-s mid-scrub commits AND dismisses — browse-era muscle
-			// memory: one press lands you in the selection. (Enter is the
-			// commit that keeps the sidebar docked.)
-			target := d.br.target
-			sid := d.sessionOf(target)
-			if sid != "" && target != d.dock.win {
-				if t := d.dock.carved[target]; t != nil && t.spacer != "" {
-					// Carved: swap the sidebar in first (geometry-free —
-					// content in front of the user instantly), THEN undock;
-					// the expand-to-full-width reflow happens behind content
-					// the user is already reading, never before it.
-					if err := d.dockMove(ctl, target, true); err != nil {
-						return err
-					}
-					return d.dockClose(ctl, false)
-				}
-				// Uncarved (huge-scrollback windows deliberately stay so):
-				// the target is already at full width — land on it directly,
-				// zero geometry changes, zero reflows. Committing first
-				// would carve it (~200ms history reflow) only to expand it
-				// right back.
-				d.dock.originSess, d.dock.originWin = sid, target
-				return d.dockClose(ctl, true)
-			}
-			return d.dockClose(ctl, false)
-		}
-		return d.dockClose(ctl, false)
-	}
-	return d.dockOpen(ctl, client)
-}
-
-// commitScrub lands a billboard scrub: on the docked window itself it is a
-// free unzoom; anywhere else the sidebar docks into the target for real.
-// Either way the origin resets — q now returns here.
-func (d *daemon) commitScrub(ctl *control, wid string) error {
-	p := d.dock
-	if p == nil {
-		return nil
-	}
-	if wid == "" || wid == p.win {
-		d.scrubEnd(ctl, true)
-		return d.dockCommit(ctl)
-	}
-	if err := d.dockMove(ctl, wid, true); err != nil {
-		return err
-	}
-	p.originSess, p.originWin = p.sess, p.win
-	return nil
 }
 
 // browseOpen is the full-screen billboard browser (`demuxd browse`): switch
-// the client to the _demux window and stream capture frames. No longer on
-// M-s — docked mode replaced it there — but fully functional.
+// the client to the _demux window and stream capture frames.
 func (d *daemon) browseOpen(ctl *control, client string) error {
 	if client == "" {
 		return errors.New("browse needs a client name")
@@ -324,15 +48,13 @@ func (d *daemon) browseOpen(ctl *control, client string) error {
 	if err != nil {
 		return err
 	}
-	if d.br != nil && d.br.open && sid == d.br.sess {
+	if d.sur != nil && d.browse.open && sid == d.sur.sess {
 		return nil // already browsing
 	}
 	if err := d.ensureSurface(ctl, cw, ch); err != nil {
 		return err
 	}
-	d.br.open = true
-	d.br.client = client
-	d.br.originSess, d.br.originWin = sid, wid
+	d.browse = browseState{open: true, client: client, originSess: sid, originWin: wid}
 	// Selection first: the list repaints while the browse window is still
 	// hidden, so it is already on the origin row when the client lands. A
 	// freshly spawned TUI isn't connected yet (n=0) — the hello-list replay
@@ -340,261 +62,18 @@ func (d *daemon) browseOpen(ctl *control, client string) error {
 	n := d.h.sendRole("list", marshalLine(selectMsg{Type: "select", Window: wid}))
 	log.Printf("browse open client=%s origin=%s/%s size=%dx%d select_receivers=%d", client, sid, wid, cw, ch, n)
 	if _, err := ctl.runSeq(
-		"select-window -t "+q(d.br.win),
-		"switch-client -c "+q(client)+" -t "+q(d.br.sess)); err != nil {
+		"select-window -t "+q(d.sur.win),
+		"switch-client -c "+q(client)+" -t "+q(d.sur.sess)); err != nil {
 		return err
 	}
 	d.startStream()
 	return d.preview(ctl, wid, false)
 }
 
-// clientView: the client's current session, window, and size, from
-// list-clients rows (each row expands in that client's own context).
-func (d *daemon) clientView(ctl *control, client string) (sid, wid string, cw, ch int, err error) {
-	lines, err := ctl.run("list-clients -F " + f("#{client_name}", "#{session_id}", "#{window_id}", "#{client_width}", "#{client_height}"))
-	if err != nil {
-		return "", "", 0, 0, err
-	}
-	for _, ln := range lines {
-		p := strings.Split(ln, sep)
-		if len(p) == 5 && p[0] == client {
-			cw, _ = strconv.Atoi(p[3])
-			ch, _ = strconv.Atoi(p[4])
-			return p[1], p[2], cw, ch, nil
-		}
-	}
-	return "", "", 0, 0, errors.New("no client " + client)
-}
-
-// placeholderCmd keeps the _demux session alive while the TUI pane is
-// docked in a user window — moving a session's only pane out kills it
-// (rig-verified), and the undock target must exist.
-const placeholderCmd = "sleep 100000000"
-
-// ensureSurface verifies the TUI pane is alive (wherever it currently lives
-// — its home window, or docked in a user window) and that the _demux holding
-// session can receive it back, rebuilding whatever is missing. The session
-// is created at the summoning client's size: entering a differently-sized
-// window makes tmux rescale it, which crushes the list pane.
-func (d *daemon) ensureSurface(ctl *control, cw, ch int) error {
-	if cw < listWidth+10 || ch < 5 {
-		cw, ch = 200, 50
-	}
-	if d.br != nil {
-		alive := false
-		nDemuxWins := 0
-		lines, err := ctl.run("list-panes -a -F " + f("#{pane_id}", "#{pane_current_command}", "#{session_name}", "#{window_id}"))
-		if err == nil {
-			wins := map[string]bool{}
-			for _, ln := range lines {
-				p := strings.Split(ln, sep)
-				if len(p) != 4 {
-					continue
-				}
-				if p[0] == d.br.pane && strings.Contains(p[1], "demux") {
-					alive = true
-				}
-				if p[2] == demuxSession && !wins[p[3]] {
-					wins[p[3]] = true
-					nDemuxWins++
-				}
-			}
-		}
-		if alive {
-			switch {
-			case nDemuxWins == 0:
-				// Holding session died with the TUI docked out; recreate it.
-				out, err := ctl.run(fmt.Sprintf("new-session -d -s %s -x %d -y %d -P -F %s %s",
-					demuxSession, cw, ch, f("#{session_id}", "#{window_id}"), q(placeholderCmd)))
-				if err != nil {
-					return err
-				}
-				if len(out) == 1 {
-					if p := strings.Split(out[0], sep); len(p) == 2 {
-						d.br.sess, d.br.win = p[0], p[1]
-					}
-				}
-				_, _ = ctl.run("set-option -q -t " + q(d.br.sess) + " status off")
-			case nDemuxWins == 1 && d.dock == nil:
-				// TUI home is the only window: docking it away would kill the
-				// session. Keep the placeholder ahead of need.
-				_, _ = ctl.run("new-window -d -t " + q(demuxSession+":") + " " + q(placeholderCmd))
-			}
-			return nil
-		}
-		d.br = nil
-	}
-	_, _ = ctl.run("kill-session -t " + q(demuxSession)) // stale leftovers; may not exist
-	self, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	tuiCmd := self + " -S " + d.tmuxSock + " tui"
-	if bench {
-		tuiCmd = "env DEMUX_BENCH=1 " + tuiCmd
-	}
-	lines, err := ctl.run(fmt.Sprintf("new-session -d -s %s -x %d -y %d -P -F %s %s",
-		demuxSession, cw, ch, f("#{session_id}", "#{window_id}", "#{pane_id}"), q(tuiCmd)))
-	if err != nil {
-		return err
-	}
-	if len(lines) == 0 {
-		return errors.New("new-session returned nothing")
-	}
-	p := strings.Split(lines[0], sep)
-	if len(p) != 3 {
-		return errors.New("bad new-session reply")
-	}
-	br := &browseState{sess: p[0], win: p[1], pane: p[2]}
-	_, err = ctl.runSeq(
-		"new-window -d -t "+q(demuxSession+":")+" "+q(placeholderCmd),
-		"set-option -wq -t "+q(br.win)+" automatic-rename off",
-		"set-option -q -t "+q(br.sess)+" status off")
-	if err != nil {
-		return err
-	}
-	d.br = br
-	return nil
-}
-
-// preview captures the target window and ships it to the canvas as a frame.
-// Geometry is queried fresh (cross-session geometry emits no events), then
-// every pane is captured in one sequence with marker lines between panes:
-// capture output line counts are not reliable (trailing blanks), markers are.
-const frameMarker = "\x1fdemux-frame\x1f"
-
-// preview captures wid and ships it as a frame. A prefetch warms the TUI's
-// cache for adjacent rows without becoming the streamed target. Serves both
-// the full-screen browser and docked billboard scrubbing; the sidebar pane
-// itself is never billboarded (a docked window's frame is its mains,
-// shifted to the canvas origin — near-pixel-parity with entering it).
-func (d *daemon) preview(ctl *control, wid string, prefetch bool) error {
-	if d.br == nil || (!d.br.open && d.dock == nil) {
-		return nil
-	}
-	// Docked scrub targets get their spacer carved on first billboard: a
-	// hidden 40-col pane occupies the sidebar's slot (the dock's own split,
-	// so the carve arithmetic is identical), and the billboard then IS the
-	// docked reality — same wraps, same borders. Entering later is a
-	// geometry-free swap into that slot. Once per window while docked;
-	// skipped when another client is attached to that window's session
-	// (carving would visibly resize it under them), and skipped for windows
-	// carrying huge scrollback — tmux reflows a pane's ENTIRE history
-	// synchronously on width change (~250ms at 660k lines, live-measured),
-	// which stalls the server mid-scrub for a billboard the user is only
-	// glancing at. Those windows billboard as scaled approximations and pay
-	// their carve if and when actually entered.
-	canCarve := d.dock != nil && (d.br == nil || !d.br.open) && wid != d.dock.win
-	skipPane := ""
-	if canCarve {
-		if t := d.dock.carved[wid]; t != nil {
-			skipPane = t.spacer
-		}
-	}
-	var panes []framePane
-	var caps []string
-	for attempt := 0; ; attempt++ {
-		lines, err := ctl.run("list-panes -t " + q(wid) + " -F " +
-			f("#{pane_id}", "#{pane_left}", "#{pane_top}", "#{pane_width}", "#{pane_height}", "#{pane_active}", "#{history_size}"))
-		if err != nil {
-			return err
-		}
-		panes, caps = panes[:0], caps[:0]
-		history := 0
-		for _, ln := range lines {
-			p := strings.Split(ln, sep)
-			if len(p) != 7 {
-				continue
-			}
-			if h, _ := strconv.Atoi(p[6]); h > 0 {
-				history += h
-			}
-			if p[0] == d.br.pane || (skipPane != "" && p[0] == skipPane) {
-				continue
-			}
-			left, _ := strconv.Atoi(p[1])
-			width, _ := strconv.Atoi(p[3])
-			top, _ := strconv.Atoi(p[2])
-			height, _ := strconv.Atoi(p[4])
-			panes = append(panes, framePane{Left: left, Top: top, Width: width, Height: height, Active: p[5] == "1"})
-			caps = append(caps, "capture-pane -e -p -t "+q(p[0]), "display-message -p "+q(frameMarker))
-		}
-		if len(panes) == 0 {
-			return fmt.Errorf("no panes in %s", wid)
-		}
-		if canCarve && attempt == 0 && d.dock.carved[wid] == nil &&
-			history <= carveHistoryMax && !d.otherClientOn(wid) {
-			out, err := ctl.runSeq(
-				"display-message -p -t "+q(wid)+" -F "+f("#{window_layout}", "#{automatic-rename}"),
-				"set-option -w -t "+q(wid)+" automatic-rename off",
-				fmt.Sprintf("split-window -d -hb -f -l %d -P -F '#{pane_id}' -t %s %s",
-					listWidth, q(wid), q(spacerCmd)))
-			if err == nil && len(out) >= 2 {
-				t := &carveState{spacer: out[1]}
-				if parts := strings.Split(out[0], sep); len(parts) == 2 {
-					t.orig, t.autoRename = parts[0], parts[1]
-				}
-				d.dock.carved[wid] = t
-				skipPane = t.spacer
-				d.lastScrub = time.Now()
-				if bench {
-					log.Printf("bench carve win=%s spacer=%s", wid, t.spacer)
-				}
-				continue // recapture at the docked geometry
-			}
-		}
-		break
-	}
-	minLeft := panes[0].Left
-	for _, p := range panes {
-		if p.Left < minLeft {
-			minLeft = p.Left
-		}
-	}
-	if minLeft > 0 {
-		for i := range panes {
-			panes[i].Left -= minLeft
-		}
-	}
-	out, err := ctl.runSeq(caps...)
-	if err != nil {
-		return err
-	}
-	idx := 0
-	for _, ln := range out {
-		if ln == frameMarker {
-			idx++
-			continue
-		}
-		if idx < len(panes) {
-			panes[idx].Lines = append(panes[idx].Lines, ln)
-		}
-	}
-	if bench {
-		rects := make([]string, len(panes))
-		for i, p := range panes {
-			rects[i] = fmt.Sprintf("%d,%d %dx%d", p.Left, p.Top, p.Width, p.Height)
-		}
-		log.Printf("bench frame win=%s prefetch=%v rects=%v", wid, prefetch, rects)
-	}
-	payload := marshalLine(frameMsg{Type: "frame", Window: wid, Panes: panes})
-	if prefetch {
-		d.h.sendRole("list", payload)
-		return nil
-	}
-	d.br.target = wid
-	if bytes.Equal(payload, d.br.lastFrame) {
-		return nil // idle content: no repaint
-	}
-	d.br.lastFrame = payload
-	d.h.sendRole("list", payload)
-	return nil
-}
-
 // commit: switch the client to the chosen window for real. The browse window
 // stays alive for next time.
 func (d *daemon) commit(ctl *control, wid string) error {
-	if d.br == nil || !d.br.open {
+	if !d.browse.open {
 		return nil
 	}
 	sid := ""
@@ -608,37 +87,30 @@ func (d *daemon) commit(ctl *control, wid string) error {
 		log.Printf("commit target=%s unknown, closing to origin", wid)
 		return d.closeBrowse(ctl)
 	}
-	d.br.open = false
+	d.browse.open = false
 	d.stopStream()
-	log.Printf("commit client=%s -> %s/%s", d.br.client, sid, wid)
+	log.Printf("commit client=%s -> %s/%s", d.browse.client, sid, wid)
 	_, err := ctl.runSeq(
 		"select-window -t "+q(wid),
-		"switch-client -c "+q(d.br.client)+" -t "+q(sid))
+		"switch-client -c "+q(d.browse.client)+" -t "+q(sid))
 	return err
-}
-
-func brTarget(br *browseState) string {
-	if br == nil {
-		return "<nil>"
-	}
-	return br.target
 }
 
 // closeBrowse returns the client to where it was when it summoned.
 func (d *daemon) closeBrowse(ctl *control) error {
-	if d.br == nil || !d.br.open {
+	if !d.browse.open {
 		return nil
 	}
-	d.br.open = false
+	d.browse.open = false
 	d.stopStream()
-	log.Printf("close client=%s -> origin %s/%s", d.br.client, d.br.originSess, d.br.originWin)
+	log.Printf("close client=%s -> origin %s/%s", d.browse.client, d.browse.originSess, d.browse.originWin)
 	_, err := ctl.runSeq(
-		"select-window -t "+q(d.br.originWin),
-		"switch-client -c "+q(d.br.client)+" -t "+q(d.br.originSess))
+		"select-window -t "+q(d.browse.originWin),
+		"switch-client -c "+q(d.browse.client)+" -t "+q(d.browse.originSess))
 	if err != nil {
 		// Origin may have died while browsing; session alone, then give up
 		// gracefully (the user can switch by hand).
-		_, err = ctl.run("switch-client -c " + q(d.br.client) + " -t " + q(d.br.originSess))
+		_, err = ctl.run("switch-client -c " + q(d.browse.client) + " -t " + q(d.browse.originSess))
 	}
 	return err
 }
@@ -646,15 +118,15 @@ func (d *daemon) closeBrowse(ctl *control) error {
 // checkBrowse runs after every re-list: if the client escaped the browse
 // window by other means (detach, manual switch), browsing is over.
 func (d *daemon) checkBrowse(ctl *control, w world) {
-	if d.br == nil || !d.br.open {
+	if !d.browse.open {
 		return
 	}
 	found := false
 	for _, c := range w.Clients {
-		if c.Name == d.br.client {
+		if c.Name == d.browse.client {
 			found = true
-			if c.SessionID != d.br.sess {
-				d.br.open = false
+			if c.SessionID != d.sur.sess {
+				d.browse.open = false
 				d.stopStream()
 				return
 			}
@@ -662,18 +134,7 @@ func (d *daemon) checkBrowse(ctl *control, w world) {
 		}
 	}
 	if !found {
-		d.br.open = false // client detached
+		d.browse.open = false // client detached
 		d.stopStream()
 	}
-}
-
-// q quotes an argument for tmux's command parser: single quotes, with any
-// embedded single quote spliced shell-style ('\'' — verified accepted by the
-// control-mode parser). Window names and saved status lines are user
-// content; without the splice one quote would corrupt a whole sequence.
-func q(s string) string {
-	if strings.ContainsRune(s, '\'') {
-		s = strings.ReplaceAll(s, "'", `'\''`)
-	}
-	return "'" + s + "'"
 }

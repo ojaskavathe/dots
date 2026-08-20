@@ -303,8 +303,8 @@ func (d *daemon) dockOpen(ctl *control, client string) error {
 	// automatic-rename window would flip its name to "demuxd" (the sh-era bug).
 	seq := []string{
 		"set-option -w -t " + q(wid) + " automatic-rename off",
-		"set-option -p -t " + q(d.br.pane) + " @demux_sidebar 1",
-		fmt.Sprintf("join-pane -hb -f -l %d -s %s -t %s", listWidth, q(d.br.pane), q(wid)),
+		"set-option -p -t " + q(d.sur.pane) + " @demux_sidebar 1",
+		fmt.Sprintf("join-pane -hb -f -l %d -s %s -t %s", listWidth, q(d.sur.pane), q(wid)),
 	}
 	seq = append(seq, dockSessionCmds(sid)...)
 	if _, err := ctl.runSeq(seq...); err != nil {
@@ -330,8 +330,8 @@ func (d *daemon) scrubStart(ctl *control, wid string) error {
 		return err
 	}
 	if _, err := ctl.runSeq(
-		"resize-pane -Z -t "+q(d.br.pane),
-		"select-pane -t "+q(d.br.pane)); err != nil {
+		"resize-pane -Z -t "+q(d.sur.pane),
+		"select-pane -t "+q(d.sur.pane)); err != nil {
 		return err
 	}
 	p.scrubbing = true
@@ -352,7 +352,7 @@ func (d *daemon) scrubEnd(ctl *control, unzoom bool) {
 	p.scrubbing = false
 	d.stopStream()
 	if unzoom {
-		_, _ = ctl.run("resize-pane -Z -t " + q(d.br.pane))
+		_, _ = ctl.run("resize-pane -Z -t " + q(d.sur.pane))
 	}
 	log.Printf("scrub end win=%s unzoom=%v", p.win, unzoom)
 }
@@ -407,13 +407,13 @@ func (d *daemon) dockMove(ctl *control, wid string, focusMain bool) error {
 	var critical []string
 	if tgt != nil && tgt.spacer != "" {
 		critical = append(critical,
-			"swap-pane -d -s "+q(d.br.pane)+" -t "+q(tgt.spacer))
+			"swap-pane -d -s "+q(d.sur.pane)+" -t "+q(tgt.spacer))
 	} else {
 		critical = append(critical,
 			"set-option -w -t "+q(wid)+" automatic-rename off",
 			fmt.Sprintf("split-window -d -hb -f -l %d -P -F '#{pane_id}' -t %s %s",
 				listWidth, q(wid), q(spacerCmd)),
-			"swap-pane -d -s "+q(d.br.pane)+" -t "+q(wid+".{top-left}"))
+			"swap-pane -d -s "+q(d.sur.pane)+" -t "+q(wid+".{top-left}"))
 	}
 	critical = append(critical, "select-window -t "+q(wid))
 	if sidN != p.sess {
@@ -424,7 +424,7 @@ func (d *daemon) dockMove(ctl *control, wid string, focusMain bool) error {
 		critical = append(critical, "select-pane -t "+q(snapN.activePane))
 	} else {
 		// swap-pane, unlike join, does not hand the sidebar focus.
-		critical = append(critical, "select-pane -t "+q(d.br.pane))
+		critical = append(critical, "select-pane -t "+q(d.sur.pane))
 	}
 	// The old window keeps its docked geometry (the spacer fills the
 	// sidebar's slot) — the only restore is keyboard focus, so the spacer
@@ -432,7 +432,7 @@ func (d *daemon) dockMove(ctl *control, wid string, focusMain bool) error {
 	// pane the user was ACTUALLY in (they may have moved since docking);
 	// the dock-time snapshot is the fallback when the sidebar held focus.
 	leaveFocus := p.snap.activePane
-	if len(qlines) >= 2 && qlines[1] != "" && qlines[1] != d.br.pane {
+	if len(qlines) >= 2 && qlines[1] != "" && qlines[1] != d.sur.pane {
 		leaveFocus = qlines[1]
 	}
 	restore := []string{"select-pane -t " + q(leaveFocus)}
@@ -491,6 +491,25 @@ func (d *daemon) dockMove(ctl *control, wid string, focusMain bool) error {
 	return nil
 }
 
+// commitScrub lands a billboard scrub: on the docked window itself it is a
+// free unzoom; anywhere else the sidebar docks into the target for real.
+// Either way the origin resets — q now returns here.
+func (d *daemon) commitScrub(ctl *control, wid string) error {
+	p := d.dock
+	if p == nil {
+		return nil
+	}
+	if wid == "" || wid == p.win {
+		d.scrubEnd(ctl, true)
+		return d.dockCommit(ctl)
+	}
+	if err := d.dockMove(ctl, wid, true); err != nil {
+		return err
+	}
+	p.originSess, p.originWin = p.sess, p.win
+	return nil
+}
+
 // dockNav is the routed M-h / M-l: previous/next window of the current
 // session with the sidebar riding along atomically.
 func (d *daemon) dockNav(ctl *control, dir string) error {
@@ -546,7 +565,7 @@ func (d *daemon) dockCommit(ctl *control) error {
 	if !alive {
 		target = ""
 		for _, pn := range d.h.getWorld().Panes {
-			if pn.WindowID == p.win && pn.ID != d.br.pane {
+			if pn.WindowID == p.win && pn.ID != d.sur.pane {
 				target = pn.ID
 				break
 			}
@@ -584,13 +603,13 @@ func (d *daemon) dockClose(ctl *control, toOrigin bool) error {
 			oldLayout, oldDirty, curActive = lp[0], lp[1] == "1", lp[2]
 		}
 	}
-	restore := d.leaveLayout(p.win, p.snap.layout, oldLayout, oldDirty, d.br.pane)
+	restore := d.leaveLayout(p.win, p.snap.layout, oldLayout, oldDirty, d.sur.pane)
 	// Focus after undock: whatever main pane the user is IN right now. Only
 	// when the sidebar itself holds focus does the dock-time snapshot apply
 	// — restoring the snapshot unconditionally yanked focus back to the
 	// pane that happened to be active when the sidebar opened.
 	focus := p.snap.activePane
-	if curActive != "" && curActive != d.br.pane {
+	if curActive != "" && curActive != d.sur.pane {
 		focus = curActive
 	}
 
@@ -629,7 +648,7 @@ func (d *daemon) dockClose(ctl *control, toOrigin bool) error {
 	}
 	seq := []string{
 		"break-pane -d -P -F " + f("#{session_id}", "#{window_id}") +
-			" -s " + q(d.br.pane) + " -t " + q(demuxSession+":"),
+			" -s " + q(d.sur.pane) + " -t " + q(demuxSession+":"),
 		"set-option -w -t " + q(p.win) + " automatic-rename " + p.snap.autoRename,
 		"set-option -w -uq -t " + q(p.win) + " @demux_layout_dirty",
 	}
@@ -648,8 +667,8 @@ func (d *daemon) dockClose(ctl *control, toOrigin bool) error {
 	}
 	if len(lines) > 0 {
 		if parts := strings.Split(lines[0], sep); len(parts) == 2 {
-			d.br.sess, d.br.win = parts[0], parts[1]
-			_, _ = ctl.run("set-option -wq -t " + q(d.br.win) + " automatic-rename off")
+			d.sur.sess, d.sur.win = parts[0], parts[1]
+			_, _ = ctl.run("set-option -wq -t " + q(d.sur.win) + " automatic-rename off")
 		}
 	}
 	d.deferReleases(p)
@@ -738,13 +757,13 @@ func (d *daemon) checkDock(ctl *control, w world) {
 	if p == nil {
 		return
 	}
-	if d.br == nil || !paneAlive(w, d.br.pane) {
+	if d.sur == nil || !paneAlive(w, d.sur.pane) {
 		// Sidebar pane died (kill-window on the host, kill-pane): the dock is
 		// gone, only session state needs cleaning. Layout restore would fight
 		// whatever the user just did — skip it.
 		log.Printf("dock: sidebar pane gone, cleaning up")
 		d.dock = nil
-		d.br = nil
+		d.dropSurface()
 		_, _ = ctl.run("set-option -u -t " + q(p.sess) + " @demux_docked")
 		d.restoreStatus(ctl, p.status)
 		d.deferReleases(p)
@@ -769,7 +788,7 @@ func (d *daemon) checkDock(ctl *control, w world) {
 	}
 	if p.scrubbing {
 		for _, pn := range w.Panes {
-			if pn.ID == d.br.pane && pn.WindowID == p.win && pn.Width == listWidth {
+			if pn.ID == d.sur.pane && pn.WindowID == p.win && pn.Width == listWidth {
 				// The zoom broke externally: selecting any other pane
 				// (vim-navigator C-h/C-l out of the billboard) auto-unzooms.
 				// Reality is the docked window again — end the scrub state
@@ -802,8 +821,8 @@ func (d *daemon) checkDock(ctl *control, w world) {
 		return // zoomed: full-width by design; enforcing 40 would unzoom it
 	}
 	for _, pn := range w.Panes {
-		if pn.ID == d.br.pane && pn.WindowID == p.win && pn.Width != listWidth {
-			_, _ = ctl.run(fmt.Sprintf("resize-pane -t %s -x %d", q(d.br.pane), listWidth))
+		if pn.ID == d.sur.pane && pn.WindowID == p.win && pn.Width != listWidth {
+			_, _ = ctl.run(fmt.Sprintf("resize-pane -t %s -x %d", q(d.sur.pane), listWidth))
 			break
 		}
 	}
