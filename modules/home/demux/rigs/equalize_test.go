@@ -1,13 +1,12 @@
 package rigs
 
 import (
-	"os/exec"
 	"strconv"
 	"strings"
 	"testing"
 )
 
-// TestEqualize: tmux-equalize-nvim coexistence — equalize while docked,
+// TestEqualize: demuxd equalize coexistence — equalize while docked,
 // geometry-free leave, proportional give-back at release and at undock.
 func TestEqualize(t *testing.T) {
 	r := New(t)
@@ -42,12 +41,7 @@ func TestEqualize(t *testing.T) {
 		return -1
 	}
 	equalize := func(pane string) {
-		cmd := exec.Command(equalizeBin)
-		cmd.Env = append(envSansTmux(),
-			"TMUX=/private/tmp/tmux-501/"+r.L+",1,0", "TMUX_PANE="+pane)
-		if b, err := cmd.CombinedOutput(); err != nil {
-			t.Errorf("equalize: %v\n%s", err, b)
-		}
+		r.D("equalize", pane)
 	}
 	m := mains()
 	if len(m) < 2 {

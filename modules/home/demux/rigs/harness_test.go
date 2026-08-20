@@ -21,10 +21,7 @@ import (
 	"time"
 )
 
-var (
-	demuxdBin   string
-	equalizeBin string
-)
+var demuxdBin string
 
 func TestMain(m *testing.M) {
 	tmp, err := os.MkdirTemp("", "demux-rig-")
@@ -33,17 +30,11 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	demuxdBin = filepath.Join(tmp, "demuxd")
-	equalizeBin = filepath.Join(tmp, "equalize")
-	for dir, out := range map[string]string{
-		"../demuxd":                demuxdBin,
-		"../../tmux-equalize-nvim": equalizeBin,
-	} {
-		cmd := exec.Command("go", "build", "-o", out, ".")
-		cmd.Dir = dir
-		if b, err := cmd.CombinedOutput(); err != nil {
-			fmt.Fprintf(os.Stderr, "build %s: %v\n%s", dir, err, b)
-			os.Exit(1)
-		}
+	cmd := exec.Command("go", "build", "-o", demuxdBin, ".")
+	cmd.Dir = "../demuxd"
+	if b, err := cmd.CombinedOutput(); err != nil {
+		fmt.Fprintf(os.Stderr, "build demuxd: %v\n%s", err, b)
+		os.Exit(1)
 	}
 	code := m.Run()
 	os.RemoveAll(tmp)
