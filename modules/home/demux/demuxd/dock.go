@@ -326,6 +326,10 @@ func (d *daemon) scrubStart(ctl *control, wid string) error {
 	if p == nil || p.scrubbing {
 		return nil
 	}
+	// Force the first frame out even if content hasn't changed since this
+	// window was last streamed: the TUI won't paint a stale cache, so a
+	// deduped first frame would leave the canvas empty.
+	d.pv.lastFrame = nil
 	if err := d.preview(ctl, wid, false); err != nil {
 		return err
 	}

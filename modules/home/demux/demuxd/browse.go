@@ -67,6 +67,7 @@ func (d *daemon) browseOpen(ctl *control, client string) error {
 		return err
 	}
 	d.startStream()
+	d.pv.lastFrame = nil // first frame must reach the TUI (see scrubStart)
 	return d.preview(ctl, wid, false)
 }
 

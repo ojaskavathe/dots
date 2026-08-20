@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -55,6 +56,10 @@ type Rig struct {
 
 	clientCmd *exec.Cmd
 	ptyMaster *os.File
+
+	recMu     sync.Mutex
+	recording bool
+	recBuf    []byte
 }
 
 func New(t *testing.T) *Rig {
@@ -209,12 +214,38 @@ func (r *Rig) attachFakeClient() {
 	go func() { // drain so tmux never blocks writing to the client
 		buf := make([]byte, 65536)
 		for {
-			if _, err := master.Read(buf); err != nil {
+			n, err := master.Read(buf)
+			if err != nil {
 				return
 			}
+			r.recMu.Lock()
+			if r.recording {
+				r.recBuf = append(r.recBuf, buf[:n]...)
+			}
+			r.recMu.Unlock()
 		}
 	}()
 	r.clientCmd, r.ptyMaster = cmd, master
+}
+
+// StartRecord begins capturing everything tmux writes to the fake client's
+// terminal — the ground truth of what a user would SEE, intermediate frames
+// included.
+func (r *Rig) StartRecord() {
+	r.recMu.Lock()
+	r.recBuf = nil
+	r.recording = true
+	r.recMu.Unlock()
+}
+
+// StopRecord ends the capture and returns the raw byte stream.
+func (r *Rig) StopRecord() []byte {
+	r.recMu.Lock()
+	defer r.recMu.Unlock()
+	r.recording = false
+	out := r.recBuf
+	r.recBuf = nil
+	return out
 }
 
 // ---- assertions & helpers ----

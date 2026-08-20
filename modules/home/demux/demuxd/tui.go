@@ -204,6 +204,8 @@ func cmdTui(tmuxSock, demuxSock string) {
 
 	winch := make(chan os.Signal, 1)
 	signal.Notify(winch, syscall.SIGWINCH)
+	var winchT *time.Timer
+	var winchC <-chan time.Time
 
 	send := func(m cmdMsg) {
 		m.Type = "cmd"
@@ -222,7 +224,14 @@ func cmdTui(tmuxSock, demuxSock string) {
 	type cached struct {
 		gen   int
 		panes []framePane
+		at    time.Time
 	}
+	// A cache older than this never paints: it exists to make ACTIVE
+	// scrubbing instant (frames milliseconds old), but a window last
+	// billboarded minutes ago is ancient content — painting it flashes the
+	// old screen for the ~50ms until the fresh capture lands, which reads
+	// as random flicker. Better to leave the canvas and wait.
+	const frameTTL = 3 * time.Second
 	frames := map[string]cached{}
 	gen := 0
 	paintedWin, paintedGen := "", -1
@@ -244,6 +253,10 @@ func cmdTui(tmuxSock, demuxSock string) {
 		c, ok := frames[win]
 		if !ok || (win == paintedWin && c.gen == paintedGen) {
 			return
+		}
+		if time.Since(c.at) > frameTTL {
+			benchf("stale skip win=%s age_ms=%d", win, time.Since(c.at).Milliseconds())
+			return // stale: the fresh frame is already on its way
 		}
 		cols, _ := surfaceSize()
 		avail := cols - (listWidth + 1)
@@ -346,10 +359,20 @@ func cmdTui(tmuxSock, demuxSock string) {
 			case "frame":
 				benchf("frame win=%s current=%v", m.Window, m.Window == target())
 				if prev, ok := frames[m.Window]; ok && framesEqual(prev.panes, m.Frame) {
-					break // confirming frame, content unchanged: no repaint
+					// Confirming frame, content unchanged: no repaint, but
+					// the cache is proven current — restamp it, or a
+					// static window's cache would age out while streaming.
+					// Target-only paint: a stale-skip may have left the
+					// canvas waiting for exactly this confirmation.
+					prev.at = time.Now()
+					frames[m.Window] = prev
+					if m.Window == target() {
+						paintFrameFor(m.Window)
+					}
+					break
 				}
 				gen++
-				frames[m.Window] = cached{gen: gen, panes: m.Frame}
+				frames[m.Window] = cached{gen: gen, panes: m.Frame, at: time.Now()}
 				if m.Window == target() {
 					paintFrameFor(m.Window)
 				}
@@ -404,7 +427,18 @@ func cmdTui(tmuxSock, demuxSock string) {
 			// A client resize (monitor switch) rescales the docked sidebar
 			// off its fixed width, and no tmux notification crosses sessions
 			// to tell the daemon — this SIGWINCH is the only signal. Report
-			// it; the daemon snaps the pane back when docked idle.
+			// it DELAYED: zoom transitions fire SIGWINCH too, and an instant
+			// winch cmd races into the daemon's queue right as scrub-start
+			// prefetches are dispatched, making them look superseded (they
+			// get abandoned, killing the billboard cache warming). A monitor
+			// switch doesn't care about a 250ms wait.
+			if winchT != nil {
+				winchT.Stop()
+			}
+			winchT = time.NewTimer(250 * time.Millisecond)
+			winchC = winchT.C
+		case <-winchC:
+			winchC = nil
 			if cols, _ := surfaceSize(); cols != listWidth {
 				send(cmdMsg{Cmd: "winch", Width: cols})
 			}
