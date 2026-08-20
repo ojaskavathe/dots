@@ -92,99 +92,57 @@ func staleBindWarning() string {
 	return fmt.Sprintf("demux: M-s runs a STALE build\n  bind:      %s\n  installed: %s\n  fix: tmux source-file ~/.config/tmux/tmux.conf ; pkill demuxd", exe, prof)
 }
 
-// cmdToggle is the M-s entrypoint: one short-lived connection, one cmd, wait
-// for the daemon's reply so bind errors surface in tmux.
+// sendCmd is every bind entrypoint (toggle, nav, browse): one short-lived
+// connection, one cmd, wait for the daemon's reply so bind errors surface in
+// tmux via run-shell output.
+func sendCmd(tmuxSock, demuxSock string, m cmdMsg) {
+	m.Type = "cmd"
+	conn, err := dialEnsure(tmuxSock, demuxSock)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "demuxd %s: %v\n", m.Cmd, err)
+		os.Exit(1)
+	}
+	defer conn.Close()
+	b, _ := json.Marshal(m)
+	if _, err := conn.Write(append(b, '\n')); err != nil {
+		fmt.Fprintf(os.Stderr, "demuxd %s: %v\n", m.Cmd, err)
+		os.Exit(1)
+	}
+	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	sc := bufio.NewScanner(conn)
+	sc.Buffer(make([]byte, 64*1024), 16*1024*1024)
+	for sc.Scan() {
+		var r wireMsg
+		if json.Unmarshal(sc.Bytes(), &r) != nil || r.Type != "reply" {
+			continue // snapshot/diff lines on the same conn
+		}
+		if r.OK != nil && !*r.OK {
+			fmt.Fprintf(os.Stderr, "demuxd %s: %s\n", m.Cmd, r.Err)
+			os.Exit(1)
+		}
+		return
+	}
+	fmt.Fprintf(os.Stderr, "demuxd %s: no reply from daemon\n", m.Cmd)
+	os.Exit(1)
+}
+
+// cmdToggle is the M-s entrypoint.
 func cmdToggle(tmuxSock, demuxSock, client string) {
 	if w := staleBindWarning(); w != "" {
 		fmt.Println(w)
 	}
-	conn, err := dialEnsure(tmuxSock, demuxSock)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "demuxd toggle: %v\n", err)
-		os.Exit(1)
-	}
-	defer conn.Close()
-	b, _ := json.Marshal(cmdMsg{Type: "cmd", Cmd: "toggle", Client: client})
-	if _, err := conn.Write(append(b, '\n')); err != nil {
-		fmt.Fprintf(os.Stderr, "demuxd toggle: %v\n", err)
-		os.Exit(1)
-	}
-	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
-	sc := bufio.NewScanner(conn)
-	sc.Buffer(make([]byte, 64*1024), 16*1024*1024)
-	for sc.Scan() {
-		var m wireMsg
-		if json.Unmarshal(sc.Bytes(), &m) != nil || m.Type != "reply" {
-			continue // snapshot/diff lines on the same conn
-		}
-		if m.OK != nil && !*m.OK {
-			fmt.Fprintf(os.Stderr, "demuxd toggle: %s\n", m.Err)
-			os.Exit(1)
-		}
-		return
-	}
-	fmt.Fprintln(os.Stderr, "demuxd toggle: no reply from daemon")
-	os.Exit(1)
+	sendCmd(tmuxSock, demuxSock, cmdMsg{Cmd: "toggle", Client: client})
 }
 
 // cmdNav is the routed M-h / M-l while docked: previous/next window with the
-// sidebar riding along in one atomic server sequence. Hot path — one conn,
-// one cmd, wait for the reply so bind errors surface in tmux.
+// sidebar riding along in one atomic server sequence.
 func cmdNav(tmuxSock, demuxSock, dir, client string) {
-	conn, err := dialEnsure(tmuxSock, demuxSock)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "demuxd nav: %v\n", err)
-		os.Exit(1)
-	}
-	defer conn.Close()
-	b, _ := json.Marshal(cmdMsg{Type: "cmd", Cmd: "nav", Dir: dir, Client: client})
-	if _, err := conn.Write(append(b, '\n')); err != nil {
-		fmt.Fprintf(os.Stderr, "demuxd nav: %v\n", err)
-		os.Exit(1)
-	}
-	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
-	sc := bufio.NewScanner(conn)
-	sc.Buffer(make([]byte, 64*1024), 16*1024*1024)
-	for sc.Scan() {
-		var m wireMsg
-		if json.Unmarshal(sc.Bytes(), &m) != nil || m.Type != "reply" {
-			continue
-		}
-		if m.OK != nil && !*m.OK {
-			fmt.Fprintf(os.Stderr, "demuxd nav: %s\n", m.Err)
-			os.Exit(1)
-		}
-		return
-	}
+	sendCmd(tmuxSock, demuxSock, cmdMsg{Cmd: "nav", Dir: dir, Client: client})
 }
 
 // cmdBrowse opens the full-screen billboard browser (the pre-dock M-s).
 func cmdBrowse(tmuxSock, demuxSock, client string) {
-	conn, err := dialEnsure(tmuxSock, demuxSock)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "demuxd browse: %v\n", err)
-		os.Exit(1)
-	}
-	defer conn.Close()
-	b, _ := json.Marshal(cmdMsg{Type: "cmd", Cmd: "browse", Client: client})
-	if _, err := conn.Write(append(b, '\n')); err != nil {
-		fmt.Fprintf(os.Stderr, "demuxd browse: %v\n", err)
-		os.Exit(1)
-	}
-	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
-	sc := bufio.NewScanner(conn)
-	sc.Buffer(make([]byte, 64*1024), 16*1024*1024)
-	for sc.Scan() {
-		var m wireMsg
-		if json.Unmarshal(sc.Bytes(), &m) != nil || m.Type != "reply" {
-			continue
-		}
-		if m.OK != nil && !*m.OK {
-			fmt.Fprintf(os.Stderr, "demuxd browse: %s\n", m.Err)
-			os.Exit(1)
-		}
-		return
-	}
+	sendCmd(tmuxSock, demuxSock, cmdMsg{Cmd: "browse", Client: client})
 }
 
 func cmdEvents(tmuxSock, demuxSock string) {

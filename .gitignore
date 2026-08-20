@@ -3,3 +3,6 @@ Session.vim
 .result-*
 
 .direnv/
+
+# go build artifacts
+modules/home/demux/demuxd/demuxd

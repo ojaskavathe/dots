@@ -52,25 +52,6 @@ type store struct {
 	panes    map[string]pane
 }
 
-type wireMsg struct {
-	Type     string      `json:"type"`
-	Sessions []session   `json:"sessions"`
-	Windows  []window    `json:"windows"`
-	Panes    []pane      `json:"panes"`
-	Ops      []wireOp    `json:"ops"`
-	Window   string      `json:"window"`
-	Frame    []framePane `json:"frame"`
-	OK       *bool       `json:"ok"`
-	Err      string      `json:"err"`
-}
-
-type wireOp struct {
-	Op    string          `json:"op"`
-	Kind  string          `json:"kind"`
-	ID    string          `json:"id"`
-	Value json.RawMessage `json:"value"`
-}
-
 func (st *store) apply(m wireMsg) {
 	switch m.Type {
 	case "snapshot":

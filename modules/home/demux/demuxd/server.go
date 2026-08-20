@@ -24,55 +24,6 @@ type subscriber struct {
 	role string // "", "list", "canvas" — set by a hello message
 }
 
-// cmdMsg is a client -> daemon request; replyMsg answers it on the same conn
-// (interleaved with the world stream, so replies are type-tagged). A
-// {"type":"hello","role":"..."} line tags the connection instead.
-type cmdMsg struct {
-	Type     string `json:"type"`
-	Cmd      string `json:"cmd"`
-	Client   string `json:"client,omitempty"`
-	Window   string `json:"window,omitempty"`
-	Role     string `json:"role,omitempty"`
-	Dir      string `json:"dir,omitempty"`   // nav: "next" | "prev"
-	Width    int    `json:"width,omitempty"` // winch: the TUI's new cols
-	Prefetch bool   `json:"prefetch,omitempty"`
-}
-
-// selectMsg tells the list TUI to move its selection (daemon -> list).
-type selectMsg struct {
-	Type   string `json:"type"`
-	Window string `json:"window"`
-}
-
-// frameMsg carries a captured window for the preview region (daemon ->
-// list TUI). Pane lines are raw capture-pane -e output (SGR included).
-type frameMsg struct {
-	Type   string      `json:"type"`
-	Window string      `json:"window"`
-	Panes  []framePane `json:"frame"`
-}
-
-type framePane struct {
-	Left   int      `json:"left"`
-	Top    int      `json:"top"`
-	Width  int      `json:"width"`
-	Height int      `json:"height"`
-	Active bool     `json:"active,omitempty"`
-	Lines  []string `json:"lines"`
-}
-
-type replyMsg struct {
-	Type string `json:"type"`
-	OK   bool   `json:"ok"`
-	Err  string `json:"err,omitempty"`
-}
-
-type cmdEnvelope struct {
-	msg  cmdMsg
-	sub  *subscriber
-	recv time.Time // enqueue time: runCmd logs how long a command sat queued
-}
-
 func newHub() *hub {
 	return &hub{subs: map[*subscriber]struct{}{}, cmds: make(chan cmdEnvelope, 16)}
 }
@@ -122,18 +73,6 @@ func (h *hub) setRole(s *subscriber, role string) {
 	h.mu.Lock()
 	s.role = role
 	h.mu.Unlock()
-}
-
-type snapshotMsg struct {
-	V    int    `json:"v"`
-	Type string `json:"type"` // snapshot
-	Tmux string `json:"tmux"` // tmux server socket path
-	world
-}
-
-type diffMsg struct {
-	Type string `json:"type"` // diff
-	Ops  []op   `json:"ops"`
 }
 
 // setWorld replaces the world and broadcasts: a diff when ops are known, or a
@@ -188,14 +127,6 @@ func (h *hub) closeAll() {
 		close(s.ch)
 	}
 	h.mu.Unlock()
-}
-
-func marshalLine(v any) []byte {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return []byte(`{"type":"error","error":"marshal"}` + "\n")
-	}
-	return append(b, '\n')
 }
 
 // serve accepts subscribers; incoming NDJSON cmd lines go to the daemon's
