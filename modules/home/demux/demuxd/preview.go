@@ -51,20 +51,65 @@ func (d *daemon) stopStream() {
 // per line — carried state would be lost, washing panel backgrounds off
 // rows seemingly at random — so each line gets its carry-in prepended.
 func selfContain(lines []string) {
-	var state []string
+	var st sgrState
 	for i, ln := range lines {
-		if len(state) > 0 {
-			lines[i] = "\x1b[" + strings.Join(state, ";") + "m" + ln
+		if pre := st.seq(); pre != "" {
+			lines[i] = pre + ln
 		}
-		state = sgrFold(state, ln)
+		st.fold(ln)
 	}
 }
 
-// sgrFold accumulates the SGR parameters a line leaves active. Parameters
-// are replayed in order, so compound forms (38;2;r;g;b) survive intact; a
-// bare 0 (or empty) resets. Capped so a pathological pane can't balloon
-// every following line.
-func sgrFold(state []string, ln string) []string {
+// sgrState models the attributes an SGR stream leaves active: one fg, one
+// bg, one underline color, and a small flag set. A real state model — not
+// a parameter log — so compound params (38;2;r;g;b) can never be split and
+// the carry stays bounded no matter how color-dense the frame is (an
+// append-log capped by dropping led params cut compounds mid-way, which
+// corrupted exactly the BOTTOM rows of dense frames, where the most state
+// had accumulated).
+type sgrState struct {
+	fg, bg, ul string
+	flags      []string
+}
+
+// seq renders the state as one SGR sequence, empty when default.
+func (s *sgrState) seq() string {
+	parts := make([]string, 0, len(s.flags)+3)
+	parts = append(parts, s.flags...)
+	for _, c := range []string{s.fg, s.bg, s.ul} {
+		if c != "" {
+			parts = append(parts, c)
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "\x1b[" + strings.Join(parts, ";") + "m"
+}
+
+func (s *sgrState) setFlag(f string) {
+	for _, have := range s.flags {
+		if have == f {
+			return
+		}
+	}
+	if len(s.flags) < 12 {
+		s.flags = append(s.flags, f)
+	}
+}
+
+func (s *sgrState) dropFlags(match func(string) bool) {
+	out := s.flags[:0]
+	for _, f := range s.flags {
+		if !match(f) {
+			out = append(out, f)
+		}
+	}
+	s.flags = out
+}
+
+// fold applies every SGR sequence in a captured line to the state.
+func (s *sgrState) fold(ln string) {
 	for i := 0; i < len(ln); {
 		j := strings.Index(ln[i:], "\x1b[")
 		if j < 0 {
@@ -79,24 +124,84 @@ func sgrFold(state []string, ln string) []string {
 			break
 		}
 		if ln[k] == 'm' {
-			params := ln[i:k]
-			if params == "" {
-				params = "0"
-			}
-			for _, p := range strings.Split(params, ";") {
-				if p == "0" || p == "" {
-					state = state[:0]
-				} else {
-					state = append(state, p)
-				}
-			}
-			if len(state) > 64 {
-				state = append(state[:0], state[len(state)-64:]...)
-			}
+			s.apply(strings.Split(ln[i:k], ";"))
 		}
 		i = k + 1
 	}
-	return state
+}
+
+func (s *sgrState) apply(tokens []string) {
+	for i := 0; i < len(tokens); i++ {
+		t := tokens[i]
+		// colon compounds (38:2:r:g:b, 4:3) are self-contained tokens
+		if c := strings.IndexByte(t, ':'); c >= 0 {
+			switch t[:c] {
+			case "38":
+				s.fg = t
+			case "48":
+				s.bg = t
+			case "58":
+				s.ul = t
+			case "4":
+				s.setFlag(t)
+			}
+			continue
+		}
+		switch t {
+		case "", "0":
+			*s = sgrState{flags: s.flags[:0]}
+		case "38", "48", "58":
+			var span int
+			if i+1 < len(tokens) && tokens[i+1] == "2" && i+4 < len(tokens) {
+				span = 5
+			} else if i+1 < len(tokens) && tokens[i+1] == "5" && i+2 < len(tokens) {
+				span = 3
+			} else {
+				continue // malformed; skip the introducer
+			}
+			val := strings.Join(tokens[i:i+span], ";")
+			switch t {
+			case "38":
+				s.fg = val
+			case "48":
+				s.bg = val
+			default:
+				s.ul = val
+			}
+			i += span - 1
+		case "39":
+			s.fg = ""
+		case "49":
+			s.bg = ""
+		case "59":
+			s.ul = ""
+		case "22":
+			s.dropFlags(func(f string) bool { return f == "1" || f == "2" })
+		case "23":
+			s.dropFlags(func(f string) bool { return f == "3" })
+		case "24":
+			s.dropFlags(func(f string) bool { return f == "4" || strings.HasPrefix(f, "4:") })
+		case "25":
+			s.dropFlags(func(f string) bool { return f == "5" || f == "6" })
+		case "27":
+			s.dropFlags(func(f string) bool { return f == "7" })
+		case "28":
+			s.dropFlags(func(f string) bool { return f == "8" })
+		case "29":
+			s.dropFlags(func(f string) bool { return f == "9" })
+		default:
+			n, err := strconv.Atoi(t)
+			switch {
+			case err != nil:
+			case (n >= 30 && n <= 37) || (n >= 90 && n <= 97):
+				s.fg = t
+			case (n >= 40 && n <= 47) || (n >= 100 && n <= 107):
+				s.bg = t
+			case n >= 1 && n <= 9:
+				s.setFlag(t)
+			}
+		}
+	}
 }
 
 // parseDims splits a "W<sep>H" display-message line.
