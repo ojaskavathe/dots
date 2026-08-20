@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -25,6 +26,7 @@ import (
 var demuxdBin string
 
 func TestMain(m *testing.M) {
+	sweepStaleServers()
 	tmp, err := os.MkdirTemp("", "demux-rig-")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -92,6 +94,29 @@ func (r *Rig) teardown() {
 }
 
 func glob(pat string) []string { m, _ := filepath.Glob(pat); return m }
+
+// sweepStaleServers kills rig tmux servers leaked by interrupted earlier
+// runs. Sockets are named <testname><pid>; per-test teardown only knows its
+// OWN pid, so a killed `go test` leaves its servers running forever.
+func sweepStaleServers() {
+	for _, sock := range glob(fmt.Sprintf("/private/tmp/tmux-%d/test*", os.Getuid())) {
+		name := filepath.Base(sock)
+		i := len(name)
+		for i > 0 && name[i-1] >= '0' && name[i-1] <= '9' {
+			i--
+		}
+		pid, err := strconv.Atoi(name[i:])
+		if i == len(name) || err != nil || pid == os.Getpid() {
+			continue
+		}
+		// signal 0: is the owning test process still alive?
+		if p, _ := os.FindProcess(pid); p != nil && p.Signal(syscall.Signal(0)) == nil {
+			continue
+		}
+		exec.Command("tmux", "-S", sock, "kill-server").Run()
+		fmt.Fprintf(os.Stderr, "swept stale rig server %s\n", name)
+	}
+}
 
 // envSansTmux strips TMUX/TMUX_PANE so nothing ever looks nested.
 func envSansTmux() []string {

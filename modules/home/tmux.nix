@@ -121,7 +121,19 @@
               '';
             }
             {
-              plugin = tmuxPlugins.continuum;
+              # continuum silently disables autosave when it sees "another
+              # tmux server" — but demuxd keeps a persistent control-mode
+              # client and the rigs spawn side servers, so the heuristic is
+              # permanently true here and snapshots stopped (2026-08-11,
+              # discovered after a tmux crash left only a 9-day-old save).
+              # The guard exists to stop two full servers rotating the same
+              # save dir; accepted trade-off — saves beat no saves.
+              plugin = tmuxPlugins.continuum.overrideAttrs (old: {
+                postInstall = (old.postInstall or "") + ''
+                  sed -i 's/if ! another_tmux_server_running; then/if true; then/' \
+                    $out/share/tmux-plugins/continuum/continuum.tmux
+                '';
+              });
               extraConfig = ''
                 # restore last save on start (& save every 15 min)
                 set -g @continuum-restore 'on'

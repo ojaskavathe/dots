@@ -301,10 +301,23 @@ func (d *daemon) dockOpen(ctl *control, client string) error {
 	p.status = d.savedStatus(ctl, sid)
 	// Freeze rename BEFORE the join: the sidebar takes focus on join, and an
 	// automatic-rename window would flip its name to "demuxd" (the sh-era bug).
+	//
+	// The keeper pane: tmux 3.7b SEGFAULTS when join-pane both destroys its
+	// source window and resizes a pane showing a mode_tree mode (choose-tree
+	// & friends): layout_fix_panes → mode_tree_resize → window_tree_build
+	// walks the window list mid-destruction and dereferences NULL. The TUI
+	// pane is its _demux window's only pane, so a bare join is exactly that
+	// shape — crash-verified live twice (2026-08-20, prefix+s then M-s) and
+	// reproduced isolated. A throwaway keeper split into the TUI's window
+	// first means the join destroys nothing; the keeper dies one command
+	// later, where window destruction is safe (tree rebuilds see consistent
+	// state — verified). The user's choose-tree survives the dock.
 	seq := []string{
 		"set-option -w -t " + q(wid) + " automatic-rename off",
 		"set-option -p -t " + q(d.sur.pane) + " @demux_sidebar 1",
+		"split-window -d -t " + q(d.sur.win) + " " + q(spacerCmd),
 		fmt.Sprintf("join-pane -hb -f -l %d -s %s -t %s", listWidth, q(d.sur.pane), q(wid)),
+		"kill-pane -t " + q(d.sur.win),
 	}
 	seq = append(seq, dockSessionCmds(sid)...)
 	if _, err := ctl.runSeq(seq...); err != nil {
