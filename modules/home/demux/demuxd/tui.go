@@ -420,6 +420,13 @@ func cmdTui(tmuxSock, demuxSock string) {
 			}
 		case <-winch:
 			paintAll()
+			// A client resize (monitor switch) rescales the docked sidebar
+			// off its fixed width, and no tmux notification crosses sessions
+			// to tell the daemon — this SIGWINCH is the only signal. Report
+			// it; the daemon snaps the pane back when docked idle.
+			if cols, _ := surfaceSize(); cols != listWidth {
+				send(cmdMsg{Cmd: "winch", Width: cols})
+			}
 		}
 	}
 }

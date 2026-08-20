@@ -33,7 +33,8 @@ type cmdMsg struct {
 	Client   string `json:"client,omitempty"`
 	Window   string `json:"window,omitempty"`
 	Role     string `json:"role,omitempty"`
-	Dir      string `json:"dir,omitempty"` // nav: "next" | "prev"
+	Dir      string `json:"dir,omitempty"`   // nav: "next" | "prev"
+	Width    int    `json:"width,omitempty"` // winch: the TUI's new cols
 	Prefetch bool   `json:"prefetch,omitempty"`
 }
 

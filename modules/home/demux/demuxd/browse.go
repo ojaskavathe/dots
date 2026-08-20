@@ -165,6 +165,15 @@ func (d *daemon) runCmd(ctl *control, env cmdEnvelope) {
 		} else {
 			err = d.preview(ctl, env.msg.Window, env.msg.Prefetch)
 		}
+	case "winch":
+		// The TUI's pane changed size. Docked idle that means a client
+		// resize (monitor switch) rescaled the sidebar off its fixed width;
+		// nothing else will tell us — geometry events don't cross sessions.
+		// Zoomed (scrubbing) the sidebar is full-width by design, and the
+		// full-screen browser owns its whole window: both skip.
+		if d.dock != nil && !browsing && !d.dock.scrubbing && env.msg.Width != listWidth {
+			_, err = ctl.run(fmt.Sprintf("resize-pane -t %s -x %d", q(d.br.pane), listWidth))
+		}
 	case "focus":
 		// C-l from the docked idle sidebar: select the pane geometrically
 		// right of it — vim-tmux-navigator semantics, no origin reset.
