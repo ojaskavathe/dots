@@ -133,6 +133,13 @@
           extraConfig = ''
             set -g set-clipboard on
 
+            # kitty supports synchronized output (DECSET 2026) but tmux does
+            # not auto-detect it: without the sync feature EVERY redraw —
+            # switch-client, zoom, swap-pane, sidebar paints — goes out
+            # unwrapped, and kitty renders whatever half-frame has arrived
+            # when its frame timer fires (random flicker on transitions).
+            set -as terminal-features 'xterm-kitty:sync'
+
             # update status bar every second
             set -g status-interval 15
             set -g status-position top
