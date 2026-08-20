@@ -10,9 +10,8 @@ import (
 )
 
 // The preview engine: capture a window, ship it to the TUI as a billboard
-// frame, and keep the current target live on a stream ticker. Serves both
-// presentation modes — the full-screen browser's canvas and docked billboard
-// scrubbing use the same frames.
+// frame, and keep the current target live on a stream ticker. Docked scrub
+// zoom is the only consumer (`demuxd browse` is that too, pre-zoomed).
 
 // previewState is the engine's state on the daemon.
 type previewState struct {
@@ -66,7 +65,7 @@ const frameMarker = "\x1fdemux-frame\x1f"
 // pane itself is never billboarded (a docked window's frame is its mains,
 // shifted to the canvas origin — near-pixel-parity with entering it).
 func (d *daemon) preview(ctl *control, wid string, prefetch bool) error {
-	if d.sur == nil || (!d.browse.open && d.dock == nil) {
+	if d.dock == nil {
 		return nil
 	}
 	// Docked scrub targets get their spacer carved on first billboard: a
@@ -81,7 +80,7 @@ func (d *daemon) preview(ctl *control, wid string, prefetch bool) error {
 	// which stalls the server mid-scrub for a billboard the user is only
 	// glancing at. Those windows billboard as scaled approximations and pay
 	// their carve if and when actually entered.
-	canCarve := d.dock != nil && !d.browse.open && wid != d.dock.win
+	canCarve := wid != d.dock.win
 	skipPane := ""
 	if canCarve {
 		if t := d.dock.carved[wid]; t != nil {
@@ -91,19 +90,18 @@ func (d *daemon) preview(ctl *control, wid string, prefetch bool) error {
 	var panes []framePane
 	var caps []string
 	for attempt := 0; ; attempt++ {
-		query := []string{"list-panes -t " + q(wid) + " -F " +
-			f("#{pane_id}", "#{pane_left}", "#{pane_top}", "#{pane_width}", "#{pane_height}", "#{pane_active}", "#{history_size}")}
-		if d.dock != nil {
-			query = append(query,
-				"display-message -p -t "+q(wid)+" -F "+f("#{window_width}", "#{window_height}"),
-				"display-message -p -t "+q(d.dock.win)+" -F "+f("#{window_width}", "#{window_height}"))
+		query := []string{
+			"list-panes -t " + q(wid) + " -F " +
+				f("#{pane_id}", "#{pane_left}", "#{pane_top}", "#{pane_width}", "#{pane_height}", "#{pane_active}", "#{history_size}"),
+			"display-message -p -t " + q(wid) + " -F " + f("#{window_width}", "#{window_height}"),
+			"display-message -p -t " + q(d.dock.win) + " -F " + f("#{window_width}", "#{window_height}"),
 		}
 		lines, err := ctl.runSeq(query...)
 		if err != nil {
 			return err
 		}
 		tgtW, tgtH, dockW, dockH := 0, 0, 0, 0
-		if d.dock != nil && len(lines) >= 2 {
+		if len(lines) >= 2 {
 			tgtW, tgtH = parseDims(lines[len(lines)-2])
 			dockW, dockH = parseDims(lines[len(lines)-1])
 			lines = lines[:len(lines)-2]
@@ -124,7 +122,7 @@ func (d *daemon) preview(ctl *control, wid string, prefetch bool) error {
 			if h, _ := strconv.Atoi(p[6]); h > 0 {
 				history += h
 			}
-			if p[0] == d.sur.pane || (skipPane != "" && p[0] == skipPane) {
+			if p[0] == d.dock.pane || (skipPane != "" && p[0] == skipPane) {
 				continue
 			}
 			left, _ := strconv.Atoi(p[1])
@@ -177,7 +175,7 @@ func (d *daemon) preview(ctl *control, wid string, prefetch bool) error {
 		// free. A stale WIDTH on such a window stays stale (the reflow is
 		// the very thing being avoided); its billboard remains an X-scaled
 		// approximation.
-		if attempt == 0 && d.dock != nil && wid != d.dock.win && d.dock.carved[wid] == nil &&
+		if attempt == 0 && wid != d.dock.win && d.dock.carved[wid] == nil &&
 			sizeStale && tgtW == dockW && !d.otherClientOn(wid) {
 			if _, err := ctl.runSeq(
 				fmt.Sprintf("resize-window -y %d -t %s", dockH, q(wid)),

@@ -43,7 +43,7 @@ commands:
   events                 stream snapshot + diffs as NDJSON (starts the daemon if needed)
   toggle <client>        dock / undock the sidebar for a tmux client
   nav <next|prev> <cl>   window nav with the sidebar riding along (routed M-h/M-l)
-  browse <client>        full-screen billboard browser (the pre-dock M-s)
+  browse <client>        dock the sidebar and zoom straight into scrubbing
   equalize [pane]        equalize panes, nvim splits weighted (no daemon needed)
   tui                    the sidebar TUI (spawned by the daemon)
   sock                   print the tmux and demux socket paths and exit

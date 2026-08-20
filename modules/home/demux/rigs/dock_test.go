@@ -13,9 +13,21 @@ import (
 func TestDockScrub(t *testing.T) {
 	r := New(t)
 
-	// A: toggle on (dock into beta)
+	// A: toggle on (dock into beta). The TUI pane is spawned fresh per dock;
+	// time toggle -> painted list, the latency an M-s press actually feels.
+	t0 := time.Now()
 	r.D("toggle", r.CL)
-	sleep(800)
+	spawn := -1
+	for i := 0; i < 300; i++ {
+		if s := r.Side(); s.Pane != "" && strings.Contains(r.Capture(s.Pane), "work") {
+			spawn = int(time.Since(t0).Milliseconds())
+			break
+		}
+		sleep(10)
+	}
+	r.Chk("TUI spawned and painted", spawn >= 0)
+	t.Logf("dock-to-list latency: %dms", spawn)
+	sleep(500)
 	s := r.Side()
 	r.Chk("sidebar pane exists", s.Pane != "")
 	r.Chk("sidebar in beta", s.Win == r.W2)
@@ -25,7 +37,7 @@ func TestDockScrub(t *testing.T) {
 	r.Chk("@demux_docked on work", r.ShowOpt("-t", "work", "-v", "@demux_docked") == "1")
 	r.Chk("status-left padded 41", len(r.ShowOpt("-t", "work", "status-left")) >= 45)
 	_, err := r.TQ("has-session", "-t", "_demux")
-	r.Chk("_demux alive", err == nil)
+	r.Chk("no _demux session", err != nil)
 	cap := r.Capture(s.Pane)
 	r.Chk("narrow list shows sessions", strings.Contains(cap, "work") && strings.Contains(cap, "play"))
 	r.Chk("narrow list has no border", !strings.Contains(cap, "│"))
@@ -33,7 +45,7 @@ func TestDockScrub(t *testing.T) {
 	betaMain := r.T("list-panes", "-t", r.W2, "-F", "#{pane_id} #{pane_width}")
 
 	// B: scrub k -> billboard (zoom, nothing real moves)
-	t0 := time.Now()
+	t0 = time.Now()
 	r.SendKeys(sp, "k")
 	lat := -1
 	for i := 0; i < 200; i++ {

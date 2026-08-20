@@ -22,10 +22,8 @@ type daemon struct {
 	tmuxSock string
 	h        *hub
 
-	sur    *surface     // the TUI pane + its _demux home (surface.go)
-	browse browseState  // full-screen browse mode (browse.go)
-	pv     previewState // billboard capture engine (preview.go)
-	dock   *dockState   // docked sidebar mode (dock.go)
+	pv   previewState // billboard capture engine (preview.go)
+	dock *dockState   // docked sidebar mode (dock.go); nil = idle
 
 	// lastScrub gates re-lists: world churn within scrubQuiet of a dock
 	// scrub is our own doing, and re-listing the whole server once per
@@ -172,7 +170,6 @@ func consume(d *daemon, ctl *control, w world, sig chan os.Signal) bool {
 			ops := diffWorlds(w, next)
 			w = next
 			d.h.setWorld(w, ops, false, d.tmuxSock)
-			d.checkBrowse(ctl, w)
 			d.checkDock(ctl, w)
 			if dur := time.Since(start); dur > 25*time.Millisecond {
 				log.Printf("relist took %s ops=%d", dur, len(ops))
@@ -183,11 +180,10 @@ func consume(d *daemon, ctl *control, w world, sig chan os.Signal) bool {
 			d.handleCmd(ctl, env)
 		case <-d.pv.tickC:
 			// Live preview stream: nil (never fires) unless the billboards
-			// are showing — full-screen browse or a docked zoom-scrub. Yield
-			// to queued commands — a mid-scrub tick would capture a target
-			// that's about to change anyway.
-			streaming := d.pv.target != "" &&
-				(d.browse.open || (d.dock != nil && d.dock.scrubbing))
+			// are showing (a docked zoom-scrub). Yield to queued commands —
+			// a mid-scrub tick would capture a target that's about to change
+			// anyway.
+			streaming := d.pv.target != "" && d.dock != nil && d.dock.scrubbing
 			if streaming && len(d.h.cmds) == 0 {
 				_ = d.preview(ctl, d.pv.target, false)
 			}

@@ -140,7 +140,7 @@ func cmdNav(tmuxSock, demuxSock, dir, client string) {
 	sendCmd(tmuxSock, demuxSock, cmdMsg{Cmd: "nav", Dir: dir, Client: client})
 }
 
-// cmdBrowse opens the full-screen billboard browser (the pre-dock M-s).
+// cmdBrowse docks the sidebar and zooms straight into billboard scrubbing.
 func cmdBrowse(tmuxSock, demuxSock, client string) {
 	sendCmd(tmuxSock, demuxSock, cmdMsg{Cmd: "browse", Client: client})
 }

@@ -5,49 +5,49 @@ import (
 	"testing"
 )
 
-// TestBrowse: the full-screen browse surface, and browse-from-docked
-// auto-undock.
+// TestBrowse: `demuxd browse` is dock + zoom — the sidebar docks into the
+// client's current window and opens already scrubbing, full width. No parked
+// session exists anywhere (the _demux holdout is gone).
 func TestBrowse(t *testing.T) {
 	r := New(t)
 
-	// K: full-screen browse
+	// K: browse from scratch: docked into the current window, zoomed
+	origin := r.ClientWin()
 	r.D("browse", r.CL)
-	sleep(800)
-	r.Chk("client on _demux", r.ClientSess() == "_demux")
-	tp, tw := "", ""
-	for _, ln := range strings.Split(r.T("list-panes", "-s", "-t", "_demux", "-F",
-		"#{pane_id} #{pane_current_command} #{pane_width}"), "\n") {
-		f := strings.Fields(ln)
-		if len(f) == 3 && strings.Contains(f[1], "demux") {
-			tp, tw = f[0], f[2]
-			break
-		}
-	}
-	r.Chk("tui full width", tw == "200")
-	r.Chk("wide mode has border", strings.Contains(r.Capture(tp), "│"))
-	r.SendKeys(tp, "q")
-	sleep(600)
-	r.Chk("q leaves browse", r.ClientSess() != "_demux")
+	sleep(1000)
+	_, err := r.TQ("has-session", "-t", "_demux")
+	r.Chk("no _demux session", err != nil)
+	s := r.Side()
+	r.Chk("sidebar docked in the current window", s.Win == origin)
+	r.Chk("client never moved", r.ClientWin() == origin)
+	r.Chk("browse opens zoomed", s.Width == 200 && r.Zoomed(origin))
+	r.Chk("wide mode has border", strings.Contains(r.Capture(s.Pane), "│"))
 
-	// L: browse from docked auto-undocks
-	r.D("toggle", r.CL)
-	sleep(500)
-	pinWin := r.ClientWin()
+	// scrub to w1; Enter commits for real and stays docked
+	r.SendKeys(s.Pane, "k")
+	sleep(700)
+	r.Chk("billboard shows w1 content", strings.Contains(r.Capture(s.Pane), "MARKW1"))
+	r.SendKeys(s.Pane, "Enter")
+	r.WaitUntil(100, func() bool { return r.ClientWin() == r.W1 })
+	sleep(400)
+	s = r.Side()
+	r.Chk("enter commits for real", r.ClientWin() == r.W1)
+	r.Chk("sidebar stays docked at 40", s.Win == r.W1 && s.Width == 40)
+
+	// L: browse while already docked just zooms in place
 	r.D("browse", r.CL)
-	sleep(800)
-	r.Chk("browse took over", r.ClientSess() == "_demux")
-	r.Chk("dock auto-undocked", r.DemuxPanes("-t", pinWin) == 0)
-	r.Chk("no spacers remain", r.Spacers() == 0)
-	tp2 := ""
-	for _, ln := range strings.Split(r.T("list-panes", "-s", "-t", "_demux", "-F",
-		"#{pane_id} #{pane_current_command}"), "\n") {
-		f := strings.Fields(ln)
-		if len(f) == 2 && strings.Contains(f[1], "demux") {
-			tp2 = f[0]
-			break
-		}
-	}
-	r.SendKeys(tp2, "q")
 	sleep(600)
-	r.Chk("q from browse returns", r.ClientSess() != "_demux")
+	s = r.Side()
+	r.Chk("browse from docked zooms", s.Width == 200 && r.Zoomed(r.W1))
+	r.SendKeys(s.Pane, "q")
+	sleep(500)
+	s = r.Side()
+	r.Chk("q unzooms, still docked", s.Win == r.W1 && s.Width == 40)
+
+	// undock: the TUI pane dies, everything restores
+	r.D("toggle", r.CL)
+	sleep(1200)
+	r.Chk("TUI pane gone", r.Side().Pane == "")
+	r.Chk("no spacers remain", r.Spacers() == 0)
+	r.Chk("w1 layout exact", r.Layout(r.W1) == tail(r.LW1))
 }

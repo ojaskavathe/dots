@@ -47,7 +47,7 @@ func TestNavFollow(t *testing.T) {
 	r.D("toggle", r.CL)
 	sleep(600)
 	r.Chk("sidebar left user windows", r.DemuxPanes("-t", r.W3) == 0)
-	r.Chk("TUI home in _demux", r.DemuxPanes("-s", "-t", "_demux") >= 1)
+	r.Chk("TUI pane gone entirely", r.Side().Pane == "")
 	r.Chk("gamma layout exact", r.Layout(r.W3) == tail(r.LW3))
 	r.Chk("client still on gamma", r.ClientWin() == r.W3)
 	r.Chk("@demux_docked off work", r.ShowOpt("-t", "work", "-v", "@demux_docked") == "")

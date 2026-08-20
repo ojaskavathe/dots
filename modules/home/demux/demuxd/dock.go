@@ -4,32 +4,40 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 )
 
-// Docked mode: the herdr layout on tmux. The TUI pane docks as a real 40-col
+// Docked mode: the herdr layout on tmux. The TUI spawns as a real 40-col
 // pane at the left edge of the client's current window; the main area is the
 // user's actual panes — live, focusable, typable. Scrubbing the list moves
-// the MAIN AREA for real (join sidebar into the target window + select it in
-// one sequence), so what you see while scrolling is the window itself, not a
-// capture. M-s toggles the dock; Enter drops focus into the main pane; q
-// undocks and returns to the origin window.
+// the MAIN AREA for real, so what you see while scrolling is the window
+// itself, not a capture. M-s toggles the dock; Enter drops focus into the
+// main pane; q undocks and returns to the origin window.
+//
+// The TUI pane is per-dock: dockOpen splits it into the window, dockClose
+// kills it (its process dies with it, and it also exits itself when the
+// daemon connection closes). There is no parked holding session — nothing
+// exists between docks. `demuxd browse` is this mode too: dock + immediate
+// zoom into scrubbing (router.go browseOpen).
 //
 // Rig-verified (tmux 3.7b, rigs/):
-//   - `join-pane -hb -f -l 40` lands at the window's left edge no matter
-//     which pane is targeted, and the joined pane takes focus (no -d)
+//   - `split-window -hb -f -l 40` lands at the window's left edge no matter
+//     which pane is active, and the new pane takes focus (no -d)
 //   - undocking hands the sidebar's 40 cols to the ADJACENT pane, not back
 //     proportionally — layout restore from a saved #{window_layout} string is
 //     mandatory, and restores exactly
 //   - select-layout with a stale string (user split while docked) fails
 //     cleanly; restores therefore run after the critical commands
-//   - moving the only pane out of _demux kills the session — a placeholder
-//     window keeps it alive as the undock target
+//   - join-pane is gone DELIBERATELY: tmux 3.7b segfaults when a join
+//     destroys its source window while resizing a tree-mode pane
+//     (window_tree_build NULL deref) — the old join-based dock had exactly
+//     that shape. The in-place split destroys nothing (rigs/tree_test.go).
 //
 // Sequencing rules that keep transitions invisible:
-//   - everything the arriving window needs (join, select-window, status pad,
+//   - everything the arriving window needs (swap, select-window, status pad,
 //     @demux_docked) rides ONE control sequence BEFORE switch-client — the
 //     status pad landing after the switch is a visible flicker
 //   - undock + layout restore ride ONE sequence — as separate round trips,
@@ -39,9 +47,6 @@ import (
 // equalizes the main region and sets @demux_layout_dirty). On leave, a dirty
 // window gets a PROPORTIONAL give-back (layout.go: drop the sidebar leaf,
 // rescale) instead of the pre-dock snapshot, which would undo the change.
-//
-// The old full-screen billboard browse (list + capture-pane canvas) is still
-// in browse.go, reachable via `demuxd browse`, just no longer on M-s.
 
 // winSnap is everything to put a window back the way it was before the
 // sidebar entered it. Queried at point-of-use, never from the cached world:
@@ -64,12 +69,14 @@ type statusSave struct {
 
 type dockState struct {
 	client     string
+	pane       string // the sidebar TUI pane (spawned by dockOpen, dies at undock)
 	win        string // window currently hosting the sidebar
 	sess       string // session of win (tracks @demux_docked + status pad)
 	originSess string // where q returns to
 	originWin  string
 	snap       winSnap    // pre-dock snapshot of win
 	status     statusSave // pre-pad status-left of sess
+	openedAt   time.Time  // dockOpen time; hello-list logs TUI spawn latency
 
 	// scrubbing: the sidebar pane is ZOOMED and the main area shows live
 	// billboards of the selection instead of real windows. Zoom leaves the
@@ -99,8 +106,11 @@ type carveState struct {
 	autoRename string // effective automatic-rename, frozen at carve, restored at release
 }
 
-// spacerCmd runs inside spacer panes. One tick off the _demux placeholder so
-// a startup sweep can identify spacers leaked by a crashed daemon exactly.
+// listWidth is the sidebar's fixed column width.
+const listWidth = 40
+
+// spacerCmd runs inside spacer panes — distinctive so a startup sweep can
+// identify spacers leaked by a crashed daemon exactly.
 const spacerCmd = "sleep 100000001"
 
 // carveHistoryMax caps how much scrollback a window may carry and still get
@@ -286,7 +296,9 @@ func (d *daemon) sessionOf(wid string) string {
 	return ""
 }
 
-// dockOpen docks the sidebar into the client's current window.
+// dockOpen docks the sidebar into the client's current window: the TUI
+// spawns as a fresh 40-col pane at the left edge. It connects to the daemon
+// a beat after the split; the hello-list replay hands it the selection.
 func (d *daemon) dockOpen(ctl *control, client string) error {
 	if client == "" {
 		return errors.New("dock needs a client name")
@@ -295,12 +307,9 @@ func (d *daemon) dockOpen(ctl *control, client string) error {
 	if err != nil {
 		return err
 	}
-	if err := d.ensureSurface(ctl, cw, ch); err != nil {
-		return err
-	}
 	// Adopt releases still pending from the previous dock session: their
 	// carves are valid, so a quick M-s round trip re-uses them for free.
-	// The window being docked INTO can't keep a spacer (the sidebar joins
+	// The window being docked INTO can't keep a spacer (the sidebar splits
 	// beside it) — that one is released inline, before its snapshot.
 	adopted := map[string]*carveState{}
 	if len(d.pendingRelease) > 0 {
@@ -317,37 +326,45 @@ func (d *daemon) dockOpen(ctl *control, client string) error {
 	if err != nil {
 		return err
 	}
+	self, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	tuiCmd := self + " -S " + d.tmuxSock + " tui"
+	if bench {
+		tuiCmd = "env DEMUX_BENCH=1 " + tuiCmd
+	}
 	p := &dockState{client: client, win: wid, sess: sid, originSess: sid, originWin: wid, snap: snap,
-		carved: adopted}
+		carved: adopted, openedAt: time.Now()}
 	p.status = d.savedStatus(ctl, sid)
-	// Freeze rename BEFORE the join: the sidebar takes focus on join, and an
-	// automatic-rename window would flip its name to "demuxd" (the sh-era bug).
-	//
-	// The keeper pane: tmux 3.7b SEGFAULTS when join-pane both destroys its
-	// source window and resizes a pane showing a mode_tree mode (choose-tree
-	// & friends): layout_fix_panes → mode_tree_resize → window_tree_build
-	// walks the window list mid-destruction and dereferences NULL. The TUI
-	// pane is its _demux window's only pane, so a bare join is exactly that
-	// shape — crash-verified live twice (2026-08-20, prefix+s then M-s) and
-	// reproduced isolated. A throwaway keeper split into the TUI's window
-	// first means the join destroys nothing; the keeper dies one command
-	// later, where window destruction is safe (tree rebuilds see consistent
-	// state — verified). The user's choose-tree survives the dock.
+	// Freeze rename BEFORE the split: the sidebar takes focus, and an
+	// automatic-rename window would flip its name to "demuxd" (the sh-era
+	// bug). The new pane lands at {top-left} deterministically, so its pane
+	// option and the session cmds ride the same batch as the split.
 	seq := []string{
 		"set-option -w -t " + q(wid) + " automatic-rename off",
-		"set-option -p -t " + q(d.sur.pane) + " @demux_sidebar 1",
-		"split-window -d -t " + q(d.sur.win) + " " + q(spacerCmd),
-		fmt.Sprintf("join-pane -hb -f -l %d -s %s -t %s", listWidth, q(d.sur.pane), q(wid)),
-		"kill-pane -t " + q(d.sur.win),
+		fmt.Sprintf("split-window -hb -f -l %d -P -F '#{pane_id}' -t %s %s",
+			listWidth, q(wid), q(tuiCmd)),
+		"set-option -p -t " + q(wid+".{top-left}") + " @demux_sidebar 1",
 	}
 	seq = append(seq, dockSessionCmds(sid)...)
-	if _, err := ctl.runSeq(seq...); err != nil {
-		d.dock = nil
+	lines, err := ctl.runSeq(seq...)
+	if err != nil {
 		return err
+	}
+	for _, ln := range lines {
+		if strings.HasPrefix(ln, "%") {
+			p.pane = ln
+			break
+		}
+	}
+	if p.pane == "" {
+		return errors.New("dock split returned no pane id")
 	}
 	d.dock = p
 	n := d.h.sendRole("list", marshalLine(selectMsg{Type: "select", Window: wid}))
-	log.Printf("dock open client=%s win=%s/%s size=%dx%d select_receivers=%d", client, sid, wid, cw, ch, n)
+	log.Printf("dock open client=%s win=%s/%s pane=%s size=%dx%d select_receivers=%d",
+		client, sid, wid, p.pane, cw, ch, n)
 	return nil
 }
 
@@ -368,8 +385,8 @@ func (d *daemon) scrubStart(ctl *control, wid string) error {
 		return err
 	}
 	if _, err := ctl.runSeq(
-		"resize-pane -Z -t "+q(d.sur.pane),
-		"select-pane -t "+q(d.sur.pane)); err != nil {
+		"resize-pane -Z -t "+q(p.pane),
+		"select-pane -t "+q(p.pane)); err != nil {
 		return err
 	}
 	p.scrubbing = true
@@ -390,7 +407,7 @@ func (d *daemon) scrubEnd(ctl *control, unzoom bool) {
 	p.scrubbing = false
 	d.stopStream()
 	if unzoom {
-		_, _ = ctl.run("resize-pane -Z -t " + q(d.sur.pane))
+		_, _ = ctl.run("resize-pane -Z -t " + q(p.pane))
 	}
 	log.Printf("scrub end win=%s unzoom=%v", p.win, unzoom)
 }
@@ -454,7 +471,7 @@ func (d *daemon) dockMove(ctl *control, wid string, focusMain bool) error {
 	sizeStale := false
 	if tgt != nil && tgt.spacer != "" {
 		critical = append(critical,
-			"swap-pane -d -s "+q(d.sur.pane)+" -t "+q(tgt.spacer))
+			"swap-pane -d -s "+q(p.pane)+" -t "+q(tgt.spacer))
 	} else {
 		// First visit at entry (never billboarded, or too heavy to carve
 		// during scrub): normalize a stale-sized window in the same batch —
@@ -469,7 +486,7 @@ func (d *daemon) dockMove(ctl *control, wid string, focusMain bool) error {
 			"set-option -w -t "+q(wid)+" automatic-rename off",
 			fmt.Sprintf("split-window -d -hb -f -l %d -P -F '#{pane_id}' -t %s %s",
 				listWidth, q(wid), q(spacerCmd)),
-			"swap-pane -d -s "+q(d.sur.pane)+" -t "+q(wid+".{top-left}"))
+			"swap-pane -d -s "+q(p.pane)+" -t "+q(wid+".{top-left}"))
 	}
 	critical = append(critical, "select-window -t "+q(wid))
 	if sizeStale {
@@ -486,7 +503,7 @@ func (d *daemon) dockMove(ctl *control, wid string, focusMain bool) error {
 		critical = append(critical, "select-pane -t "+q(snapN.activePane))
 	} else {
 		// swap-pane, unlike join, does not hand the sidebar focus.
-		critical = append(critical, "select-pane -t "+q(d.sur.pane))
+		critical = append(critical, "select-pane -t "+q(p.pane))
 	}
 	// The old window keeps its docked geometry (the spacer fills the
 	// sidebar's slot) — the only restore is keyboard focus, so the spacer
@@ -494,7 +511,7 @@ func (d *daemon) dockMove(ctl *control, wid string, focusMain bool) error {
 	// pane the user was ACTUALLY in (they may have moved since docking);
 	// the dock-time snapshot is the fallback when the sidebar held focus.
 	leaveFocus := p.snap.activePane
-	if curActive != "" && curActive != d.sur.pane {
+	if curActive != "" && curActive != p.pane {
 		leaveFocus = curActive
 	}
 	restore := []string{"select-pane -t " + q(leaveFocus)}
@@ -627,7 +644,7 @@ func (d *daemon) dockCommit(ctl *control) error {
 	if !alive {
 		target = ""
 		for _, pn := range d.h.getWorld().Panes {
-			if pn.WindowID == p.win && pn.ID != d.sur.pane {
+			if pn.WindowID == p.win && pn.ID != p.pane {
 				target = pn.ID
 				break
 			}
@@ -645,18 +662,20 @@ func (d *daemon) dockCommit(ctl *control) error {
 // dockClose undocks. toOrigin (q) returns the client to where it was docked
 // or last committed; otherwise (M-s) it stays put and the layout snaps back.
 // Undock and restore ride ONE sequence: split across round trips, the
-// window's apps see two resizes (break-pane's give-all-to-the-neighbor, then
-// the restore) and visibly jitter.
+// window's apps see two resizes (kill-pane's give-all-to-the-neighbor, then
+// the restore) and visibly jitter. The TUI pane is killed outright — its
+// process dies with it, and the next dock spawns a fresh one.
 func (d *daemon) dockClose(ctl *control, toOrigin bool) error {
 	p := d.dock
 	if p == nil {
 		return nil
 	}
-	// State only: break-pane below yanks the sidebar even zoomed
-	// (rig-verified), and an explicit early unzoom would flash the origin
-	// panes before a toOrigin switch lands.
+	// State only: kill-pane below removes the sidebar even zoomed (killing
+	// the zoomed pane unzooms), and an explicit early unzoom would flash the
+	// origin panes before a toOrigin switch lands.
 	d.scrubEnd(ctl, false)
 	d.dock = nil
+	d.pv.target, d.pv.lastFrame = "", nil
 	log.Printf("undock client=%s win=%s to_origin=%v", p.client, p.win, toOrigin)
 	oldLayout, oldDirty, curActive := "", false, ""
 	if lines, err := ctl.run("display-message -p -t " + q(p.win) + " -F " +
@@ -665,13 +684,13 @@ func (d *daemon) dockClose(ctl *control, toOrigin bool) error {
 			oldLayout, oldDirty, curActive = lp[0], lp[1] == "1", lp[2]
 		}
 	}
-	restore := d.leaveLayout(p.win, p.snap.layout, oldLayout, oldDirty, d.sur.pane)
+	restore := d.leaveLayout(p.win, p.snap.layout, oldLayout, oldDirty, p.pane)
 	// Focus after undock: whatever main pane the user is IN right now. Only
 	// when the sidebar itself holds focus does the dock-time snapshot apply
 	// — restoring the snapshot unconditionally yanked focus back to the
 	// pane that happened to be active when the sidebar opened.
 	focus := p.snap.activePane
-	if curActive != "" && curActive != d.sur.pane {
+	if curActive != "" && curActive != p.pane {
 		focus = curActive
 	}
 
@@ -709,8 +728,7 @@ func (d *daemon) dockClose(ctl *control, toOrigin bool) error {
 		}
 	}
 	seq := []string{
-		"break-pane -d -P -F " + f("#{session_id}", "#{window_id}") +
-			" -s " + q(d.sur.pane) + " -t " + q(demuxSession+":"),
+		"kill-pane -t " + q(p.pane),
 		"set-option -w -t " + q(p.win) + " automatic-rename " + p.snap.autoRename,
 		"set-option -w -uq -t " + q(p.win) + " @demux_layout_dirty",
 	}
@@ -723,15 +741,8 @@ func (d *daemon) dockClose(ctl *control, toOrigin bool) error {
 		seq = append(seq, "select-layout -t "+q(p.win)+" "+q(restore))
 	}
 	seq = append(seq, "select-pane -t "+q(focus))
-	lines, err := ctl.runSeq(seq...)
-	if err != nil {
+	if _, err := ctl.runSeq(seq...); err != nil {
 		log.Printf("undock: %v", err)
-	}
-	if len(lines) > 0 {
-		if parts := strings.Split(lines[0], sep); len(parts) == 2 {
-			d.sur.sess, d.sur.win = parts[0], parts[1]
-			_, _ = ctl.run("set-option -wq -t " + q(d.sur.win) + " automatic-rename off")
-		}
 	}
 	d.deferReleases(p)
 	return nil
@@ -819,13 +830,14 @@ func (d *daemon) checkDock(ctl *control, w world) {
 	if p == nil {
 		return
 	}
-	if d.sur == nil || !paneAlive(w, d.sur.pane) {
+	if !paneAlive(w, p.pane) {
 		// Sidebar pane died (kill-window on the host, kill-pane): the dock is
 		// gone, only session state needs cleaning. Layout restore would fight
 		// whatever the user just did — skip it.
 		log.Printf("dock: sidebar pane gone, cleaning up")
 		d.dock = nil
-		d.dropSurface()
+		d.stopStream()
+		d.pv.target, d.pv.lastFrame = "", nil
 		_, _ = ctl.run("set-option -u -t " + q(p.sess) + " @demux_docked")
 		d.restoreStatus(ctl, p.status)
 		d.deferReleases(p)
@@ -843,14 +855,9 @@ func (d *daemon) checkDock(ctl *control, w world) {
 		_ = d.dockClose(ctl, false)
 		return
 	}
-	for _, s := range w.Sessions {
-		if s.ID == cl.SessionID && s.Name == demuxSession {
-			return // client is on the browse surface itself; not ours to follow
-		}
-	}
 	if p.scrubbing {
 		for _, pn := range w.Panes {
-			if pn.ID == d.sur.pane && pn.WindowID == p.win && pn.Width == listWidth {
+			if pn.ID == p.pane && pn.WindowID == p.win && pn.Width == listWidth {
 				// The zoom broke externally: selecting any other pane
 				// (vim-navigator C-h/C-l out of the billboard) auto-unzooms.
 				// Reality is the docked window again — end the scrub state
@@ -883,8 +890,8 @@ func (d *daemon) checkDock(ctl *control, w world) {
 		return // zoomed: full-width by design; enforcing 40 would unzoom it
 	}
 	for _, pn := range w.Panes {
-		if pn.ID == d.sur.pane && pn.WindowID == p.win && pn.Width != listWidth {
-			_, _ = ctl.run(fmt.Sprintf("resize-pane -t %s -x %d", q(d.sur.pane), listWidth))
+		if pn.ID == p.pane && pn.WindowID == p.win && pn.Width != listWidth {
+			_, _ = ctl.run(fmt.Sprintf("resize-pane -t %s -x %d", q(p.pane), listWidth))
 			break
 		}
 	}

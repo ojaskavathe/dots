@@ -8,9 +8,10 @@ import (
 )
 
 // The command router: client cmds arrive on the hub queue, get coalesced by
-// handleCmd, and runCmd dispatches each to whichever mode owns it right now
-// (docked sidebar, full-screen browse, or neither). All of it runs on the
-// consume loop — one thread, serialized with re-lists and tmux commands.
+// handleCmd, and runCmd dispatches each. Everything is docked-mode now —
+// `demuxd browse` is dock + zoom — so the dock owns every command. All of it
+// runs on the consume loop — one thread, serialized with re-lists and tmux
+// commands.
 
 // handleCmd drains everything already queued and executes only what still
 // matters: every non-preview command in order, the NEWEST real preview, and
@@ -58,7 +59,6 @@ func (d *daemon) handleCmd(ctl *control, env cmdEnvelope) {
 
 func (d *daemon) runCmd(ctl *control, env cmdEnvelope) {
 	start := time.Now()
-	browsing := d.browse.open
 	var err error
 	switch env.msg.Cmd {
 	case "toggle":
@@ -68,48 +68,41 @@ func (d *daemon) runCmd(ctl *control, env cmdEnvelope) {
 	case "nav":
 		err = d.dockNav(ctl, env.msg.Dir)
 	case "preview":
-		if d.dock != nil && !browsing {
-			// Docked: selection leaving the real window starts billboard
-			// scrubbing (zoom + captures); while scrubbing, previews and
-			// prefetches are plain billboards. Nothing real moves until
-			// commit.
-			p := d.dock
+		// Selection leaving the real window starts billboard scrubbing
+		// (zoom + captures); while scrubbing, previews and prefetches are
+		// plain billboards. Nothing real moves until commit.
+		if p := d.dock; p != nil {
 			switch {
 			case p.scrubbing:
 				err = d.preview(ctl, env.msg.Window, env.msg.Prefetch)
 			case !env.msg.Prefetch && env.msg.Window != "" && env.msg.Window != p.win:
 				err = d.scrubStart(ctl, env.msg.Window)
 			}
-		} else {
-			err = d.preview(ctl, env.msg.Window, env.msg.Prefetch)
 		}
 	case "winch":
 		// The TUI's pane changed size. Docked idle that means a client
 		// resize (monitor switch) rescaled the sidebar off its fixed width;
 		// nothing else will tell us — geometry events don't cross sessions.
-		// Zoomed (scrubbing) the sidebar is full-width by design, and the
-		// full-screen browser owns its whole window: both skip.
-		if d.dock != nil && !browsing && !d.dock.scrubbing && env.msg.Width != listWidth {
-			_, err = ctl.run(fmt.Sprintf("resize-pane -t %s -x %d", q(d.sur.pane), listWidth))
+		// Zoomed (scrubbing) the sidebar is full-width by design: skip.
+		if d.dock != nil && !d.dock.scrubbing && env.msg.Width != listWidth {
+			_, err = ctl.run(fmt.Sprintf("resize-pane -t %s -x %d", q(d.dock.pane), listWidth))
 		}
 	case "focus":
 		// C-l from the docked idle sidebar: select the pane geometrically
 		// right of it — vim-tmux-navigator semantics, no origin reset.
-		if d.dock != nil && !browsing && !d.dock.scrubbing {
-			_, err = ctl.run("select-pane -R -t " + q(d.sur.pane))
+		if d.dock != nil && !d.dock.scrubbing {
+			_, err = ctl.run("select-pane -R -t " + q(d.dock.pane))
 		}
 	case "commit":
-		if d.dock != nil && !browsing {
+		if d.dock != nil {
 			if d.dock.scrubbing {
 				err = d.commitScrub(ctl, env.msg.Window)
 			} else {
 				err = d.dockCommit(ctl)
 			}
-		} else {
-			err = d.commit(ctl, env.msg.Window)
 		}
 	case "close":
-		if d.dock != nil && !browsing {
+		if d.dock != nil {
 			if d.dock.scrubbing {
 				// q mid-scrub: unzoom — the origin panes reappear untouched.
 				d.scrubEnd(ctl, true)
@@ -117,24 +110,17 @@ func (d *daemon) runCmd(ctl *control, env cmdEnvelope) {
 			} else {
 				err = d.dockClose(ctl, true)
 			}
-		} else {
-			err = d.closeBrowse(ctl)
 		}
 	case "hello-list":
-		// A TUI connected after state went out; replay selection + frame.
+		// The TUI dockOpen just spawned connected; replay the selection it
+		// missed (and the current frame, when browse pre-zoomed into a scrub).
 		if d.dock != nil {
 			d.h.send(env.sub, marshalLine(selectMsg{Type: "select", Window: d.dock.win}))
-			log.Printf("hello-list: replay docked select=%s", d.dock.win)
-			break
-		}
-		replaySel := browsing && d.pv.target != ""
-		if replaySel {
-			d.h.send(env.sub, marshalLine(selectMsg{Type: "select", Window: d.pv.target}))
-		}
-		log.Printf("hello-list: replay select=%v target=%s frame=%v",
-			replaySel, d.pv.target, d.pv.lastFrame != nil)
-		if d.pv.lastFrame != nil {
-			d.h.send(env.sub, d.pv.lastFrame)
+			if d.dock.scrubbing && d.pv.lastFrame != nil {
+				d.h.send(env.sub, d.pv.lastFrame)
+			}
+			log.Printf("hello-list: replay docked select=%s spawn_ms=%d",
+				d.dock.win, time.Since(d.dock.openedAt).Milliseconds())
 		}
 	default:
 		err = fmt.Errorf("unknown cmd %q", env.msg.Cmd)
@@ -154,25 +140,11 @@ func (d *daemon) runCmd(ctl *control, env cmdEnvelope) {
 	d.h.send(env.sub, marshalLine(r))
 }
 
-// toggle is M-s: browsing (full-screen) -> commit/close as before; docked ->
-// undock in place; otherwise dock the sidebar into the current window.
+// toggle is M-s: docked -> undock (mid-scrub: commit-and-dismiss); otherwise
+// dock the sidebar into the current window.
 func (d *daemon) toggle(ctl *control, client string) error {
 	if client == "" {
 		return errors.New("toggle needs a client name")
-	}
-	if d.browse.open {
-		sid, _, _, _, err := d.clientView(ctl, client)
-		if err == nil && sid == d.sur.sess {
-			d.browse.client = client
-			// M-s while browsing commits to the current selection, like Enter —
-			// muscle memory from the join-sidebar era. q / Ctrl-C remain
-			// cancel-to-origin.
-			if d.pv.target != "" && d.pv.target != d.browse.originWin {
-				log.Printf("toggle-off commits to %s", d.pv.target)
-				return d.commit(ctl, d.pv.target)
-			}
-			return d.closeBrowse(ctl)
-		}
 	}
 	if d.dock != nil {
 		if d.dock.scrubbing {
@@ -205,4 +177,19 @@ func (d *daemon) toggle(ctl *control, client string) error {
 		return d.dockClose(ctl, false)
 	}
 	return d.dockOpen(ctl, client)
+}
+
+// browseOpen is `demuxd browse`: dock into the client's current window and
+// zoom straight into billboard scrubbing — the old full-screen browser is
+// now just the dock's scrub view, opened from row one.
+func (d *daemon) browseOpen(ctl *control, client string) error {
+	if d.dock == nil {
+		if err := d.dockOpen(ctl, client); err != nil {
+			return err
+		}
+	}
+	if d.dock.scrubbing {
+		return nil
+	}
+	return d.scrubStart(ctl, d.dock.win)
 }

@@ -4,10 +4,11 @@ import "testing"
 
 // TestTreeModeDock: docking into a window with choose-tree open must not
 // kill the tmux server. tmux 3.7b segfaults (window_tree_build NULL deref)
-// when join-pane destroys its source window while resizing a tree-mode pane
-// — exactly dockOpen's shape, the TUI pane being its _demux window's only
-// pane. dockOpen splits a throwaway keeper into the TUI's window first so
-// the join destroys nothing; without it this test loses its server.
+// when a join-pane destroys its source window while resizing a tree-mode
+// pane — exactly the shape the old join-based dockOpen had (crash-verified
+// live, then reproduced isolated). dockOpen now splits the TUI in-place and
+// destroys no window, so the crash shape is structurally impossible; this
+// test stays as the server-survival regression.
 func TestTreeModeDock(t *testing.T) {
 	r := New(t)
 	bp := r.T("display-message", "-p", "-t", r.W2, "#{pane_id}")
@@ -23,7 +24,7 @@ func TestTreeModeDock(t *testing.T) {
 	s := r.Side()
 	r.Chk("sidebar docked", s.Win == r.W2 && s.Width == 40)
 	r.Chk("tree survives the dock", r.T("display-message", "-p", "-t", bp, "#{pane_mode}") == "tree-mode")
-	r.Chk("no keeper left behind", r.Spacers() == 0)
+	r.Chk("no stray spacers", r.Spacers() == 0)
 	r.SendKeys(bp, "q") // close the tree before the undock choreography
 	sleep(300)
 

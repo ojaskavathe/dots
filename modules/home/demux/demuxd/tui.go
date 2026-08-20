@@ -14,8 +14,9 @@ import (
 	"golang.org/x/term"
 )
 
-// The browse TUI: one full-window process rendering the session/window list
-// (left, 40 cols) and the live preview (right) in the same pane. Frames are
+// The sidebar TUI: one process rendering the session/window list (left, 40
+// cols) and, when its pane is zoomed for scrubbing, the live preview canvas
+// (right) in the same pane. Frames are
 // cached per window, so scrubbing paints the cached frame in ~0ms — the
 // herdr/choose-tree trick: state lives locally, painting is local. The fresh
 // frame (and the 10fps live stream) replaces it moments later. The daemon
@@ -111,9 +112,6 @@ type row struct {
 func (st *store) rows() []row {
 	sessions := make([]session, 0, len(st.sessions))
 	for _, s := range st.sessions {
-		if s.Name == demuxSession {
-			continue // never list the browse surface itself
-		}
 		sessions = append(sessions, s)
 	}
 	sort.Slice(sessions, func(i, j int) bool { return sessions[i].Name < sessions[j].Name })
@@ -326,8 +324,9 @@ func cmdTui(tmuxSock, demuxSock string) {
 		requestFrames()
 	}
 
-	// The process persists across browse sessions (the browse window is
-	// never destroyed); commit/close just switch the client away.
+	// The process is per-dock: spawned by dockOpen, killed with its pane at
+	// undock. It also exits itself when the daemon connection closes, so a
+	// dead daemon never leaves a zombie sidebar pane behind.
 	for {
 		select {
 		case m, ok := <-msgs:
