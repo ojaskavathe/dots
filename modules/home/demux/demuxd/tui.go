@@ -595,14 +595,7 @@ func truncANSI(s string, n int) string {
 			b.WriteRune(r)
 			continue
 		}
-		rw := 1
-		if r >= 0x1100 && (r <= 0x115f ||
-			(r >= 0x2e80 && r <= 0xa4cf) || (r >= 0xac00 && r <= 0xd7a3) ||
-			(r >= 0xf900 && r <= 0xfaff) || (r >= 0xfe30 && r <= 0xfe4f) ||
-			(r >= 0xff00 && r <= 0xff60) || (r >= 0xffe0 && r <= 0xffe6) ||
-			(r >= 0x1f300 && r <= 0x1faff) || (r >= 0x20000 && r <= 0x3fffd)) {
-			rw = 2
-		}
+		rw := runeWidth(r)
 		if w+rw > n {
 			break
 		}
@@ -610,6 +603,46 @@ func truncANSI(s string, n int) string {
 		b.WriteRune(r)
 	}
 	return b.String()
+}
+
+// runeWidth: east-asian wide runes count 2 — close enough for previews
+// without pulling in a width library.
+func runeWidth(r rune) int {
+	if r >= 0x1100 && (r <= 0x115f ||
+		(r >= 0x2e80 && r <= 0xa4cf) || (r >= 0xac00 && r <= 0xd7a3) ||
+		(r >= 0xf900 && r <= 0xfaff) || (r >= 0xfe30 && r <= 0xfe4f) ||
+		(r >= 0xff00 && r <= 0xff60) || (r >= 0xffe0 && r <= 0xffe6) ||
+		(r >= 0x1f300 && r <= 0x1faff) || (r >= 0x20000 && r <= 0x3fffd)) {
+		return 2
+	}
+	return 1
+}
+
+// displayWidth is a line's rendered column count, escape sequences skipped.
+func displayWidth(s string) int {
+	w, esc := 0, 0
+	for _, r := range s {
+		switch esc {
+		case 1:
+			if r == '[' {
+				esc = 2
+			} else {
+				esc = 0
+			}
+			continue
+		case 2:
+			if r >= 0x40 && r <= 0x7e {
+				esc = 0
+			}
+			continue
+		}
+		if r == 0x1b {
+			esc = 1
+			continue
+		}
+		w += runeWidth(r)
+	}
+	return w
 }
 
 func framesEqual(a, b []framePane) bool {
@@ -892,12 +925,22 @@ func paintFrame(frame, prev []framePane) {
 				continue
 			}
 			changed++
-			// Erase this pane's own cell range first (content may have
-			// shrunk), then the content over it. 1-based addressing; SGR
-			// reset per line so pane edges don't bleed attributes.
-			fmt.Fprintf(&b, "\033[%d;%dH%s\033[%d;%dH%s\033[0m",
-				p.Top+1+i, offX+p.Left+1, blank,
-				p.Top+1+i, offX+p.Left+1, ln)
+			// One write: content, then spaces out to the pane's cell edge
+			// BEFORE the SGR reset. TUIs paint full-width bars via BCE
+			// (set bg + \033[K) and capture-pane drops the fill entirely,
+			// leaving the line ending with the bar's bg still open
+			// (probe-verified) — padding in that live state reconstructs
+			// the bar; lines ending in default state pad blank as before.
+			// Reset per line so pane edges never bleed attributes.
+			if width < p.Width {
+				ln = truncANSI(ln, width)
+			}
+			pad := width - displayWidth(ln)
+			if pad < 0 {
+				pad = 0
+			}
+			fmt.Fprintf(&b, "\033[%d;%dH%s%s\033[0m",
+				p.Top+1+i, offX+p.Left+1, ln, blank[:pad])
 		}
 	}
 	if prev == nil {
