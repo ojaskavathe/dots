@@ -367,6 +367,29 @@ func (r *Rig) SendKeys(pane string, keys ...string) {
 	r.T(append([]string{"send-keys", "-t", pane}, keys...)...)
 }
 
+// Mouse injects an SGR mouse report straight into a pane's stdin via
+// send-keys -H — deterministic for TUI tests, bypassing tmux's own mouse
+// routing (which needs a real client pointer).
+func (r *Rig) Mouse(pane string, btn, x, y int, press bool) {
+	r.t.Helper()
+	c := byte('M')
+	if !press {
+		c = 'm'
+	}
+	seq := fmt.Sprintf("\x1b[<%d;%d;%d%c", btn, x, y, c)
+	args := []string{"send-keys", "-t", pane, "-H"}
+	for _, b := range []byte(seq) {
+		args = append(args, fmt.Sprintf("%02x", b))
+	}
+	r.T(args...)
+}
+
+// Click is a full press+release at pane coordinates.
+func (r *Rig) Click(pane string, x, y int) {
+	r.Mouse(pane, 0, x, y, true)
+	r.Mouse(pane, 0, x, y, false)
+}
+
 func (r *Rig) Capture(pane string) string {
 	out, _ := r.TQ("capture-pane", "-p", "-t", pane)
 	return out

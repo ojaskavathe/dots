@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -169,8 +170,10 @@ func cmdTui(tmuxSock, demuxSock string) {
 	}
 	// Hide cursor; disable autowrap so frame lines wider than the preview
 	// region clip at the right edge instead of wrapping over the layout.
-	fmt.Print("\033[?25l\033[?7l")
-	defer fmt.Print("\033[?25h\033[?7h")
+	// Mouse: button presses + SGR encoding — tmux (mouse on) forwards
+	// events to the pane with pane-relative coordinates.
+	fmt.Print("\033[?25l\033[?7l\033[?1000h\033[?1006h")
+	defer fmt.Print("\033[?1006l\033[?1000l\033[?25h\033[?7h")
 
 	msgs := make(chan wireMsg, 64)
 	go func() {
@@ -214,7 +217,8 @@ func cmdTui(tmuxSock, demuxSock string) {
 
 	st := &store{}
 	sel := 0
-	esc := 0 // escape-sequence state for arrow keys
+	esc := 0     // escape-sequence state: arrows + SGR mouse
+	var mbuf []byte // SGR mouse params after \x1b[<
 	var rows []row
 
 	// Per-window frame cache with generations, so "did I already paint
@@ -332,6 +336,44 @@ func cmdTui(tmuxSock, demuxSock string) {
 		sel = next
 		return true
 	}
+	// click handles a left press at 1-based pane coordinates. List column:
+	// select the row; a second click on the selected row enters it. Canvas:
+	// hit-test the painted billboard's pane rects and enter the target with
+	// the clicked split focused. Returns whether the selection moved (the
+	// caller paints).
+	click := func(x, y int, setShrink func()) bool {
+		cols, height := surfaceSize()
+		lw := listWidth
+		if cols <= listWidth+2 {
+			lw = cols
+		}
+		if x <= lw {
+			i := listTop(len(rows), sel, height) + y - 1
+			if i < 0 || i >= len(rows) {
+				return false
+			}
+			if i == sel {
+				setShrink()
+				send(cmdMsg{Cmd: "commit", Window: target()})
+				return false
+			}
+			sel = i
+			return true
+		}
+		if x < listWidth+2 || paintedWin == "" || paintedWin != target() {
+			return false
+		}
+		cx, cy := x-(listWidth+1)-1, y-1
+		for _, p := range paintedPanes {
+			if p.ID != "" && cx >= p.Left && cx < p.Left+p.Width &&
+				cy >= p.Top && cy < p.Top+p.Height {
+				setShrink()
+				send(cmdMsg{Cmd: "commit", Window: paintedWin, Pane: p.ID})
+				return false
+			}
+		}
+		return false
+	}
 
 	// The process is per-dock: spawned by dockOpen, killed with its pane at
 	// undock. It also exits itself when the daemon connection closes, so a
@@ -428,10 +470,33 @@ func cmdTui(tmuxSock, demuxSock string) {
 			// the held-scrub mush. NOT a debounce: nothing waits, a lone key
 			// finds the queue empty and paints immediately.
 			moved := false
+			setShrink := func() { shrinkExpected = !narrowMode() }
 			for {
 				switch {
 				case esc == 1 && b == '[':
 					esc = 2
+				case esc == 2 && b == '<': // SGR mouse
+					esc, mbuf = 3, mbuf[:0]
+				case esc == 3:
+					if b == 'M' || b == 'm' {
+						esc = 0
+						if btn, mx, my, ok := parseMouse(mbuf); ok && b == 'M' {
+							switch {
+							case btn&64 != 0: // wheel
+								if btn&3 == 0 {
+									moved = moveSel(-1) || moved
+								} else if btn&3 == 1 {
+									moved = moveSel(1) || moved
+								}
+							case btn&3 == 0 && btn&32 == 0: // left press
+								moved = click(mx, my, setShrink) || moved
+							}
+						}
+					} else if len(mbuf) < 24 {
+						mbuf = append(mbuf, b)
+					} else {
+						esc = 0 // runaway
+					}
 				case esc == 2:
 					esc = 0
 					if b == 'A' {
@@ -624,6 +689,23 @@ func cleanLine(s string, max int) (string, int) {
 		b.WriteRune(r)
 	}
 	return b.String(), w
+}
+
+// parseMouse decodes the params of an SGR mouse report (btn;x;y).
+func parseMouse(buf []byte) (btn, x, y int, ok bool) {
+	parts := strings.Split(string(buf), ";")
+	if len(parts) != 3 {
+		return 0, 0, 0, false
+	}
+	var vals [3]int
+	for i, p := range parts {
+		n, err := strconv.Atoi(p)
+		if err != nil {
+			return 0, 0, 0, false
+		}
+		vals[i] = n
+	}
+	return vals[0], vals[1], vals[2], true
 }
 
 // runeWidth: east-asian wide runes count 2 — close enough for previews
