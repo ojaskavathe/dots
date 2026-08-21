@@ -165,14 +165,14 @@ func (d *daemon) detectTickRun(ctl *control, w *world) {
 			changed = d.applyAgentState(id, a, st, visible) || changed
 			continue
 		}
-		if kind == "claude" && (act != a.lastActivity || a.state == "") {
+		// herdr's skip-scan rule, exactly: only IDLE panes with an unmoved
+		// activity stamp skip the screen. Working/blocked always rescan —
+		// that is what notices turn ends and dismissed prompts. And on
+		// quiet idle ticks nothing is re-asserted at all: publishing the
+		// weak ✳-title verdict over a kept screen state made real panes
+		// flap idle<->working every tick (live, 2026-08-21).
+		if kind == "claude" && (a.state != "idle" || act != a.lastActivity) {
 			scans = append(scans, scanReq{id: id, a: a, title: title, act: act})
-			continue
-		}
-		// Quiet screen since the last scan: a weak title verdict may still
-		// refine (✳ idle after the hold machinery), else keep state.
-		if st != "" {
-			changed = d.applyAgentState(id, a, st, visible) || changed
 		}
 	}
 	for id, a := range d.det.agents {
