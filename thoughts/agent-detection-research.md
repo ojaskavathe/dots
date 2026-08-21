@@ -360,12 +360,34 @@ note: %output-fed in-house VT is a dead end regardless of language — it
 only sees bytes from subscribe-time onward, so the grid must be seeded
 from capture-pane anyway; capture stays the source of truth.
 
-## probes needed before building
+## probes — ANSWERED (2026-08-21, built as detect.go slice 1)
 
-1. do `%pane-title-changed` / activity+silence alerts cross sessions in
-   control mode? (geometry doesn't; topology does — measured 2026-08-10.
-   title/activity unmeasured.)
-2. does tmux's `#{pane_title}` keep braille spinner frames faithfully, and
-   at what update rate under our single control client?
-3. `capture-pane -p -J` cost for a 24-row tail at 300ms across ~5 agent
-   panes — likely noise vs our scrub captures, but measure.
+1. tmux emits NO control-mode notification for pane title changes AT ALL —
+   not even same-session (probe: select-pane -T and OSC 2 both silent;
+   %unlinked-window-renamed fired in the same capture, validating the
+   probe). Also: a cross-session `split-window -d` emits NOTHING (no
+   pane-changed — active pane unchanged; layout events don't cross).
+   Consequence: detection is a tick (the daemon's only poll), and its own
+   list-panes doubles as the self-heal for silently appearing panes.
+2. #{pane_title} holds a STATIC spinner char (no frame cycling — sampled
+   ⠂ constant over 1.5s live) — no churn, prefix regex suffices. Live
+   titles: `⠂ <task>` working, `✳ <task>` idle; nix wrapper argv0 is
+   `.claude-wrapped` (normalize before matching).
+3. cost is fine: detect tick = one list-panes (~1ms) at 300ms only while
+   agent panes exist (2s discovery cadence otherwise, 100ms while a
+   pending-idle hold confirms); screen captures only for non-idle claude
+   panes or on activity change.
+
+## flap lessons from live deployment (same day)
+
+- NEVER re-assert a weak title verdict (✳ idle) on quiet ticks over a
+  kept screen state — instant idle<->working flap. herdr's exact
+  skip-scan rule: only IDLE panes with an unmoved activity stamp skip
+  the rescan; working/blocked always rescan.
+- Hold ALL working->idle transitions (we dropped herdr's visible-idle
+  bypass): narrow panes truncate the footer "· 1 shell ·" chip in and
+  out per redraw while the ❯ prompt box stays visible — alternating
+  verdicts flap straight through any bypass. Fast recheck keeps real
+  idles under ~300ms.
+- The post-turn "N shells still running" status line is steadier working
+  evidence than the truncatable footer chip.
