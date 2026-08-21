@@ -107,7 +107,10 @@
 
                 set -g status-right-length 100
 
-                set -g status-right "#{E:@catppuccin_status_session}"
+                # agent state counts from demuxd (!blocked ✓done ✻working);
+                # empty when quiet — a plain option reference, zero-cost render
+                set -g status-right "#{E:@demux_agents} "
+                set -ag status-right "#{E:@catppuccin_status_session}"
                 set -ag status-right "#{E:@catppuccin_status_uptime}"
                 set -ag status-right "#{E:@catppuccin_status_date_time}"
               '';
