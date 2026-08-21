@@ -86,11 +86,6 @@ type dockState struct {
 	// landing back on the docked window is a free unzoom.
 	scrubbing bool
 
-	// fmtSaved/fmtLines: the origin session's own status-format lines,
-	// captured before the scrub-status override clobbers index 0.
-	fmtSaved bool
-	fmtLines []string
-
 	// carved: every window that holds the dock geometry while docked. A
 	// 40-col spacer pane occupies the sidebar's slot whenever the sidebar
 	// itself is elsewhere, so a window's mains NEVER resize between visits:
@@ -392,69 +387,6 @@ func (d *daemon) dockOpen(ctl *control, client string) error {
 	return nil
 }
 
-// While scrubbing, the status line keeps describing the ORIGIN — the client
-// truly hasn't moved — while the canvas shows the target: the bar "doesn't
-// change until enter". So each scrub step overrides the origin session's
-// status-format[0]: a filtered #{S:} loop renders the TARGET session's
-// window list (a nested #{W:} takes the looped session's context —
-// probe-verified) with the scrub target marked current, and status-right
-// re-expanded in that context so #S names the target session. The theme's
-// own window-status formats and styles are referenced, never copied, so any
-// theme renders itself.
-func scrubStatusFormat(sid, wid string) string {
-	curWin := "#{==:#{window_id}," + wid + "}"
-	entry := "#{?" + curWin +
-		",#[#{E:window-status-current-style}]#[push-default]#{T:window-status-current-format}#[pop-default]" +
-		",#[#{E:window-status-style}]#[push-default]#{T:window-status-format}#[pop-default]}" +
-		"#[default]#{?loop_last_flag,,#{E:window-status-separator}}"
-	inSess := "#{==:#{session_id}," + sid + "}"
-	return "#[align=left range=left #{E:status-left-style}]#[push-default]" +
-		"#{T;=/#{status-left-length}:status-left}#[pop-default]#[norange default]" +
-		"#[list=on align=#{status-justify}]#[list=left-marker]<#[list=right-marker]>#[list=on]" +
-		"#{S:#{?" + inSess + ",#{W:" + entry + "},}}" +
-		"#[nolist align=right range=right #{E:status-right-style}]#[push-default]" +
-		"#{S:#{?" + inSess + ",#{T;=/#{status-right-length}:status-right},}}" +
-		"#[pop-default]#[norange default]"
-}
-
-// scrubStatusSet points the origin's status line at the scrub target,
-// saving the session's real status-format lines on first use.
-func (d *daemon) scrubStatusSet(ctl *control, wid string) {
-	p := d.dock
-	if p == nil {
-		return
-	}
-	sidN := d.sessionOf(wid)
-	if sidN == "" {
-		return
-	}
-	if !p.fmtSaved {
-		p.fmtLines = nil
-		if lines, err := ctl.run("show-options -t " + q(p.sess) + " status-format"); err == nil {
-			p.fmtLines = lines
-		}
-		p.fmtSaved = true
-	}
-	_, _ = ctl.run("set-option -t " + q(p.sess) + " status-format[0] " + q(scrubStatusFormat(sidN, wid)))
-}
-
-// scrubStatusCmds builds the restore: replay the saved lines verbatim, or
-// quiet-unset down to the global format. Empties the saved state.
-func (d *daemon) scrubStatusCmds(p *dockState) []string {
-	if !p.fmtSaved {
-		return nil
-	}
-	p.fmtSaved = false
-	if len(p.fmtLines) == 0 {
-		return []string{"set-option -uq -t " + q(p.sess) + " status-format"}
-	}
-	out := make([]string, 0, len(p.fmtLines))
-	for _, ln := range p.fmtLines {
-		out = append(out, "set-option -t "+q(p.sess)+" "+ln)
-	}
-	return out
-}
-
 // scrubStart begins billboard scrubbing: capture the target FIRST (the TUI
 // caches the frame before its WINCH repaint, so the canvas fills instantly),
 // then zoom the sidebar to full window. The client never leaves the docked
@@ -478,7 +410,6 @@ func (d *daemon) scrubStart(ctl *control, wid string) error {
 	}
 	p.scrubbing = true
 	d.startStream()
-	d.scrubStatusSet(ctl, wid)
 	log.Printf("scrub start from=%s target=%s", p.win, wid)
 	return nil
 }
@@ -494,7 +425,6 @@ func (d *daemon) scrubEnd(ctl *control, unzoom bool) {
 	}
 	p.scrubbing = false
 	d.stopStream()
-	fmtRestore := d.scrubStatusCmds(p)
 	if unzoom {
 		// Same rewrap hazard as commits (handoffState): unzooming the
 		// canvas-filled grid paints one garbled frame into the sidebar
@@ -503,18 +433,15 @@ func (d *daemon) scrubEnd(ctl *control, unzoom bool) {
 		// batch. The pane id is stable, so no dock state changes; the
 		// fresh TUI paints the list a beat after landing.
 		if tuiCmd, err := d.tuiCommand(); err == nil {
-			seq := append(fmtRestore,
+			if _, err := ctl.runSeq(
 				"respawn-pane -k -t "+q(p.pane)+" "+q(tuiCmd),
-				"resize-pane -Z -t "+q(p.pane))
-			if _, err := ctl.runSeq(seq...); err == nil {
+				"resize-pane -Z -t "+q(p.pane)); err == nil {
 				log.Printf("scrub end win=%s unzoom=respawn", p.win)
 				return
 			}
 			log.Printf("scrub end: respawn failed, plain unzoom")
 		}
 		_, _ = ctl.run("resize-pane -Z -t " + q(p.pane))
-	} else if len(fmtRestore) > 0 {
-		_, _ = ctl.runSeq(fmtRestore...)
 	}
 	log.Printf("scrub end win=%s unzoom=%v", p.win, unzoom)
 }
@@ -1146,9 +1073,6 @@ func (d *daemon) checkDock(ctl *control, w world) {
 		d.stopStream()
 		d.pv.target, d.pv.lastFrame = "", nil
 		_, _ = ctl.run("set-option -u -t " + q(p.sess) + " @demux_docked")
-		for _, c := range d.scrubStatusCmds(p) {
-			_, _ = ctl.run(c)
-		}
 		d.restoreStatus(ctl, p.status)
 		d.deferReleases(p)
 		return
