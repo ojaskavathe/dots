@@ -195,7 +195,7 @@ func consume(d *daemon, ctl *control, w world, sig chan os.Signal) bool {
 			streaming := d.pv.target != "" && d.dock != nil && d.dock.scrubbing &&
 				d.handoff == nil
 			if streaming && len(d.h.cmds) == 0 {
-				_ = d.preview(ctl, d.pv.target, false)
+				_ = d.preview(ctl, d.pv.target, false, true)
 			}
 		case <-d.handoffC:
 			d.handoffC = nil

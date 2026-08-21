@@ -222,9 +222,12 @@ func cmdTui(tmuxSock, demuxSock string) {
 	var rows []row
 
 	// Per-window frame cache with generations, so "did I already paint
-	// exactly this?" is an integer compare, never a deep one.
+	// exactly this?" is an integer compare, never a deep one. dgen is the
+	// DAEMON's generation for this frame — delta frames apply only when
+	// their base matches it.
 	type cached struct {
 		gen   int
+		dgen  int
 		panes []framePane
 		at    time.Time
 	}
@@ -432,20 +435,45 @@ func cmdTui(tmuxSock, demuxSock string) {
 					requestFrames()
 				}
 			case "frame":
-				benchf("frame win=%s current=%v", m.Window, m.Window == target())
+				benchf("frame win=%s current=%v delta=%v", m.Window, m.Window == target(), m.Delta)
 				// Input outranks painting: with keys already queued, a full
 				// frame paint (20-120ms in a saturated tmux) would land
 				// behind the selection the user has already left. The frame
 				// is cached either way — the key batch paints it if the
 				// target still matches, the stream re-covers it otherwise.
 				quiet := len(keys) == 0 && !shrinkExpected
+				if m.Delta {
+					// Row delta against the cache at Base. Patch copies every
+					// touched Lines slice — the painted state may share lines
+					// with the cache (scaleFrame's unscaled path returns the
+					// frame as-is), and an in-place patch would blind the
+					// prev-diff painter to its own change.
+					c, ok := frames[m.Window]
+					if !ok || c.dgen != m.Base || !applyDelta(&c.panes, m.Frame) {
+						// Lost lineage (fresh TUI, evicted cache): drop it and
+						// re-request — a command-driven preview always ships full.
+						benchf("delta resync win=%s", m.Window)
+						if m.Window == target() {
+							requestFrames()
+						}
+						break
+					}
+					gen++
+					c.gen, c.dgen, c.at = gen, m.Gen, time.Now()
+					frames[m.Window] = c
+					if m.Window == target() && quiet {
+						paintFrameFor(m.Window)
+					}
+					break
+				}
 				if prev, ok := frames[m.Window]; ok && framesEqual(prev.panes, m.Frame) {
 					// Confirming frame, content unchanged: no repaint, but
-					// the cache is proven current — restamp it, or a
-					// static window's cache would age out while streaming.
+					// the cache is proven current — restamp it (and adopt the
+					// daemon's gen, or the next delta's base won't match), or
+					// a static window's cache would age out while streaming.
 					// Target-only paint: a stale-skip may have left the
 					// canvas waiting for exactly this confirmation.
-					prev.at = time.Now()
+					prev.at, prev.dgen = time.Now(), m.Gen
 					frames[m.Window] = prev
 					if m.Window == target() && quiet {
 						paintFrameFor(m.Window)
@@ -453,7 +481,7 @@ func cmdTui(tmuxSock, demuxSock string) {
 					break
 				}
 				gen++
-				frames[m.Window] = cached{gen: gen, panes: m.Frame, at: time.Now()}
+				frames[m.Window] = cached{gen: gen, dgen: m.Gen, panes: m.Frame, at: time.Now()}
 				if m.Window == target() && quiet {
 					paintFrameFor(m.Window)
 				}
@@ -721,6 +749,40 @@ func runeWidth(r rune) int {
 	return 1
 }
 
+
+// applyDelta patches a delta frame's changed rows into a cached full frame,
+// reporting false when a delta pane has no cached counterpart (resync).
+// Touched slices are copied, never mutated in place: the cache may share
+// them with the painted state (scaleFrame returns unscaled frames as-is),
+// and an in-place write would blind the prev-diff painter to the change.
+func applyDelta(panes *[]framePane, delta []framePane) bool {
+	out := append([]framePane(nil), *panes...)
+	for _, dp := range delta {
+		pi := -1
+		for i := range out {
+			if out[i].ID == dp.ID {
+				pi = i
+				break
+			}
+		}
+		if pi < 0 || len(dp.Rows) != len(dp.Lines) {
+			return false
+		}
+		lines := append([]string(nil), out[pi].Lines...)
+		for j, r := range dp.Rows {
+			if r < 0 {
+				return false
+			}
+			for len(lines) <= r {
+				lines = append(lines, "")
+			}
+			lines[r] = dp.Lines[j]
+		}
+		out[pi].Lines = lines
+	}
+	*panes = out
+	return true
+}
 
 func framesEqual(a, b []framePane) bool {
 	if len(a) != len(b) {

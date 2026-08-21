@@ -420,11 +420,11 @@ func (d *daemon) scrubStart(ctl *control, wid string) error {
 	if p == nil || p.scrubbing {
 		return nil
 	}
-	// Force the first frame out even if content hasn't changed since this
-	// window was last streamed: the TUI won't paint a stale cache, so a
-	// deduped first frame would leave the canvas empty.
-	d.pv.lastFrame = nil
-	if err := d.preview(ctl, wid, false); err != nil {
+	// Force the first frame out full even if content hasn't changed since
+	// this window was last streamed: the TUI won't paint a stale cache, so
+	// a deduped or delta first frame would leave the canvas empty.
+	d.pv.reset()
+	if err := d.preview(ctl, wid, false, false); err != nil {
 		return err
 	}
 	if _, err := ctl.runSeq(
@@ -933,7 +933,8 @@ func (d *daemon) dockClose(ctl *control, toOrigin bool) error {
 	// origin panes before a toOrigin switch lands.
 	d.scrubEnd(ctl, false)
 	d.dock = nil
-	d.pv.target, d.pv.lastFrame = "", nil
+	d.pv.target = ""
+	d.pv.reset()
 	log.Printf("undock client=%s win=%s to_origin=%v", p.client, p.win, toOrigin)
 	oldLayout, oldDirty, curActive := "", false, ""
 	if lines, err := ctl.run("display-message -p -t " + q(p.win) + " -F " +
@@ -1095,7 +1096,8 @@ func (d *daemon) checkDock(ctl *control, w world) {
 		log.Printf("dock: sidebar pane gone, cleaning up")
 		d.dock = nil
 		d.stopStream()
-		d.pv.target, d.pv.lastFrame = "", nil
+		d.pv.target = ""
+		d.pv.reset()
 		_, _ = ctl.run("set-option -u -t " + q(p.sess) + " @demux_docked")
 		d.restoreStatus(ctl, p.status)
 		d.deferReleases(p)

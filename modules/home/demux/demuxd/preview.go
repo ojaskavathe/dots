@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
 	"log"
 	"strconv"
@@ -15,8 +14,23 @@ import (
 
 // previewState is the engine's state on the daemon.
 type previewState struct {
-	target    string // currently previewed window
-	lastFrame []byte // last target frame, replayed to late-connecting TUIs
+	target string // currently previewed window
+
+	// Delta stream state: the target's last shipped grid. Stream ticks diff
+	// against it and ship only the changed rows (a claude spinner tick is
+	// 1-3 rows, not a 100KB frame); hello replays marshal it whole.
+	lastPanes []framePane
+	frameGen  int
+
+	// Capture gate: geometry fingerprint and #{window_activity} of the last
+	// capture. A stream tick whose target shows the same rects and activity
+	// — with the last capture a full second past the activity stamp
+	// (activity has 1s resolution, so a same-second capture may predate
+	// trailing output) — skips capture, selfContain, and marshal wholesale.
+	lastRects    string
+	lastActivity int64
+	lastCapture  time.Time
+	gated        bool // gate currently holding (logs the idle EDGE, not every tick)
 
 	// The live stream: while billboards are showing, the target is
 	// re-captured on this ticker (10fps) so previews stay live — scrolling
@@ -27,6 +41,18 @@ type previewState struct {
 	// no output events at all, so capture is the only universal source.
 	ticker *time.Ticker
 	tickC  <-chan time.Time
+}
+
+// reset forgets the delta and gate state, so the next preview captures and
+// ships a full frame unconditionally (scrub start, target teardown).
+func (pv *previewState) reset() {
+	pv.lastPanes, pv.lastRects, pv.lastActivity = nil, "", 0
+}
+
+// frameBytes marshals the cached target grid as a full frame, for replaying
+// to a late-connecting TUI.
+func (pv *previewState) frameBytes() []byte {
+	return marshalLine(frameMsg{Type: "frame", Window: pv.target, Panes: pv.lastPanes, Gen: pv.frameGen})
 }
 
 func (d *daemon) startStream() {
@@ -224,7 +250,12 @@ const frameMarker = "\x1fdemux-frame\x1f"
 // cache for adjacent rows without becoming the streamed target. The sidebar
 // pane itself is never billboarded (a docked window's frame is its mains,
 // shifted to the canvas origin — near-pixel-parity with entering it).
-func (d *daemon) preview(ctl *control, wid string, prefetch bool) error {
+//
+// stream marks the ticker's re-captures of the current target: only those
+// may skip the capture (activity gate) or ship row deltas. Command-driven
+// previews always capture and always ship FULL frames — they double as the
+// resync path when a TUI drops a delta it can't apply.
+func (d *daemon) preview(ctl *control, wid string, prefetch, stream bool) error {
 	if d.dock == nil {
 		return nil
 	}
@@ -249,11 +280,13 @@ func (d *daemon) preview(ctl *control, wid string, prefetch bool) error {
 	}
 	var panes []framePane
 	var caps []string
+	var rects string
+	var activity int64
 	for attempt := 0; ; attempt++ {
 		query := []string{
 			"list-panes -t " + q(wid) + " -F " +
 				f("#{pane_id}", "#{pane_left}", "#{pane_top}", "#{pane_width}", "#{pane_height}", "#{pane_active}", "#{history_size}"),
-			"display-message -p -t " + q(wid) + " -F " + f("#{window_width}", "#{window_height}"),
+			"display-message -p -t " + q(wid) + " -F " + f("#{window_width}", "#{window_height}", "#{window_activity}"),
 			"display-message -p -t " + q(d.dock.win) + " -F " + f("#{window_width}", "#{window_height}"),
 		}
 		lines, err := ctl.runSeq(query...)
@@ -262,7 +295,11 @@ func (d *daemon) preview(ctl *control, wid string, prefetch bool) error {
 		}
 		tgtW, tgtH, dockW, dockH := 0, 0, 0, 0
 		if len(lines) >= 2 {
-			tgtW, tgtH = parseDims(lines[len(lines)-2])
+			if p := strings.Split(lines[len(lines)-2], sep); len(p) == 3 {
+				tgtW, _ = strconv.Atoi(p[0])
+				tgtH, _ = strconv.Atoi(p[1])
+				activity, _ = strconv.ParseInt(p[2], 10, 64)
+			}
 			dockW, dockH = parseDims(lines[len(lines)-1])
 			lines = lines[:len(lines)-2]
 		}
@@ -272,13 +309,14 @@ func (d *daemon) preview(ctl *control, wid string, prefetch bool) error {
 		// pays a surprise resize reflow. Normalize to the docked window's
 		// size while billboarding instead.
 		sizeStale := dockW > 0 && (tgtW != dockW || tgtH != dockH)
-		panes, caps = panes[:0], caps[:0]
+		panes, caps, rects = panes[:0], caps[:0], ""
 		history := 0
 		for _, ln := range lines {
 			p := strings.Split(ln, sep)
 			if len(p) != 7 {
 				continue
 			}
+			rects += strings.Join(p[:6], ",") + ";"
 			if h, _ := strconv.Atoi(p[6]); h > 0 {
 				history += h
 			}
@@ -345,6 +383,20 @@ func (d *daemon) preview(ctl *control, wid string, prefetch bool) error {
 		}
 		break
 	}
+	// Activity gate: a streamed target whose pane rects and last-activity
+	// stamp both match the previous capture — with that capture at least a
+	// full second newer than the stamp, so no same-second trailing output
+	// can postdate it — has nothing new to show. Skip the capture batch
+	// entirely; the tick already paid only three format expansions.
+	if stream && wid == d.pv.target && d.pv.lastPanes != nil &&
+		rects == d.pv.lastRects && activity == d.pv.lastActivity &&
+		d.pv.lastCapture.Unix() >= activity+1 {
+		if bench && !d.pv.gated {
+			log.Printf("bench gate idle win=%s", wid)
+		}
+		d.pv.gated = true
+		return nil
+	}
 	minLeft := panes[0].Left
 	for _, p := range panes {
 		if p.Left < minLeft {
@@ -380,16 +432,88 @@ func (d *daemon) preview(ctl *control, wid string, prefetch bool) error {
 		}
 		log.Printf("bench frame win=%s prefetch=%v rects=%v", wid, prefetch, rects)
 	}
-	payload := marshalLine(frameMsg{Type: "frame", Window: wid, Panes: panes})
 	if prefetch {
-		d.h.sendRole("list", payload)
+		d.h.sendRole("list", marshalLine(frameMsg{Type: "frame", Window: wid, Panes: panes}))
 		return nil
 	}
 	d.pv.target = wid
-	if bytes.Equal(payload, d.pv.lastFrame) {
-		return nil // idle content: no repaint
+	stamp := func() {
+		d.pv.lastRects, d.pv.lastActivity, d.pv.lastCapture = rects, activity, time.Now()
+		d.pv.gated = false
 	}
-	d.pv.lastFrame = payload
-	d.h.sendRole("list", payload)
+	if stream && sameFrameShape(d.pv.lastPanes, panes) {
+		delta, nrows := deltaPanes(d.pv.lastPanes, panes)
+		if delta == nil {
+			stamp()
+			return nil // idle content: no repaint
+		}
+		base := d.pv.frameGen
+		d.pv.frameGen++
+		d.pv.lastPanes = panes
+		stamp()
+		if bench {
+			log.Printf("bench frame delta win=%s panes=%d rows=%d", wid, len(delta), nrows)
+		}
+		d.h.sendRole("list", marshalLine(frameMsg{
+			Type: "frame", Window: wid, Panes: delta, Delta: true, Base: base, Gen: d.pv.frameGen}))
+		return nil
+	}
+	d.pv.frameGen++
+	d.pv.lastPanes = panes
+	stamp()
+	d.h.sendRole("list", marshalLine(frameMsg{Type: "frame", Window: wid, Panes: panes, Gen: d.pv.frameGen}))
 	return nil
+}
+
+// sameFrameShape reports an identical pane set — ids, rects, active — the
+// precondition for shipping row deltas. An id change behind the same rect
+// (respawn) means different content history; ship full instead.
+func sameFrameShape(a, b []framePane) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].ID != b[i].ID || a[i].Left != b[i].Left || a[i].Top != b[i].Top ||
+			a[i].Width != b[i].Width || a[i].Height != b[i].Height || a[i].Active != b[i].Active {
+			return false
+		}
+	}
+	return true
+}
+
+// deltaPanes diffs same-shape frames row-wise: per pane, the changed rows
+// (Rows holds indices, Lines the new content; rows the new capture lost
+// come through as ""). nil means identical content.
+func deltaPanes(old, cur []framePane) ([]framePane, int) {
+	var out []framePane
+	total := 0
+	for i := range cur {
+		o, n := old[i].Lines, cur[i].Lines
+		rows := len(n)
+		if len(o) > rows {
+			rows = len(o)
+		}
+		var idx []int
+		var lns []string
+		for r := 0; r < rows; r++ {
+			ol, nl := "", ""
+			if r < len(o) {
+				ol = o[r]
+			}
+			if r < len(n) {
+				nl = n[r]
+			}
+			if ol != nl {
+				idx = append(idx, r)
+				lns = append(lns, nl)
+			}
+		}
+		if idx != nil {
+			p := cur[i]
+			p.Lines, p.Rows = lns, idx
+			out = append(out, p)
+			total += len(idx)
+		}
+	}
+	return out, total
 }

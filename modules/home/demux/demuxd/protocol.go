@@ -62,10 +62,18 @@ type selectMsg struct {
 
 // frameMsg carries a captured window for the preview region (daemon ->
 // list TUI). Pane lines are raw capture-pane -e output (SGR included).
+// Full frames carry every pane's whole grid plus a generation; stream
+// ticks of an unchanged-shape target ship a delta instead: only changed
+// rows per pane, valid solely against the client's cache at Base. Safe
+// because hub sends are in-order-or-disconnect — a client that missed a
+// message is gone, and a fresh one starts from a full hello replay.
 type frameMsg struct {
 	Type   string      `json:"type"`
 	Window string      `json:"window"`
 	Panes  []framePane `json:"frame"`
+	Gen    int         `json:"gen,omitempty"`   // generation of this frame
+	Delta  bool        `json:"delta,omitempty"` // Panes carry only changed rows
+	Base   int         `json:"base,omitempty"`  // delta applies to the cache at this gen
 }
 
 type framePane struct {
@@ -76,6 +84,7 @@ type framePane struct {
 	Height int      `json:"height"`
 	Active bool     `json:"active,omitempty"`
 	Lines  []string `json:"lines"`
+	Rows   []int    `json:"rows,omitempty"` // delta only: row indices for Lines
 }
 
 // wireMsg is the client-side decode target: one struct covering every
@@ -88,6 +97,9 @@ type wireMsg struct {
 	Ops      []wireOp    `json:"ops"`
 	Window   string      `json:"window"`
 	Frame    []framePane `json:"frame"`
+	Gen      int         `json:"gen"`
+	Delta    bool        `json:"delta"`
+	Base     int         `json:"base"`
 	OK       *bool       `json:"ok"`
 	Err      string      `json:"err"`
 }

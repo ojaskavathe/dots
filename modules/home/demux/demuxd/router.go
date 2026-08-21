@@ -80,7 +80,7 @@ func (d *daemon) runCmd(ctl *control, env cmdEnvelope) {
 		if p := d.dock; p != nil {
 			switch {
 			case p.scrubbing:
-				err = d.preview(ctl, env.msg.Window, env.msg.Prefetch)
+				err = d.preview(ctl, env.msg.Window, env.msg.Prefetch, false)
 			case !env.msg.Prefetch && env.msg.Window != "" && env.msg.Window != p.win:
 				err = d.scrubStart(ctl, env.msg.Window)
 			}
@@ -130,8 +130,8 @@ func (d *daemon) runCmd(ctl *control, env cmdEnvelope) {
 		// missed (and the current frame, when browse pre-zoomed into a scrub).
 		if d.dock != nil {
 			d.h.send(env.sub, marshalLine(selectMsg{Type: "select", Window: d.dock.win}))
-			if d.dock.scrubbing && d.pv.lastFrame != nil {
-				d.h.send(env.sub, d.pv.lastFrame)
+			if d.dock.scrubbing && d.pv.lastPanes != nil {
+				d.h.send(env.sub, d.pv.frameBytes())
 			}
 			log.Printf("hello-list: replay docked select=%s spawn_ms=%d",
 				d.dock.win, time.Since(d.dock.openedAt).Milliseconds())

@@ -411,6 +411,13 @@ func (r *Rig) LogHas(pat string) bool {
 	return err == nil && regexp.MustCompile(pat).Match(b)
 }
 
+// TuiBenchHas greps the TUI's bench log — a separate file from the daemon
+// log (the TUI is its own process inside a tmux pane).
+func (r *Rig) TuiBenchHas(pat string) bool {
+	b, err := os.ReadFile(r.Sock + ".tui-bench.log")
+	return err == nil && regexp.MustCompile(pat).Match(b)
+}
+
 // DemuxPanes counts demux TUI panes inside the given target's panes.
 func (r *Rig) DemuxPanes(flags ...string) int {
 	out, err := r.TQ(append(append([]string{"list-panes"}, flags...), "-F", "#{pane_current_command}")...)
