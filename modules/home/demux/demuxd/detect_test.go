@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -239,6 +240,40 @@ func TestIdleHoldAndDone(t *testing.T) {
 	d.applyAgentState("%4", a, "working", true, vis)
 	if d.applyAgentState("%4", a, "idle", false, vis) {
 		t.Fatal("hold did not restart after working interrupted it")
+	}
+}
+
+func TestBlockedReasonLabel(t *testing.T) {
+	m := claudeManifest(t)
+	v, ok := m.eval(newSnapshot(screenBlocked, ""), false)
+	if !ok || v.label != "bash permission" {
+		t.Fatalf("bash prompt label: %+v", v)
+	}
+	// same prompt without the Bash header: the anywhere rule, generic label
+	v, ok = m.eval(newSnapshot(screenBlocked[2:], ""), false)
+	if !ok || v.label != "permission prompt" {
+		t.Fatalf("anywhere prompt label: %+v", v)
+	}
+	// no explicit label in the TOML: the rule id humanizes
+	v, ok = loadManifests()["opencode"].eval(newSnapshot([]string{"△ Permission required"}, ""), false)
+	if !ok || v.label != "permission required" {
+		t.Fatalf("fallback label: %+v", v)
+	}
+}
+
+func TestBlockedRowShowsReason(t *testing.T) {
+	st := &store{
+		sessions: map[string]session{"$1": {ID: "$1", Name: "main"}},
+		windows:  map[string]window{"@1": {ID: "@1", SessionID: "$1", Index: 2, Active: true}},
+		panes: map[string]pane{"%1": {
+			ID: "%1", WindowID: "@1", SessionID: "$1", Title: "✳ Old task",
+			Agent: "claude", AgentState: "blocked", AgentReason: "permission prompt",
+		}},
+	}
+	rows := st.rows()
+	last := rows[len(rows)-1]
+	if !last.arow || !strings.Contains(last.label, "permission prompt") || strings.Contains(last.label, "Old task") {
+		t.Fatalf("blocked row label = %q", last.label)
 	}
 }
 

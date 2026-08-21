@@ -32,6 +32,7 @@ any = [
 
 [[rules]]
 id = "live_blocked_form"
+label = "waiting on input"
 state = "blocked"
 priority = 980
 region = "after_last_horizontal_rule"
@@ -50,6 +51,7 @@ any = [
 
 [[rules]]
 id = "dynamic_workflow_prompt"
+label = "workflow prompt"
 state = "blocked"
 priority = 980
 region = "whole_recent"
@@ -133,6 +135,7 @@ not = [
 
 [[rules]]
 id = "bash_permission_prompt"
+label = "bash permission"
 state = "blocked"
 priority = 850
 region = "whole_recent"
@@ -155,6 +158,7 @@ all = [
 
 [[rules]]
 id = "generic_permission_prompt"
+label = "permission prompt"
 state = "blocked"
 priority = 840
 region = "after_last_horizontal_rule"
@@ -173,6 +177,7 @@ all = [
 id = "permission_prompt_anywhere"
 # demux addition: the numbered yes/no list without the boxed form — the
 # question plus a real option list is blocked evidence wherever it sits.
+label = "permission prompt"
 state = "blocked"
 priority = 830
 region = "whole_recent"
@@ -187,6 +192,7 @@ all = [
 
 [[rules]]
 id = "legacy_no_prompt_blocker"
+label = "waiting on input"
 state = "blocked"
 priority = 300
 region = "whole_recent"

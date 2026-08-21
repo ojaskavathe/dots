@@ -48,6 +48,7 @@ const (
 type agentInfo struct {
 	kind         string // manifest id: claude | codex | grok | ...
 	state        string // "" (unknown) | working | blocked | idle | done
+	reason       string // blocked only: the matched rule's label ("permission prompt")
 	grace        time.Time
 	pendingIdle  int       // consecutive idle samples held back
 	pendingAt    time.Time // when the hold started
@@ -122,6 +123,7 @@ func (d *daemon) injectAgents(w *world) {
 		if a := d.det.agents[w.Panes[i].ID]; a != nil {
 			w.Panes[i].Agent = a.kind
 			w.Panes[i].AgentState = a.state
+			w.Panes[i].AgentReason = a.reason
 		}
 	}
 }
@@ -179,13 +181,23 @@ func (d *daemon) detectTickRun(ctl *control, w *world) {
 	var scans []scanReq
 	var blockedNew []string // pane ids that just turned blocked
 	changed := false
-	apply := func(id string, a *agentInfo, want string, visible bool) {
+	apply := func(id string, a *agentInfo, want string, visible bool, label string) {
 		prev := a.state
 		if d.applyAgentState(id, a, want, visible, vis) {
 			changed = true
 			if a.state == "blocked" && prev != "blocked" {
 				blockedNew = append(blockedNew, id)
 			}
+		}
+		// The reason rides the state: set while blocked (even when the
+		// matching rule changes without a transition), gone otherwise.
+		want = a.state
+		if want != "blocked" {
+			label = ""
+		}
+		if a.reason != label {
+			a.reason = label
+			changed = true
 		}
 	}
 	for _, ln := range lines {
@@ -228,7 +240,7 @@ func (d *daemon) detectTickRun(ctl *control, w *world) {
 		if v, ok := m.eval(newSnapshot(nil, title), true); ok && v.prio > m.maxScreenPrio {
 			// Title verdict outranks every screen rule: conclusive, free.
 			if !v.skip {
-				apply(id, a, v.state, v.visible)
+				apply(id, a, v.state, v.visible, v.label)
 			}
 			continue
 		}
@@ -271,11 +283,11 @@ func (d *daemon) detectTickRun(ctl *control, w *world) {
 				v, ok := m.eval(newSnapshot(grids[i], s.title), false)
 				switch {
 				case !ok:
-					apply(s.id, s.a, "idle", false) // known agent, silent screen
+					apply(s.id, s.a, "idle", false, "") // known agent, silent screen
 				case v.skip:
 					// viewer overlay: freeze the previous state
 				default:
-					apply(s.id, s.a, v.state, v.visible)
+					apply(s.id, s.a, v.state, v.visible, v.label)
 				}
 			}
 		}
@@ -427,7 +439,7 @@ func (d *daemon) wrappedKind(pid string) string {
 			for _, c := range children[p] {
 				for token := range d.det.manifests {
 					cl := cmdOf[c]
-					if strings.Contains(cl, "/"+token) || strings.HasPrefix(filepath.Base(strings.Fields(cl+" x")[0]), token) {
+					if strings.Contains(cl, "/"+token) || strings.HasPrefix(filepath.Base(strings.Fields(cl + " x")[0]), token) {
 						return d.det.manifests[token].id
 					}
 				}

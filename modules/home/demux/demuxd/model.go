@@ -40,8 +40,9 @@ type pane struct {
 
 	// Daemon-computed agent detection (detect.go), injected after every
 	// fetch — never read back from tmux.
-	Agent      string `json:"agent,omitempty"`  // claude | grok | codex | ...
-	AgentState string `json:"astate,omitempty"` // working | blocked | idle
+	Agent       string `json:"agent,omitempty"`   // claude | grok | codex | ...
+	AgentState  string `json:"astate,omitempty"`  // working | blocked | idle
+	AgentReason string `json:"areason,omitempty"` // blocked only: why ("permission prompt")
 }
 
 type tclient struct {

@@ -40,6 +40,7 @@ type manifestTOML struct {
 
 type ruleTOML struct {
 	ID             string `toml:"id"`
+	Label          string `toml:"label"` // short human reason ("permission prompt")
 	State          string `toml:"state"`
 	Priority       int    `toml:"priority"`
 	Region         string `toml:"region"`
@@ -71,6 +72,7 @@ type cManifest struct {
 
 type cRule struct {
 	id      string
+	label   string
 	state   string // "" = unknown
 	prio    int
 	region  string
@@ -95,6 +97,7 @@ type verdict struct {
 	visible bool
 	prio    int
 	rule    string
+	label   string
 }
 
 // loadManifests reads bundled manifests, then user overrides. Returns the
@@ -188,8 +191,12 @@ func compileManifest(b []byte) (*cManifest, error) {
 		if err := checkRegion(region); err != nil {
 			return nil, fmt.Errorf("rule %s: %w", rt.ID, err)
 		}
+		label := rt.Label
+		if label == "" {
+			label = strings.ReplaceAll(rt.ID, "_", " ")
+		}
 		m.rules = append(m.rules, cRule{
-			id: rt.ID, state: st, prio: rt.Priority, region: region,
+			id: rt.ID, label: label, state: st, prio: rt.Priority, region: region,
 			visible: rt.VisibleIdle || rt.VisibleBlocker || rt.VisibleWorking,
 			skip:    rt.Skip, gate: g,
 		})
@@ -365,7 +372,7 @@ func (m *cManifest) eval(s *snapshot, titleOnly bool) (verdict, bool) {
 		if !gateMatches(&r.gate, s, r.region) {
 			continue
 		}
-		best = verdict{state: r.state, skip: r.skip, visible: r.visible, prio: r.prio, rule: r.id}
+		best = verdict{state: r.state, skip: r.skip, visible: r.visible, prio: r.prio, rule: r.id, label: r.label}
 		found = true
 	}
 	return best, found

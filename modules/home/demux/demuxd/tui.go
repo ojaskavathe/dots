@@ -178,8 +178,14 @@ func (st *store) rows() []row {
 		for _, p := range agents {
 			sess := st.sessions[p.SessionID].Name
 			win := st.windows[p.WindowID]
+			// A blocked pane's title is the stale pre-prompt task; the
+			// reason ("permission prompt") is what the row should say.
+			text := agentTaskTitle(p.Title)
+			if p.AgentState == "blocked" && p.AgentReason != "" {
+				text = p.AgentReason
+			}
 			out = append(out, row{
-				label:  fmt.Sprintf("  %s %s:%d %s", p.Agent, sess, win.Index, agentTaskTitle(p.Title)),
+				label:  fmt.Sprintf("  %s %s:%d %s", p.Agent, sess, win.Index, text),
 				window: p.WindowID, pane: p.ID, agent: p.AgentState, arow: true,
 			})
 		}
@@ -273,8 +279,8 @@ func cmdTui(tmuxSock, demuxSock string) {
 
 	st := &store{}
 	sel := 0
-	esc := 0     // escape-sequence state: arrows + SGR mouse
-	var mbuf []byte  // SGR mouse params after \x1b[<
+	esc := 0          // escape-sequence state: arrows + SGR mouse
+	var mbuf []byte   // SGR mouse params after \x1b[<
 	dragging := false // left button held on the agents divider
 	var rows []row
 
@@ -845,7 +851,6 @@ func runeWidth(r rune) int {
 	}
 	return 1
 }
-
 
 // applyDelta patches a delta frame's changed rows into a cached full frame,
 // reporting false when a delta pane has no cached counterpart (resync).

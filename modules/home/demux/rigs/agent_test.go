@@ -97,6 +97,9 @@ func TestAgent(t *testing.T) {
 	r.Chk("blocked glyph outranks working", r.WaitUntil(200, func() bool {
 		return strings.Contains(r.Capture(s.Pane), "!")
 	}))
+	r.Chk("blocked reason on agent row", r.WaitUntil(300, func() bool {
+		return strings.Contains(r.Capture(s.Pane), "permission prompt")
+	}))
 	r.Chk("statusline counts blocked", strings.Contains(r.ShowOpt("-gqv", "@demux_agents"), "!"))
 
 	// Kill the agents: states must leave the world (glyphs gone).

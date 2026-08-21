@@ -5,6 +5,7 @@ version = "2026.08.21.1"
 
 [[rules]]
 id = "osc_title_action_required"
+label = "action required"
 state = "blocked"
 priority = 1300
 region = "osc_title"
@@ -21,6 +22,7 @@ line_regex = ['^\s*┃\s+[0-9a-z]+\s+\([●○]\)\s']
 
 [[rules]]
 id = "footer_select_hints"
+label = "awaiting selection"
 state = "blocked"
 priority = 1150
 region = "bottom_non_empty_lines(4)"

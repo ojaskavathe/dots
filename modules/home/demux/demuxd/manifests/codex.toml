@@ -7,6 +7,7 @@ version = "2026.08.21.1"
 
 [[rules]]
 id = "osc_title_action_required"
+label = "action required"
 state = "blocked"
 priority = 1100
 region = "osc_title"
@@ -36,6 +37,7 @@ any = [
 
 [[rules]]
 id = "trust_directory_prompt"
+label = "trust prompt"
 state = "blocked"
 priority = 990
 region = "top_non_empty_lines(20)"
@@ -44,6 +46,7 @@ regex = ['(?s)Do\s+you\s+trust\s+the\s+contents\s+of\s+this\s+directory\?']
 
 [[rules]]
 id = "strong_blockers"
+label = "approval prompt"
 state = "blocked"
 priority = 900
 region = "bottom_non_empty_lines(15)"
@@ -67,6 +70,7 @@ not = [
 
 [[rules]]
 id = "weak_blockers"
+label = "approval prompt"
 state = "blocked"
 priority = 600
 region = "bottom_non_empty_lines(10)"
