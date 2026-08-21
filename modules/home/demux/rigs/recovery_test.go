@@ -54,4 +54,19 @@ func TestRecovery(t *testing.T) {
 	r.Chk("gamma layout intact", r.Layout(r.W3) == tail(r.LW3))
 	err := exec.Command("pgrep", "-f", filepath.Base(demuxdBin)+" -S /private/tmp/tmux-501/"+r.L+" run").Run()
 	r.Chk("daemon alive", err == nil)
+
+	// T: daemon killed MID-DOCK leaks session state (@demux_docked routes
+	// M-h/M-l into `demuxd nav` failures, the status pad shifts the bar);
+	// the next daemon's startup sweep must clear it. Layout of the docked
+	// window is knowingly lost here (the restore lived in the dead daemon).
+	r.D("toggle", r.CL)
+	sleep(800)
+	r.Chk("docked for the kill", r.ShowOpt("-t", "work", "-v", "@demux_docked") == "1")
+	exec.Command("pkill", "-f", filepath.Base(demuxdBin)+" -S /private/tmp/tmux-501/"+r.L+" run").Run()
+	sleep(500)
+	r.D("ls")
+	sleep(2000)
+	r.Chk("stale @demux_docked swept", r.ShowOpt("-t", "work", "-v", "@demux_docked") == "")
+	r.Chk("status pad swept", r.ShowOpt("-t", "work", "status-left") == "")
+	r.Chk("sweep logged", r.LogHas("swept stale dock state"))
 }

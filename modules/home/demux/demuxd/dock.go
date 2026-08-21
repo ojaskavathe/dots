@@ -180,6 +180,30 @@ func (d *daemon) releaseOne(ctl *control, it releaseItem) {
 	}
 }
 
+// sweepDockedState clears session state a previous daemon left behind when
+// it died mid-dock: the @demux_docked flag (M-h/M-l keep routing through
+// `demuxd nav`, which errors undocked) and the status-left pad (the bar
+// sits shifted 41 cols right). The pre-dock status-left saves lived in the
+// dead daemon's memory — a session-level unset falls back to the global
+// value, which is where the pad-free truth lives.
+func (d *daemon) sweepDockedState(ctl *control) {
+	lines, err := ctl.run("list-sessions -F " + f("#{session_id}", "#{@demux_docked}"))
+	if err != nil {
+		return
+	}
+	for _, ln := range lines {
+		p := strings.Split(ln, sep)
+		if len(p) != 2 || p[1] == "" {
+			continue
+		}
+		_, _ = ctl.runSeq(
+			"set-option -u -t "+q(p[0])+" @demux_docked",
+			"set-option -uq -t "+q(p[0])+" status-left",
+			"set-option -uq -t "+q(p[0])+" status-left-length")
+		log.Printf("swept stale dock state on %s", p[0])
+	}
+}
+
 // sweepSpacers kills spacer panes a previous daemon left behind (it died or
 // was killed while docked) — matched by their distinctive start command.
 func (d *daemon) sweepSpacers(ctl *control) {

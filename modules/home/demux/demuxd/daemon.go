@@ -109,6 +109,7 @@ func runDaemon(tmuxSock, demuxSock string) {
 		// world could be stale mid-gap; a snapshot is always truthful.
 		h.setWorld(w, nil, true, tmuxSock)
 		d.sweepSpacers(ctl)
+		d.sweepDockedState(ctl)
 		if ln == nil {
 			// Bind only now, with a populated world: a subscriber must never
 			// see the socket before there is a truthful snapshot behind it
