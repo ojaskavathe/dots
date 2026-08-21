@@ -23,6 +23,7 @@ type daemon struct {
 	h        *hub
 
 	pv   previewState // billboard capture engine (preview.go)
+	det  detectState  // agent state detection (detect.go)
 	dock *dockState   // docked sidebar mode (dock.go); nil = idle
 
 	// lastScrub gates re-lists: world churn within scrubQuiet of a dock
@@ -108,6 +109,7 @@ func runDaemon(tmuxSock, demuxSock string) {
 		// Snapshot, not diff: after a reconnect gap, diffs against the old
 		// world could be stale mid-gap; a snapshot is always truthful.
 		h.setWorld(w, nil, true, tmuxSock)
+		d.armDetect(w)
 		d.sweepSpacers(ctl)
 		d.sweepDockedState(ctl)
 		if ln == nil {
@@ -174,9 +176,11 @@ func consume(d *daemon, ctl *control, w world, sig chan os.Signal) bool {
 				// Connection is dying; the done case handles the rest.
 				continue
 			}
+			d.injectAgents(&next)
 			ops := diffWorlds(w, next)
 			w = next
 			d.h.setWorld(w, ops, false, d.tmuxSock)
+			d.armDetect(w)
 			if d.handoff == nil { // mid-handoff the world is ours, half-moved
 				d.checkDock(ctl, w)
 			}
@@ -196,6 +200,13 @@ func consume(d *daemon, ctl *control, w world, sig chan os.Signal) bool {
 				d.handoff == nil
 			if streaming && len(d.h.cmds) == 0 {
 				_ = d.preview(ctl, d.pv.target, false, true)
+			}
+		case <-d.det.tickC:
+			// Agent detection pass. Yields to queued commands and pauses
+			// mid-handoff (the world is ours, half-moved); a skipped tick
+			// just means the next one classifies, 300ms later.
+			if d.handoff == nil && len(d.h.cmds) == 0 {
+				d.detectTickRun(ctl, &w)
 			}
 		case <-d.handoffC:
 			d.handoffC = nil

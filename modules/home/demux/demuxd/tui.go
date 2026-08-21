@@ -108,6 +108,7 @@ type row struct {
 	label   string
 	window  string // preview target
 	session bool
+	agent   string // window rows: worst agent state across panes
 }
 
 func (st *store) rows() []row {
@@ -116,6 +117,15 @@ func (st *store) rows() []row {
 		sessions = append(sessions, s)
 	}
 	sort.Slice(sessions, func(i, j int) bool { return sessions[i].Name < sessions[j].Name })
+
+	// Worst agent state per window: attention sorts blocked > working > idle.
+	rank := map[string]int{"blocked": 3, "working": 2, "idle": 1}
+	agg := map[string]string{}
+	for _, p := range st.panes {
+		if p.AgentState != "" && rank[p.AgentState] > rank[agg[p.WindowID]] {
+			agg[p.WindowID] = p.AgentState
+		}
+	}
 
 	var out []row
 	for _, s := range sessions {
@@ -142,7 +152,7 @@ func (st *store) rows() []row {
 			if w.Active {
 				mark = "*"
 			}
-			out = append(out, row{label: fmt.Sprintf("   %d%s %s", w.Index, mark, w.Name), window: w.ID})
+			out = append(out, row{label: fmt.Sprintf("   %d%s %s", w.Index, mark, w.Name), window: w.ID, agent: agg[w.ID]})
 		}
 	}
 	return out
@@ -873,6 +883,14 @@ func paintList(rows []row, sel int) {
 			default:
 				b.WriteString("\033[2m" + string(label) + pad + "\033[22m")
 			}
+			if g, style := agentGlyph(rows[i].agent); g != "" {
+				// Overwrite col 1 (the window rows' indent) with the state
+				// glyph; keep the selected row's inverse video intact.
+				if i == sel {
+					style = "\033[7m" + style
+				}
+				fmt.Fprintf(&b, "\033[%d;1H%s%s\033[0m", y+1, style, g)
+			}
 			if benchLog != nil {
 				cls := byte(' ')
 				if i == sel {
@@ -917,6 +935,21 @@ func paintList(rows []row, sel int) {
 		benchListPrev = cur
 	}
 	benchf("paint_list dur_us=%d bytes=%d", time.Since(start).Microseconds(), b.Len())
+}
+
+// agentGlyph maps a window's worst agent state to its list marker. Blocked
+// is the state that needs eyes — bold red; working is live but fine; idle
+// is barely-there.
+func agentGlyph(state string) (string, string) {
+	switch state {
+	case "blocked":
+		return "!", "\033[1;31m"
+	case "working":
+		return "✻", "\033[33m"
+	case "idle":
+		return "·", "\033[2m"
+	}
+	return "", ""
 }
 
 // sameGeometry reports whether two frames tile identically with the same
