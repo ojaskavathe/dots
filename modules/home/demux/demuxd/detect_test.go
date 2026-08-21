@@ -302,3 +302,24 @@ func TestListLayoutPinsAgents(t *testing.T) {
 		t.Fatalf("divider should stay at the equal split: %+v", lay)
 	}
 }
+
+// The divider follows the drag ratio, clamped to 3 rows per panel.
+func TestListSplitRatio(t *testing.T) {
+	old := listSplit
+	t.Cleanup(func() { listSplit = old })
+	rows := make([]row, 0, 43)
+	for i := 0; i < 40; i++ {
+		rows = append(rows, row{label: "tree", window: "@1"})
+	}
+	for i := 0; i < 3; i++ {
+		rows = append(rows, row{label: "agent", window: "@2", arow: true})
+	}
+	listSplit = 0.7
+	if lay := layoutList(rows, 0, 20); lay.sepY != 13 {
+		t.Fatalf("ratio 0.7 -> sepY %d, want 13", lay.sepY)
+	}
+	listSplit = 0.1
+	if lay := layoutList(rows, 0, 20); lay.sepY != 3 {
+		t.Fatalf("ratio 0.1 should clamp to 3-row tree, got %d", lay.sepY)
+	}
+}

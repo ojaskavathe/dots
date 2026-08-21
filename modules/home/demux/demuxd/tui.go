@@ -212,6 +212,8 @@ func cmdTui(tmuxSock, demuxSock string) {
 		benchLog, _ = os.OpenFile(demuxSock+".tui-bench.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	}
 	tuiLog, _ = os.OpenFile(demuxSock+".tui.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	splitFile = demuxSock + ".tui.split"
+	loadSplit()
 	exe, _ := os.Executable()
 	cols, height := surfaceSize()
 	tlogf("start build=%s pane=%s size=%dx%d", exe, os.Getenv("TMUX_PANE"), cols, height)
@@ -224,8 +226,10 @@ func cmdTui(tmuxSock, demuxSock string) {
 	// region clip at the right edge instead of wrapping over the layout.
 	// Mouse: button presses + SGR encoding — tmux (mouse on) forwards
 	// events to the pane with pane-relative coordinates.
-	fmt.Print("\033[?25l\033[?7l\033[?1000h\033[?1006h")
-	defer fmt.Print("\033[?1006l\033[?1000l\033[?25h\033[?7h")
+	// 1002 (button-motion tracking), not 1000: dragging the tree/agents
+	// divider needs motion events while the button is held.
+	fmt.Print("\033[?25l\033[?7l\033[?1002h\033[?1006h")
+	defer fmt.Print("\033[?1006l\033[?1002l\033[?25h\033[?7h")
 
 	msgs := make(chan wireMsg, 64)
 	go func() {
@@ -270,7 +274,8 @@ func cmdTui(tmuxSock, demuxSock string) {
 	st := &store{}
 	sel := 0
 	esc := 0     // escape-sequence state: arrows + SGR mouse
-	var mbuf []byte // SGR mouse params after \x1b[<
+	var mbuf []byte  // SGR mouse params after \x1b[<
+	dragging := false // left button held on the agents divider
 	var rows []row
 
 	// Per-window frame cache with generations, so "did I already paint
@@ -558,6 +563,7 @@ func cmdTui(tmuxSock, demuxSock string) {
 			// the held-scrub mush. NOT a debounce: nothing waits, a lone key
 			// finds the queue empty and paints immediately.
 			moved := false
+			relayout := false // divider drag: repaint the list, nothing else
 			setShrink := func() { shrinkExpected = !narrowMode() }
 			for {
 				switch {
@@ -568,7 +574,14 @@ func cmdTui(tmuxSock, demuxSock string) {
 				case esc == 3:
 					if b == 'M' || b == 'm' {
 						esc = 0
-						if btn, mx, my, ok := parseMouse(mbuf); ok && b == 'M' {
+						if btn, mx, my, ok := parseMouse(mbuf); ok {
+							if b == 'm' { // release
+								if dragging {
+									dragging = false
+									saveSplit()
+								}
+								break
+							}
 							switch {
 							case btn&64 != 0: // wheel
 								if btn&3 == 0 {
@@ -577,7 +590,31 @@ func cmdTui(tmuxSock, demuxSock string) {
 									moved = moveSel(1) || moved
 								}
 							case btn&3 == 0 && btn&32 == 0: // left press
-								moved = click(mx, my, setShrink) || moved
+								cols, height := surfaceSize()
+								lw := listWidth
+								if cols <= listWidth+2 {
+									lw = cols
+								}
+								if mx <= lw && my-1 == layoutList(rows, sel, height).sepY {
+									dragging = true // grab the agents divider
+								} else {
+									moved = click(mx, my, setShrink) || moved
+								}
+							case btn&3 == 0 && btn&32 != 0 && dragging: // divider drag
+								_, height := surfaceSize()
+								if avail := height - 1; avail >= 6 {
+									r := float64(my-1) / float64(avail)
+									if r < 0.1 {
+										r = 0.1
+									}
+									if r > 0.9 {
+										r = 0.9
+									}
+									if r != listSplit {
+										listSplit = r
+										relayout = true
+									}
+								}
 							}
 						}
 					} else if len(mbuf) < 24 {
@@ -639,10 +676,10 @@ func cmdTui(tmuxSock, demuxSock string) {
 					break
 				}
 			}
-			if moved {
+			if moved || relayout {
 				benchf("key sel=%d target=%s cached=%v", sel, target(), frames[target()].panes != nil)
 				paintList(rows, sel)
-				if !shrinkExpected {
+				if moved && !shrinkExpected {
 					paintFrameFor(target())
 					requestFrames()
 				}
@@ -893,6 +930,28 @@ func listTop(n, sel, height int) int {
 	return top
 }
 
+// listSplit is the tree/agents divider ratio (herdr's sidebar_section_split,
+// default 0.5). Dragging the labeled rule adjusts it; persisted per demux
+// socket so redocks keep the chosen split.
+var (
+	listSplit = 0.5
+	splitFile string
+)
+
+func loadSplit() {
+	if b, err := os.ReadFile(splitFile); err == nil {
+		if v, err := strconv.ParseFloat(strings.TrimSpace(string(b)), 64); err == nil && v >= 0.1 && v <= 0.9 {
+			listSplit = v
+		}
+	}
+}
+
+func saveSplit() {
+	if splitFile != "" {
+		_ = os.WriteFile(splitFile, []byte(fmt.Sprintf("%.3f\n", listSplit)), 0o600)
+	}
+}
+
 // listLayout is the list column's two-region geometry: the session tree
 // scrolls in its own window while agent rows stay PINNED at the bottom
 // under a labeled rule. Deterministic from (rows, sel, height) — paint and
@@ -917,14 +976,13 @@ func layoutList(rows []row, sel, height int) listLayout {
 		return listLayout{nTree: len(rows), treeH: height, sepY: -1,
 			treeTop: listTop(len(rows), sel, height)}
 	}
-	// herdr's model (sidebar_section_heights, default ratio 0.5): a FIXED
-	// equal split — tree panel on top, agents panel below, each at least 3
-	// rows. Stable geometry: the divider never moves as content changes,
-	// so the eye always knows where agents live. (herdr keeps both panels
-	// even with zero agents; we collapse to a full tree instead — the
-	// no-agents case above.)
+	// herdr's model (sidebar_section_heights): a FIXED ratio split — tree
+	// panel on top, agents panel below, each at least 3 rows. Stable
+	// geometry: the divider never moves as content changes, only when the
+	// user drags it. (herdr keeps both panels even with zero agents; we
+	// collapse to a full tree instead — the no-agents case above.)
 	avail := height - 1
-	tH := (avail + 1) / 2
+	tH := int(float64(avail)*listSplit + 0.5)
 	if tH < 3 {
 		tH = 3
 	}

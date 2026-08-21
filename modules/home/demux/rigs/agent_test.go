@@ -65,6 +65,26 @@ func TestAgent(t *testing.T) {
 		return strings.Contains(cap, "agents") && strings.Contains(cap, "Cooking again")
 	}))
 
+	// Drag the divider up 4 rows: the rule must follow and stick.
+	sepRow := func() int {
+		for i, l := range strings.Split(r.Capture(s.Pane), "\n") {
+			if strings.Contains(l, "─ agents") {
+				return i
+			}
+		}
+		return -1
+	}
+	sep := sepRow()
+	r.Chk("divider found", sep > 4)
+	if sep > 4 {
+		r.Mouse(s.Pane, 0, 2, sep+1, true)   // grab the rule
+		r.Mouse(s.Pane, 32, 2, sep-3, true)  // drag (motion, button held)
+		r.Mouse(s.Pane, 0, 2, sep-3, false)  // release
+		sleep(400)
+		moved := sepRow()
+		r.Chk("divider dragged up", moved != sep && moved >= sep-5 && moved <= sep-2)
+	}
+
 	// A second agent pane showing a permission prompt: screen tier says
 	// blocked, blocked outranks working in the aggregate, and clients not
 	// looking at gamma get notified.
