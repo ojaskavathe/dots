@@ -917,11 +917,29 @@ func layoutList(rows []row, sel, height int) listLayout {
 		return listLayout{nTree: len(rows), treeH: height, sepY: -1,
 			treeTop: listTop(len(rows), sel, height)}
 	}
-	aH := nA
-	if cap := (height - 1) / 3; aH > cap {
-		aH = cap
+	// The rule HUGS the tree: with everything fitting, agents start right
+	// under the last tree row (blank space stays below, not between).
+	// Only when content overflows does this become a contended split —
+	// tree scrolls, agents capped at a third (more if the tree is short).
+	avail := height - 1
+	tH, aH := nT, nA
+	if tH+aH > avail {
+		aH = nA
+		if floor := avail / 3; aH > floor && avail-nT < aH {
+			aH = floor
+			if avail-nT > aH {
+				aH = avail - nT
+			}
+		}
+		if aH < 1 {
+			aH = 1
+		}
+		tH = avail - aH
+		if tH > nT {
+			tH = nT
+			aH = avail - tH
+		}
 	}
-	tH := height - 1 - aH
 	selT, selA := sel, 0
 	if sel >= nT {
 		selT, selA = 0, sel-nT // tree unanchored while an agent row is selected
@@ -939,7 +957,7 @@ func (l listLayout) rowAt(y, nRows int) int {
 			return i
 		}
 	case y == l.sepY:
-	default:
+	case y <= l.sepY+l.agentH:
 		i := l.nTree + l.agentTop + (y - l.sepY - 1)
 		if i < nRows {
 			return i

@@ -293,4 +293,14 @@ func TestListLayoutPinsAgents(t *testing.T) {
 	if lay := layoutList(rows[:40], 5, 20); lay.sepY != -1 || lay.treeH != 20 {
 		t.Fatalf("no-agent layout wrong: %+v", lay)
 	}
+	// short tree in a tall pane: the rule HUGS the tree — agents start
+	// right under it, blank space stays below the section, never between
+	short := append(append([]row(nil), rows[:6]...), rows[40:]...)
+	if lay := layoutList(short, 0, 50); lay.sepY != 6 || lay.agentH != 3 {
+		t.Fatalf("rule should hug a short tree: %+v", lay)
+	}
+	// tree fully visible when it fits; agents take the remainder
+	if lay := layoutList(append(append([]row(nil), rows[:10]...), rows[40:]...), 0, 20); lay.sepY != 10 {
+		t.Fatalf("fitting tree should not scroll: %+v", lay)
+	}
 }
