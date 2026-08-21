@@ -1,35 +1,40 @@
 package main
 
 import (
+	"fmt"
 	"log"
-	"regexp"
+	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 )
 
 // Agent state detection: which panes run coding agents, and whether each is
-// working, blocked, or idle. Design rules from herdr's arc (research in
-// thoughts/agent-detection-research.md):
+// working, blocked, idle, or done (finished while you weren't looking).
+// Rules live in per-agent TOML manifests (manifest.go); this file owns the
+// polling loop, the anti-flap policy, and publishing.
+//
+// Design rules from herdr's arc (thoughts/agent-detection-research.md):
 //
 //   - The SCREEN is the level-triggered authority. herdr shipped Claude
 //     hooks as state authority and REVERTED (v0.6.7): hooks are
 //     edge-triggered and incomplete — nothing fires on interrupt or prompt
 //     dismissal, and late SubagentStop events revive dead states.
-//   - The OSC title is the cheap fast path: Claude keeps a braille (or
-//     half-circle, >=2.1.228) spinner prefix while working and "✳ " when
-//     idle, and tmux hands it to us in #{pane_title}.
-//   - Idle is CONFIRMED, never assumed: working -> plain idle holds for
-//     idleConfirms samples (capped) so a redraw gap can't flap the state.
-//     Blocked and working publish instantly. Visible idle evidence (a real
-//     prompt box on screen) bypasses the hold.
+//   - The OSC title is the cheap fast path: a title rule that outranks
+//     every screen rule (claude's spinner) classifies without a capture.
+//   - Idle is CONFIRMED, never assumed: working -> idle holds for
+//     idleConfirms samples. Blocked and working publish instantly. Only
+//     idle panes with an unmoved activity stamp skip the rescan.
+//   - "Done" is UI state, not detection: a completion transition
+//     ((working|blocked) -> idle) in a window no attached client is
+//     looking at becomes "done" and sticks until the user visits it.
 //
 // This is a poll — the daemon's only one — because there is no event
-// source: probe-verified (2026-08-21) that tmux emits NO control-mode
-// notification for pane title changes, even same-session, and %output does
-// not cross sessions. The tick is armed only while agent panes exist, costs
-// one list-panes batch (~1ms), and captures a pane's screen only when its
-// window's activity stamp moved since the last scan.
+// source: probe-verified that tmux emits NO control-mode notification for
+// pane title changes, and a cross-session `split-window -d` emits nothing
+// at all. The tick's own list-panes doubles as the self-heal for panes the
+// notification matrix misses.
 
 const (
 	detectTick     = 300 * time.Millisecond
@@ -41,41 +46,50 @@ const (
 )
 
 type agentInfo struct {
-	kind         string // claude | grok | codex | ...
-	state        string // "" (unknown) | working | blocked | idle
+	kind         string // manifest id: claude | codex | grok | ...
+	state        string // "" (unknown) | working | blocked | idle | done
 	grace        time.Time
-	pendingIdle  int       // consecutive plain-idle samples held back
+	pendingIdle  int       // consecutive idle samples held back
 	pendingAt    time.Time // when the hold started
 	lastActivity int64     // window_activity at the last screen scan
+	win          string    // pane's window (for done/notify bookkeeping)
 }
 
 type detectState struct {
-	agents map[string]*agentInfo // by pane id
-	ticker *time.Ticker
-	tickC  <-chan time.Time
-	period time.Duration
+	agents    map[string]*agentInfo // by pane id
+	manifests map[string]*cManifest // normalized command -> manifest
+	wrapKind  map[string]string     // pane_pid -> resolved kind for node/bun wrappers
+	ticker    *time.Ticker
+	tickC     <-chan time.Time
+	period    time.Duration
+	lastOpt   string // last @demux_agents value pushed
 }
 
-// agentKind normalizes a pane_current_command to a known agent. Nix wrappers
-// run as ".claude-wrapped" — strip the dressing before matching.
-func agentKind(cmd string) string {
+// wrapperCmds run agents under an interpreter: pane_current_command says
+// "node", and only the process tree knows it's claude.
+var wrapperCmds = map[string]bool{"node": true, "bun": true, "deno": true}
+
+// agentKind normalizes a pane_current_command to a manifest id. Nix
+// wrappers run as ".claude-wrapped" — strip the dressing before matching.
+func (d *daemon) agentKind(cmd string) string {
 	c := strings.TrimSuffix(strings.TrimPrefix(cmd, "."), "-wrapped")
-	switch c {
-	case "claude", "grok", "codex", "gemini", "opencode", "aider":
-		return c
+	if m := d.det.manifests[c]; m != nil {
+		return m.id
 	}
 	return ""
 }
 
 // armDetect ensures the detection ticker exists. It ALWAYS runs — a lazy
 // discovery cadence with no agents known — because its own list-panes is
-// what notices agent panes the notification matrix misses entirely (a
-// cross-session `split-window -d` emits NOTHING: no pane-changed, no
-// layout event — probe-verified via the rig, 2026-08-21).
+// what notices agent panes the notification matrix misses entirely.
 func (d *daemon) armDetect(w world) {
 	if d.det.ticker == nil {
 		if d.det.agents == nil {
 			d.det.agents = map[string]*agentInfo{}
+			d.det.wrapKind = map[string]string{}
+		}
+		if d.det.manifests == nil {
+			d.det.manifests = loadManifests()
 		}
 		d.det.period = detectIdleTick
 		d.det.ticker = time.NewTicker(d.det.period)
@@ -112,16 +126,49 @@ func (d *daemon) injectAgents(w *world) {
 	}
 }
 
-// detectTickRun is one detection pass. It classifies every agent pane (title
-// tier always; screen tier only when the window's activity moved), applies
-// the anti-flap rules, and publishes a world diff if anything changed.
+// visibleWindows: the windows some attached client is currently looking at.
+func visibleWindows(w *world) map[string]bool {
+	cur := map[string]string{} // session -> active window
+	for _, win := range w.Windows {
+		if win.Active {
+			cur[win.SessionID] = win.ID
+		}
+	}
+	vis := map[string]bool{}
+	for _, c := range w.Clients {
+		if wid := cur[c.SessionID]; wid != "" {
+			vis[wid] = true
+		}
+	}
+	return vis
+}
+
+// checkSeen clears "done" on panes whose window the user has now visited.
+// Called on every re-list — client window moves always trigger one.
+func (d *daemon) checkSeen(w *world) {
+	if len(d.det.agents) == 0 {
+		return
+	}
+	vis := visibleWindows(w)
+	for id, a := range d.det.agents {
+		if a.state == "done" && vis[a.win] {
+			a.state = "idle"
+			log.Printf("agent %s pane=%s state=done->idle (seen)", a.kind, id)
+		}
+	}
+}
+
+// detectTickRun is one detection pass: classify every agent pane (title
+// tier free; screen tier per the skip rule), apply anti-flap, publish a
+// world diff, notify on blocked, refresh the statusline option.
 func (d *daemon) detectTickRun(ctl *control, w *world) {
 	lines, err := ctl.run("list-panes -a -F " +
-		f("#{pane_id}", "#{pane_current_command}", "#{pane_title}", "#{window_activity}"))
+		f("#{pane_id}", "#{pane_current_command}", "#{pane_title}", "#{window_activity}", "#{window_id}", "#{pane_pid}"))
 	if err != nil {
 		return
 	}
 	now := time.Now()
+	vis := visibleWindows(w)
 	seen := map[string]bool{}
 	type scanReq struct {
 		id    string
@@ -130,15 +177,28 @@ func (d *daemon) detectTickRun(ctl *control, w *world) {
 		act   int64
 	}
 	var scans []scanReq
+	var blockedNew []string // pane ids that just turned blocked
 	changed := false
+	apply := func(id string, a *agentInfo, want string, visible bool) {
+		prev := a.state
+		if d.applyAgentState(id, a, want, visible, vis) {
+			changed = true
+			if a.state == "blocked" && prev != "blocked" {
+				blockedNew = append(blockedNew, id)
+			}
+		}
+	}
 	for _, ln := range lines {
 		p := strings.Split(ln, sep)
-		if len(p) != 4 {
+		if len(p) != 6 {
 			continue
 		}
-		id, cmd, title := p[0], p[1], p[2]
+		id, cmd, title, wid, pid := p[0], p[1], p[2], p[4], p[5]
 		act, _ := strconv.ParseInt(p[3], 10, 64)
-		kind := agentKind(cmd)
+		kind := d.agentKind(cmd)
+		if kind == "" && wrapperCmds[cmd] {
+			kind = d.wrappedKind(pid)
+		}
 		if kind == "" {
 			if a := d.det.agents[id]; a != nil {
 				delete(d.det.agents, id)
@@ -152,26 +212,32 @@ func (d *daemon) detectTickRun(ctl *control, w *world) {
 			// New agent in this pane: grace period so startup screens
 			// (splash art, resumed scrollback) can't misclassify, and no
 			// stale title from the previous process gets trusted.
-			a = &agentInfo{kind: kind, grace: now.Add(startupGrace)}
+			a = &agentInfo{kind: kind, grace: now.Add(startupGrace), win: wid}
 			d.det.agents[id] = a
 			changed = true // kind is publishable immediately, state isn't
 			continue
 		}
+		a.win = wid
 		if now.Before(a.grace) {
 			continue
 		}
-		st, visible, conclusive := titleState(kind, title)
-		if conclusive {
-			changed = d.applyAgentState(id, a, st, visible) || changed
+		m := d.det.manifests[kind]
+		if m == nil {
 			continue
 		}
-		// herdr's skip-scan rule, exactly: only IDLE panes with an unmoved
-		// activity stamp skip the screen. Working/blocked always rescan —
-		// that is what notices turn ends and dismissed prompts. And on
-		// quiet idle ticks nothing is re-asserted at all: publishing the
-		// weak ✳-title verdict over a kept screen state made real panes
-		// flap idle<->working every tick (live, 2026-08-21).
-		if kind == "claude" && (a.state != "idle" || act != a.lastActivity) {
+		if v, ok := m.eval(newSnapshot(nil, title), true); ok && v.prio > m.maxScreenPrio {
+			// Title verdict outranks every screen rule: conclusive, free.
+			if !v.skip {
+				apply(id, a, v.state, v.visible)
+			}
+			continue
+		}
+		// herdr's skip-scan rule: only IDLE panes with an unmoved activity
+		// stamp skip the screen; working/blocked always rescan — that is
+		// what notices turn ends and dismissed prompts. "done" counts as
+		// idle here (it IS idle, flagged unseen).
+		quiet := (a.state == "idle" || a.state == "done") && act == a.lastActivity
+		if !quiet {
 			scans = append(scans, scanReq{id: id, a: a, title: title, act: act})
 		}
 	}
@@ -200,71 +266,197 @@ func (d *daemon) detectTickRun(ctl *control, w *world) {
 				if i >= len(grids) {
 					break
 				}
-				st, visible, skip := claudeScreenState(grids[i])
 				s.a.lastActivity = s.act
-				if skip {
-					continue // viewer overlay: freeze the previous state
+				m := d.det.manifests[s.a.kind]
+				v, ok := m.eval(newSnapshot(grids[i], s.title), false)
+				switch {
+				case !ok:
+					apply(s.id, s.a, "idle", false) // known agent, silent screen
+				case v.skip:
+					// viewer overlay: freeze the previous state
+				default:
+					apply(s.id, s.a, v.state, v.visible)
 				}
-				if st == "" {
-					// Screen said nothing: fall back to the weak title
-					// verdict (✳ idle) or plain idle through the hold.
-					// Scans are claude-only for now.
-					if ts, tv, _ := titleState("claude", s.title); ts != "" {
-						st, visible = ts, tv
-					} else {
-						st, visible = "idle", false
-					}
-				}
-				changed = d.applyAgentState(s.id, s.a, st, visible) || changed
 			}
 		}
 	}
 	if changed {
-		// If detection knows a pane the world doesn't (a cross-session
-		// `split-window -d` emits no notification at all), the cheap diff
-		// can't carry it — re-list for real. Detection thereby doubles as
-		// the self-heal for silently appearing panes.
-		known := map[string]bool{}
-		for i := range w.Panes {
-			known[w.Panes[i].ID] = true
-		}
-		missing := false
-		for id := range d.det.agents {
-			if !known[id] {
-				missing = true
-				break
-			}
-		}
-		w2 := *w
-		if missing {
-			if next, err := fetchWorld(ctl); err == nil {
-				w2 = next
-			}
-		} else {
-			w2.Panes = append([]pane(nil), w.Panes...)
-			for i := range w2.Panes {
-				w2.Panes[i].Agent, w2.Panes[i].AgentState = "", ""
-			}
-		}
-		d.injectAgents(&w2)
-		ops := diffWorlds(*w, w2)
-		*w = w2
-		if len(ops) > 0 {
-			d.h.setWorld(*w, ops, false, d.tmuxSock)
-		}
+		d.publishAgents(ctl, w)
+		d.notifyBlocked(ctl, w, blockedNew)
+		d.pushStatusOpt(ctl, w)
 	}
 	d.retune()
+}
+
+// publishAgents folds detection state into the world and diffs it out. If
+// detection knows a pane the world doesn't (a cross-session split-window -d
+// emits no notification at all), re-list for real — detection doubles as
+// the self-heal for silently appearing panes.
+func (d *daemon) publishAgents(ctl *control, w *world) {
+	known := map[string]bool{}
+	for i := range w.Panes {
+		known[w.Panes[i].ID] = true
+	}
+	missing := false
+	for id := range d.det.agents {
+		if !known[id] {
+			missing = true
+			break
+		}
+	}
+	w2 := *w
+	if missing {
+		if next, err := fetchWorld(ctl); err == nil {
+			w2 = next
+		}
+	} else {
+		w2.Panes = append([]pane(nil), w.Panes...)
+		for i := range w2.Panes {
+			w2.Panes[i].Agent, w2.Panes[i].AgentState = "", ""
+		}
+	}
+	d.injectAgents(&w2)
+	ops := diffWorlds(*w, w2)
+	*w = w2
+	if len(ops) > 0 {
+		d.h.setWorld(*w, ops, false, d.tmuxSock)
+	}
+}
+
+// notifyBlocked pings attached clients that are NOT looking at the pane
+// that just blocked — the ones who can't already see it needs them.
+func (d *daemon) notifyBlocked(ctl *control, w *world, ids []string) {
+	if len(ids) == 0 {
+		return
+	}
+	winName := map[string]string{}
+	sessOf := map[string]string{}
+	sessName := map[string]string{}
+	for _, win := range w.Windows {
+		winName[win.ID] = win.Name
+		sessOf[win.ID] = win.SessionID
+	}
+	for _, s := range w.Sessions {
+		sessName[s.ID] = s.Name
+	}
+	cur := map[string]string{}
+	for _, win := range w.Windows {
+		if win.Active {
+			cur[win.SessionID] = win.ID
+		}
+	}
+	var cmds []string
+	for _, id := range ids {
+		a := d.det.agents[id]
+		if a == nil {
+			continue
+		}
+		msg := fmt.Sprintf("demux: %s needs attention in %s:%s", a.kind, sessName[sessOf[a.win]], winName[a.win])
+		for _, c := range w.Clients {
+			if cur[c.SessionID] == a.win {
+				continue // already looking at it
+			}
+			cmds = append(cmds, "display-message -c "+q(c.Name)+" "+q(msg))
+		}
+	}
+	if len(cmds) > 0 {
+		log.Printf("notify blocked panes=%d msgs=%d", len(ids), len(cmds))
+		_, _ = ctl.runSeq(cmds...)
+	}
+}
+
+// pushStatusOpt maintains @demux_agents, a global option the status line
+// can reference for free: "!2 ✓1 ✻3" (blocked / done / working counts;
+// empty when quiet). Zero-cost render — no #() and no process spawns.
+func (d *daemon) pushStatusOpt(ctl *control, w *world) {
+	nb, nd, nw := 0, 0, 0
+	for _, a := range d.det.agents {
+		switch a.state {
+		case "blocked":
+			nb++
+		case "done":
+			nd++
+		case "working":
+			nw++
+		}
+	}
+	var parts []string
+	if nb > 0 {
+		parts = append(parts, fmt.Sprintf("#[fg=red,bold]!%d#[default]", nb))
+	}
+	if nd > 0 {
+		parts = append(parts, fmt.Sprintf("#[fg=green]✓%d#[default]", nd))
+	}
+	if nw > 0 {
+		parts = append(parts, fmt.Sprintf("#[fg=yellow]✻%d#[default]", nw))
+	}
+	opt := strings.Join(parts, " ")
+	if opt == d.det.lastOpt {
+		return
+	}
+	d.det.lastOpt = opt
+	cmds := []string{"set-option -g @demux_agents " + q(opt)}
+	for _, c := range w.Clients {
+		cmds = append(cmds, "refresh-client -S -t "+q(c.Name))
+	}
+	_, _ = ctl.runSeq(cmds...)
+}
+
+// wrappedKind resolves an interpreter pane (node/bun) to an agent via the
+// process tree, cached per pane_pid. One `ps` exec per UNRESOLVED pid —
+// never on the steady-state path.
+func (d *daemon) wrappedKind(pid string) string {
+	if k, ok := d.det.wrapKind[pid]; ok {
+		return k
+	}
+	kind := ""
+	out, err := exec.Command("ps", "-axo", "pid=,ppid=,command=").Output()
+	if err == nil {
+		children := map[string][]string{}
+		cmdOf := map[string]string{}
+		for _, ln := range strings.Split(string(out), "\n") {
+			fl := strings.Fields(ln)
+			if len(fl) < 3 {
+				continue
+			}
+			children[fl[1]] = append(children[fl[1]], fl[0])
+			cmdOf[fl[0]] = strings.Join(fl[2:], " ")
+		}
+		var walk func(p string) string
+		walk = func(p string) string {
+			for _, c := range children[p] {
+				for token := range d.det.manifests {
+					cl := cmdOf[c]
+					if strings.Contains(cl, "/"+token) || strings.HasPrefix(filepath.Base(strings.Fields(cl+" x")[0]), token) {
+						return d.det.manifests[token].id
+					}
+				}
+				if k := walk(c); k != "" {
+					return k
+				}
+			}
+			return ""
+		}
+		kind = walk(pid)
+	}
+	d.det.wrapKind[pid] = kind
+	if kind != "" {
+		log.Printf("agent %s resolved from wrapper pid=%s", kind, pid)
+	}
+	return kind
 }
 
 // applyAgentState runs the anti-flap policy and publishes the transition.
 // Blocked and working land instantly; working -> idle must survive
 // idleConfirms CONSECUTIVE samples (or idleCap of wall time) first — even
-// with visible idle evidence. herdr bypasses the hold on visible idle, but
-// live testing found screens whose verdict alternates per scan (a narrow
-// pane truncating the "· 1 shell ·" footer chip in and out while the ❯
-// prompt box stays visible): any bypass turns that into a flap. The fast
-// recheck cadence keeps genuine idles under ~300ms anyway.
-func (d *daemon) applyAgentState(id string, a *agentInfo, want string, visible bool) bool {
+// with visible idle evidence (screens exist whose verdict alternates per
+// scan; any bypass turns that into a flap). A completion transition
+// ((working|blocked) -> idle) in a window nobody is looking at publishes
+// as "done" and sticks until the user visits the window.
+func (d *daemon) applyAgentState(id string, a *agentInfo, want string, visible bool, vis map[string]bool) bool {
+	if want == "idle" && a.state == "done" {
+		return false // done IS idle, flagged unseen; keep the flag
+	}
 	if want == "idle" && a.state == "working" {
 		if a.pendingIdle == 0 {
 			a.pendingAt = time.Now()
@@ -275,6 +467,9 @@ func (d *daemon) applyAgentState(id string, a *agentInfo, want string, visible b
 		}
 	}
 	a.pendingIdle = 0
+	if want == "idle" && (a.state == "working" || a.state == "blocked") && !vis[a.win] {
+		want = "done"
+	}
 	if a.state == want {
 		return false
 	}
@@ -290,127 +485,7 @@ func orDash(s string) string {
 	return s
 }
 
-// titleState classifies from #{pane_title} alone — the zero-cost tier.
-// conclusive means the screen never needs consulting; a weak verdict (claude
-// "✳" idle) can still be beaten by on-screen blocked evidence.
-var spinnerTitle = regexp.MustCompile(`^[\x{2800}-\x{28FF}\x{25D0}-\x{25D3}] `)
-
-func titleState(kind, title string) (state string, visible, conclusive bool) {
-	switch kind {
-	case "claude":
-		if spinnerTitle.MatchString(title) {
-			return "working", true, true
-		}
-		if strings.HasPrefix(title, "✳") {
-			return "idle", true, false
-		}
-	case "grok", "codex":
-		if strings.Contains(title, "Action Required") {
-			return "blocked", true, true
-		}
-		if spinnerTitle.MatchString(title) {
-			return "working", true, true
-		}
-		if kind == "grok" && (title == "grok" || strings.HasSuffix(title, "- grok")) {
-			return "idle", true, true
-		}
-		if kind == "codex" && strings.TrimSpace(title) != "" {
-			return "idle", false, true // codex clears/retitles at idle
-		}
-	}
-	return "", false, false
-}
-
-// claudeScreenState ports herdr's claude manifest (v2026.08.19.1) screen
-// rules in priority order over a PLAIN capture (no -e; matchers never see
-// ANSI). skip=true freezes the previous state (viewer overlays).
-var (
-	reLiveTurnPause = regexp.MustCompile(`^\s*[⏸⏵].*esc to interrupt(\s|·|$)`)
-	reLiveTurnSpin  = regexp.MustCompile(`^\s*[*·✢✶✻✽]\s+\S.*…(\s+\(\d+[smh](\s|·)|\s*$)`)
-	reBgShells      = regexp.MustCompile(`^\s*[⏸⏵].*·\s+[1-9]\d*\s+shells?\s+(·|$)`)
-	// "✻ Crunched for 3m 10s · 1 shell still running" — the post-turn
-	// status line while background shells live. Short, never truncated;
-	// steadier working evidence than the footer chip (live, 2026-08-21).
-	reShellsRunning = regexp.MustCompile(`^\s*[*·✢✶✻✽].*\b[1-9]\d*\s+shells?\s+still running`)
-	rePromptLine    = regexp.MustCompile(`^\s*❯`)
-	reBarePrompt    = regexp.MustCompile(`^\s*❯\s*$`)
-	reYesOption     = regexp.MustCompile(`(?i)^\s*❯?\s*(1\.\s*)?yes\b`)
-	reNoOption      = regexp.MustCompile(`(?i)^\s*[23]\.\s*no\b`)
-	reBtw           = regexp.MustCompile(`^\s*/btw(\s|$)`)
-	reEscClose      = regexp.MustCompile(`(?i)esc to close\s*$`)
-)
-
-func claudeScreenState(lines []string) (state string, visible, skip bool) {
-	whole := strings.ToLower(strings.Join(lines, "\n"))
-
-	// transcript viewer overlay: a VIEW of the conversation, not a state
-	b3 := strings.ToLower(strings.Join(lastNonEmpty(lines, 3), "\n"))
-	if strings.Contains(b3, "showing detailed transcript") &&
-		(has(b3, "ctrl+o", "to toggle") || has(b3, "ctrl+e", "show all") ||
-			has(b3, "ctrl+e", "collapse") || strings.Contains(b3, "↑↓ scroll") ||
-			strings.Contains(b3, "? for shortcuts")) {
-		return "", false, true
-	}
-
-	// live blocked form after the last horizontal rule
-	form := strings.ToLower(strings.Join(afterLastHRule(lines), "\n"))
-	if strings.Contains(form, "esc to cancel") &&
-		(strings.Contains(form, "enter to confirm") ||
-			(strings.Contains(form, "enter to select") && hasAny(form,
-				"tab/arrow keys to navigate", "arrow keys to navigate",
-				"arrows to navigate", "↑/↓ to navigate", "↑↓ to navigate"))) {
-		return "blocked", true, false
-	}
-
-	// /btw overlay is a working turn in a drawer
-	b5 := lastNonEmpty(lines, 5)
-	if matchAny(b5, reBtw) && matchAny(b5, reEscClose) {
-		return "working", true, false
-	}
-
-	// live turn: pause chip or the spinner status word
-	b12 := lastNonEmpty(lines, 12)
-	if matchAny(b12, reLiveTurnPause) || matchAny(b12, reLiveTurnSpin) {
-		return "working", true, false
-	}
-	if matchAny(b5, reBgShells) || matchAny(b12, reShellsRunning) {
-		return "working", true, false
-	}
-
-	// the prompt box: an unadorned ❯ inside the input box is live idle
-	body := promptBoxBody(lines)
-	bodyLow := strings.ToLower(strings.Join(body, "\n"))
-	if matchAny(body, rePromptLine) && !hasAny(bodyLow,
-		"enter to select", "esc to cancel", "tab/arrow keys",
-		"arrow keys to navigate", "↑/↓ to navigate") {
-		return "idle", true, false
-	}
-
-	// model picker overlay: browsing, not blocked
-	if has(whole, "select model", "enter to set as default", "esc to cancel") &&
-		!strings.Contains(whole, "do you want to proceed?") &&
-		!strings.Contains(whole, "enter to select") {
-		return "", false, true
-	}
-
-	// permission prompts: question plus an actual yes/no option list
-	if strings.Contains(whole, "do you want to proceed?") &&
-		(matchAny(lines, reYesOption) || matchAny(lines, reNoOption)) {
-		return "blocked", true, false
-	}
-
-	// legacy blockers, suppressed whenever a bare prompt is visible
-	if !matchAny(lines, reBarePrompt) {
-		if (strings.Contains(whole, "do you want to") && hasAny(whole, "yes", "❯")) ||
-			(strings.Contains(whole, "would you like to") && hasAny(whole, "yes", "❯")) ||
-			hasAny(whole, "waiting for permission", "tab to amend", "ctrl+e to explain") {
-			return "blocked", false, false
-		}
-	}
-	return "", false, false
-}
-
-// --- region helpers over a plain capture ---
+// --- region helpers shared with manifest.go ---
 
 func lastNonEmpty(lines []string, n int) []string {
 	out := make([]string, 0, n)
@@ -419,7 +494,6 @@ func lastNonEmpty(lines []string, n int) []string {
 			out = append(out, lines[i])
 		}
 	}
-	// restore top-to-bottom order
 	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
 		out[i], out[j] = out[j], out[i]
 	}
@@ -468,31 +542,4 @@ func promptBoxBody(lines []string) []string {
 		return nil
 	}
 	return lines[second+1 : last]
-}
-
-func has(s string, subs ...string) bool {
-	for _, sub := range subs {
-		if !strings.Contains(s, sub) {
-			return false
-		}
-	}
-	return true
-}
-
-func hasAny(s string, subs ...string) bool {
-	for _, sub := range subs {
-		if strings.Contains(s, sub) {
-			return true
-		}
-	}
-	return false
-}
-
-func matchAny(lines []string, re *regexp.Regexp) bool {
-	for _, ln := range lines {
-		if re.MatchString(ln) {
-			return true
-		}
-	}
-	return false
 }

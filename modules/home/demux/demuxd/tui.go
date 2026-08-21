@@ -107,8 +107,9 @@ func (st *store) apply(m wireMsg) {
 type row struct {
 	label   string
 	window  string // preview target
+	pane    string // agent rows: the agent's pane — commit focuses it
 	session bool
-	agent   string // window rows: worst agent state across panes
+	agent   string // worst agent state (window rows) / the state (agent rows)
 }
 
 func (st *store) rows() []row {
@@ -118,10 +119,14 @@ func (st *store) rows() []row {
 	}
 	sort.Slice(sessions, func(i, j int) bool { return sessions[i].Name < sessions[j].Name })
 
-	// Worst agent state per window: attention sorts blocked > working > idle.
-	rank := map[string]int{"blocked": 3, "working": 2, "idle": 1}
+	// Worst agent state per window: blocked > done > working > idle.
+	rank := map[string]int{"blocked": 4, "done": 3, "working": 2, "idle": 1}
 	agg := map[string]string{}
+	var agents []pane
 	for _, p := range st.panes {
+		if p.Agent != "" {
+			agents = append(agents, p)
+		}
 		if p.AgentState != "" && rank[p.AgentState] > rank[agg[p.WindowID]] {
 			agg[p.WindowID] = p.AgentState
 		}
@@ -155,7 +160,42 @@ func (st *store) rows() []row {
 			out = append(out, row{label: fmt.Sprintf("   %d%s %s", w.Index, mark, w.Name), window: w.ID, agent: agg[w.ID]})
 		}
 	}
+	// The agents section: one row per agent pane, attention-sorted
+	// (blocked > done > working > idle), enter jumps to the pane. Labels
+	// carry the agent's own task summary — its title minus the state
+	// prefix the glyph already conveys.
+	if len(agents) > 0 {
+		sort.Slice(agents, func(i, j int) bool {
+			ri, rj := rank[agents[i].AgentState], rank[agents[j].AgentState]
+			if ri != rj {
+				return ri > rj
+			}
+			return agents[i].ID < agents[j].ID
+		})
+		out = append(out, row{label: "agents", session: true})
+		for _, p := range agents {
+			sess := st.sessions[p.SessionID].Name
+			win := st.windows[p.WindowID]
+			out = append(out, row{
+				label:  fmt.Sprintf("   %s %s:%d %s", p.Agent, sess, win.Index, agentTaskTitle(p.Title)),
+				window: p.WindowID, pane: p.ID, agent: p.AgentState,
+			})
+		}
+	}
 	return out
+}
+
+// agentTaskTitle strips the state ornament (spinner char, ✳) off an agent's
+// pane title, leaving the task summary.
+func agentTaskTitle(t string) string {
+	t = strings.TrimSpace(t)
+	if r := []rune(t); len(r) > 1 {
+		c := r[0]
+		if c == '✳' || (c >= 0x2800 && c <= 0x28FF) || (c >= 0x25D0 && c <= 0x25D3) {
+			t = strings.TrimSpace(string(r[1:]))
+		}
+	}
+	return t
 }
 
 func cmdTui(tmuxSock, demuxSock string) {
@@ -255,6 +295,14 @@ func cmdTui(tmuxSock, demuxSock string) {
 	target := func() string {
 		if sel >= 0 && sel < len(rows) {
 			return rows[sel].window
+		}
+		return ""
+	}
+	// targetPane: agent rows carry the agent's pane, so committing one
+	// lands focus on the agent itself, not the window's last-active pane.
+	targetPane := func() string {
+		if sel >= 0 && sel < len(rows) {
+			return rows[sel].pane
 		}
 		return ""
 	}
@@ -367,7 +415,7 @@ func cmdTui(tmuxSock, demuxSock string) {
 			}
 			if i == sel {
 				setShrink()
-				send(cmdMsg{Cmd: "commit", Window: target()})
+				send(cmdMsg{Cmd: "commit", Window: target(), Pane: targetPane()})
 				return false
 			}
 			sel = i
@@ -557,7 +605,7 @@ func cmdTui(tmuxSock, demuxSock string) {
 					moved = moveSel(-1) || moved
 				case b == '\r': // enter
 					shrinkExpected = !narrowMode()
-					send(cmdMsg{Cmd: "commit", Window: target()})
+					send(cmdMsg{Cmd: "commit", Window: target(), Pane: targetPane()})
 				case b == 0x0c: // ctrl-l
 					if narrowMode() {
 						// Docked idle: C-l is the navigator's "pane to the
@@ -568,7 +616,7 @@ func cmdTui(tmuxSock, demuxSock string) {
 						// Zoomed billboard / full-screen browse: C-l goes INTO
 						// what you're looking at, like Enter.
 						shrinkExpected = true
-						send(cmdMsg{Cmd: "commit", Window: target()})
+						send(cmdMsg{Cmd: "commit", Window: target(), Pane: targetPane()})
 					}
 				case b == 'q', b == 0x03: // q, ctrl-c
 					shrinkExpected = !narrowMode()
@@ -944,6 +992,8 @@ func agentGlyph(state string) (string, string) {
 	switch state {
 	case "blocked":
 		return "!", "\033[1;31m"
+	case "done":
+		return "✓", "\033[32m"
 	case "working":
 		return "✻", "\033[33m"
 	case "idle":

@@ -836,7 +836,7 @@ func (d *daemon) commitScrub(ctl *control, wid string, focusPane string) error {
 	}
 	if wid == "" || wid == p.win {
 		d.scrubEnd(ctl, true)
-		return d.dockCommit(ctl)
+		return d.dockCommit(ctl, focusPane)
 	}
 	if err := d.dockMoveStart(ctl, wid, focusPane); err != nil {
 		return err
@@ -885,13 +885,17 @@ func (d *daemon) dockNav(ctl *control, dir string) error {
 }
 
 // dockCommit is Enter in the docked list: keep the sidebar, put the keyboard
-// in the main area. The origin resets — q now returns here.
-func (d *daemon) dockCommit(ctl *control) error {
+// in the main area. The origin resets — q now returns here. A requested
+// pane (an agent row's own pane) wins over the snapshot's active pane.
+func (d *daemon) dockCommit(ctl *control, pane string) error {
 	p := d.dock
 	if p == nil {
 		return nil
 	}
 	target := p.snap.activePane
+	if pane != "" && pane != p.pane && d.paneInWindow(pane, p.win) {
+		target = pane
+	}
 	alive := false
 	for _, pn := range d.h.getWorld().Panes {
 		if pn.ID == target && pn.WindowID == p.win {

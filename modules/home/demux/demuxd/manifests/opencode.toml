@@ -1,0 +1,30 @@
+# opencode detection rules, ported from herdr's manifest. (opencode also
+# has an SSE event stream — a future hook tier can supersede this.)
+id = "opencode"
+version = "2026.08.21.1"
+
+[[rules]]
+id = "permission_required"
+state = "blocked"
+priority = 900
+region = "whole_recent"
+visible_blocker = true
+any = [
+  { contains = ["△ Permission required"] },
+  { contains = ["esc dismiss"], all = [
+    { any = [{ contains = ["enter confirm"] }, { contains = ["enter submit"] }, { contains = ["enter toggle"] }] },
+    { any = [{ contains = ["↑↓ select"] }, { contains = ["⇆ tab"] }] },
+  ] },
+]
+
+[[rules]]
+id = "screen_working"
+state = "working"
+priority = 500
+region = "bottom_non_empty_lines(10)"
+visible_working = true
+any = [
+  { contains = ["esc to interrupt"] },
+  { contains = ["ctrl+c to interrupt"] },
+  { regex = ['(■|⬝){4,}'] },
+]

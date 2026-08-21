@@ -176,11 +176,13 @@ func consume(d *daemon, ctl *control, w world, sig chan os.Signal) bool {
 				// Connection is dying; the done case handles the rest.
 				continue
 			}
+			d.checkSeen(&next) // client moved onto a done pane's window?
 			d.injectAgents(&next)
 			ops := diffWorlds(w, next)
 			w = next
 			d.h.setWorld(w, ops, false, d.tmuxSock)
 			d.armDetect(w)
+			d.pushStatusOpt(ctl, &w)
 			if d.handoff == nil { // mid-handoff the world is ours, half-moved
 				d.checkDock(ctl, w)
 			}

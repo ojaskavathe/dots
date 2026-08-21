@@ -1,0 +1,85 @@
+# codex CLI detection rules, ported from herdr's manifest with one
+# simplification: herdr bounds blockers with codex prompt-marker regions
+# (after_last_prompt_marker etc.); demux uses bottom-line windows instead,
+# which the visible viewport tail approximates well enough.
+id = "codex"
+version = "2026.08.21.1"
+
+[[rules]]
+id = "osc_title_action_required"
+state = "blocked"
+priority = 1100
+region = "osc_title"
+visible_blocker = true
+contains = ["Action Required"]
+
+[[rules]]
+id = "osc_title_working"
+state = "working"
+priority = 1050
+region = "osc_title"
+visible_working = true
+regex = ['(^| )[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]( |$)']
+
+[[rules]]
+id = "transcript_viewer"
+state = "unknown"
+priority = 1000
+region = "bottom_non_empty_lines(3)"
+skip_state_update = true
+contains = ["↑/↓ to scroll"]
+any = [
+  { contains = ["pgup/pgdn"] },
+  { contains = ["q to quit"] },
+  { contains = ["esc to edit prev"] },
+]
+
+[[rules]]
+id = "trust_directory_prompt"
+state = "blocked"
+priority = 990
+region = "top_non_empty_lines(20)"
+visible_blocker = true
+regex = ['(?s)Do\s+you\s+trust\s+the\s+contents\s+of\s+this\s+directory\?']
+
+[[rules]]
+id = "strong_blockers"
+state = "blocked"
+priority = 900
+region = "bottom_non_empty_lines(15)"
+visible_blocker = true
+any = [
+  { contains = ["press enter to confirm or esc to cancel"] },
+  { contains = ["allow command?"] },
+  { contains = ["enter to submit answer"] },
+]
+
+[[rules]]
+id = "screen_working"
+state = "working"
+priority = 800
+region = "bottom_non_empty_lines(15)"
+visible_working = true
+line_regex = ['^[•◦]\s+Working \([^)]*esc to interrupt\)( · .*)?$']
+not = [
+  { contains = ["■ conversation interrupted"] },
+]
+
+[[rules]]
+id = "weak_blockers"
+state = "blocked"
+priority = 600
+region = "bottom_non_empty_lines(10)"
+any = [
+  { contains = ["[y/n]"] },
+  { contains = ["yes (y)"] },
+  { contains = ["do you want to"], any = [{ contains = ["yes"] }, { contains = ["❯"] }] },
+]
+
+[[rules]]
+id = "osc_title_idle_catchall"
+# Any non-empty title that isn't a spinner frame or Action Required.
+state = "idle"
+priority = 100
+region = "osc_title"
+regex = ['\S']

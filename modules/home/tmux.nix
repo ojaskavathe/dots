@@ -23,14 +23,15 @@
       };
 
       # demux daemon + sidebar TUI (thoughts/demux-architecture.md, milestones
-      # 1+2): control-mode world model, NDJSON pub/sub, and the M-s sidebar —
-      # zero process spawns on the event path, no tmux hooks needed.
+      # 1-3): control-mode world model, NDJSON pub/sub, the M-s sidebar, and
+      # agent state detection (TOML manifests, ~/.config/demux/agents
+      # overrides) — zero process spawns on the event path, no tmux hooks.
       demuxd = pkgs.buildGoModule {
         pname = "demuxd";
-        version = "0.3.0";
+        version = "0.4.0";
 
         src = ./demux/demuxd;
-        vendorHash = "sha256-v9QGoqKB/LGeAPF4NNTyI1Nmy301m43/9ljorcayums=";
+        vendorHash = "sha256-W78PHNVSHhTrtZ6/7HfdmD+LjniySClfNbWpLaKTDRY=";
 
         ldflags = [
           "-X"

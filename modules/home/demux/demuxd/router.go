@@ -104,7 +104,7 @@ func (d *daemon) runCmd(ctl *control, env cmdEnvelope) {
 			if d.dock.scrubbing {
 				err = d.commitScrub(ctl, env.msg.Window, env.msg.Pane)
 			} else {
-				err = d.dockCommit(ctl)
+				err = d.dockCommit(ctl, env.msg.Pane)
 			}
 		}
 	case "close":

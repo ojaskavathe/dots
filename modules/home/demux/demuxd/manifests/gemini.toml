@@ -1,0 +1,25 @@
+# gemini CLI detection rules, ported from herdr's manifest.
+id = "gemini"
+version = "2026.08.21.1"
+
+[[rules]]
+id = "confirmation_prompts"
+state = "blocked"
+priority = 900
+region = "whole_recent"
+visible_blocker = true
+any = [
+  { contains = ["waiting for user confirmation"] },
+  { contains = ["│ Apply this change"] },
+  { contains = ["│ Allow execution"] },
+  { contains = ["│ Do you want to proceed"], all = [{ contains = ["yes"] }] },
+  { line_regex = ['(?i)^\s*❯.*(yes|allow)'] },
+]
+
+[[rules]]
+id = "screen_working"
+state = "working"
+priority = 500
+region = "bottom_non_empty_lines(10)"
+visible_working = true
+contains = ["esc to cancel"]
