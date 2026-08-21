@@ -1,6 +1,11 @@
 package main
 
-import "testing"
+import (
+	"bytes"
+	"strconv"
+	"strings"
+	"testing"
+)
 
 // Fixed geometry: deltas only exist between same-shape frames (a height
 // change alters the rect and forces a full frame); line counts still vary
@@ -74,5 +79,53 @@ func TestApplyDeltaUnknownPane(t *testing.T) {
 	delta := []framePane{{ID: "%9", Rows: []int{0}, Lines: []string{"z"}}}
 	if applyDelta(&cache, delta) {
 		t.Fatal("applied a delta for an unknown pane")
+	}
+}
+
+// Benchmarks: the stream tick's daemon-side tail, old world vs new. The old
+// path marshaled the full frame every tick just to bytes.Equal it; the new
+// path diffs strings first and marshals only what changed.
+func benchFrame() []framePane {
+	line := strings.Repeat("\x1b[38;2;180;190;254mlorem ipsum dolor \x1b[0m", 4)
+	panes := make([]framePane, 4)
+	for i := range panes {
+		lines := make([]string, 50)
+		for j := range lines {
+			lines[j] = line
+		}
+		panes[i] = framePane{ID: "%" + strconv.Itoa(i), Width: 100, Height: 50, Lines: lines}
+	}
+	return panes
+}
+
+func BenchmarkOldTickUnchanged(b *testing.B) { // marshal full + compare
+	panes := benchFrame()
+	prev := marshalLine(frameMsg{Type: "frame", Window: "@1", Panes: panes})
+	b.ReportMetric(float64(len(prev)), "payload_bytes")
+	for b.Loop() {
+		p := marshalLine(frameMsg{Type: "frame", Window: "@1", Panes: panes})
+		if !bytes.Equal(p, prev) {
+			b.Fatal("unequal")
+		}
+	}
+}
+
+func BenchmarkNewTickUnchanged(b *testing.B) { // diff only, no marshal
+	old, cur := benchFrame(), benchFrame()
+	for b.Loop() {
+		if d, _ := deltaPanes(old, cur); d != nil {
+			b.Fatal("unexpected delta")
+		}
+	}
+}
+
+func BenchmarkNewTickBusy(b *testing.B) { // diff + marshal a 3-row delta
+	old, cur := benchFrame(), benchFrame()
+	cur[1].Lines[47], cur[1].Lines[48], cur[1].Lines[49] = "a", "b", "c"
+	d, _ := deltaPanes(old, cur)
+	b.ReportMetric(float64(len(marshalLine(frameMsg{Type: "frame", Window: "@1", Panes: d, Delta: true}))), "payload_bytes")
+	for b.Loop() {
+		d, _ := deltaPanes(old, cur)
+		marshalLine(frameMsg{Type: "frame", Window: "@1", Panes: d, Delta: true})
 	}
 }
