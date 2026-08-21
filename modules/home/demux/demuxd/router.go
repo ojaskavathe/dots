@@ -80,6 +80,9 @@ func (d *daemon) runCmd(ctl *control, env cmdEnvelope) {
 		if p := d.dock; p != nil {
 			switch {
 			case p.scrubbing:
+				if !env.msg.Prefetch && env.msg.Window != "" && env.msg.Window != d.pv.target {
+					d.scrubStatusSet(ctl, env.msg.Window)
+				}
 				err = d.preview(ctl, env.msg.Window, env.msg.Prefetch)
 			case !env.msg.Prefetch && env.msg.Window != "" && env.msg.Window != p.win:
 				err = d.scrubStart(ctl, env.msg.Window)
