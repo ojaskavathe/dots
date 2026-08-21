@@ -67,6 +67,8 @@ func TestNavFollow(t *testing.T) {
 	r.Chk("q never moved the client", r.ClientWin() == r.W3)
 	r.Chk("q unzoomed, still docked", s.Win == r.W3 && s.Width == 40)
 	r.Chk("gamma unzoomed", !r.Zoomed(r.W3))
+	r.Chk("home unzoom went through respawn", r.LogHas("unzoom=respawn"))
+	r.Chk("fresh TUI repainted the list", strings.Contains(r.Capture(s.Pane), "work"))
 
 	// undock keeps the pane the user is IN, not the dock-time active one:
 	// dock lands focused on w1's right main, user moves to the left main,

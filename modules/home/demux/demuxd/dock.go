@@ -416,8 +416,8 @@ func (d *daemon) scrubStart(ctl *control, wid string) error {
 
 // scrubEnd stops billboard scrubbing. unzoom=true is the landed-back-home
 // path (Enter/q on the docked window): the real panes reappear exactly as
-// they were. unzoom=false is for paths where a join/break is about to move
-// the zoomed sidebar anyway (tmux auto-unzooms on both — rig-verified).
+// they were. unzoom=false is for paths that dispose of the zoom some other
+// way (a handoff hides it, an external escape already unzoomed).
 func (d *daemon) scrubEnd(ctl *control, unzoom bool) {
 	p := d.dock
 	if p == nil || !p.scrubbing {
@@ -426,6 +426,21 @@ func (d *daemon) scrubEnd(ctl *control, unzoom bool) {
 	p.scrubbing = false
 	d.stopStream()
 	if unzoom {
+		// Same rewrap hazard as commits (handoffState): unzooming the
+		// canvas-filled grid paints one garbled frame into the sidebar
+		// strip. Respawn a fresh TUI into the pane FIRST — respawn clears
+		// the grid at full width — then unzoom a clean grid in the same
+		// batch. The pane id is stable, so no dock state changes; the
+		// fresh TUI paints the list a beat after landing.
+		if tuiCmd, err := d.tuiCommand(); err == nil {
+			if _, err := ctl.runSeq(
+				"respawn-pane -k -t "+q(p.pane)+" "+q(tuiCmd),
+				"resize-pane -Z -t "+q(p.pane)); err == nil {
+				log.Printf("scrub end win=%s unzoom=respawn", p.win)
+				return
+			}
+			log.Printf("scrub end: respawn failed, plain unzoom")
+		}
 		_, _ = ctl.run("resize-pane -Z -t " + q(p.pane))
 	}
 	log.Printf("scrub end win=%s unzoom=%v", p.win, unzoom)
