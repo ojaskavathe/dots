@@ -257,11 +257,15 @@ func (d *daemon) detectTickRun(ctl *control, w *world) {
 }
 
 // applyAgentState runs the anti-flap policy and publishes the transition.
-// Blocked and working land instantly; working -> PLAIN idle (no visible
-// prompt-box/title evidence) must survive idleConfirms consecutive samples
-// or idleCap of wall time first.
+// Blocked and working land instantly; working -> idle must survive
+// idleConfirms CONSECUTIVE samples (or idleCap of wall time) first — even
+// with visible idle evidence. herdr bypasses the hold on visible idle, but
+// live testing found screens whose verdict alternates per scan (a narrow
+// pane truncating the "· 1 shell ·" footer chip in and out while the ❯
+// prompt box stays visible): any bypass turns that into a flap. The fast
+// recheck cadence keeps genuine idles under ~300ms anyway.
 func (d *daemon) applyAgentState(id string, a *agentInfo, want string, visible bool) bool {
-	if want == "idle" && !visible && a.state == "working" {
+	if want == "idle" && a.state == "working" {
 		if a.pendingIdle == 0 {
 			a.pendingAt = time.Now()
 		}
@@ -324,6 +328,10 @@ var (
 	reLiveTurnPause = regexp.MustCompile(`^\s*[⏸⏵].*esc to interrupt(\s|·|$)`)
 	reLiveTurnSpin  = regexp.MustCompile(`^\s*[*·✢✶✻✽]\s+\S.*…(\s+\(\d+[smh](\s|·)|\s*$)`)
 	reBgShells      = regexp.MustCompile(`^\s*[⏸⏵].*·\s+[1-9]\d*\s+shells?\s+(·|$)`)
+	// "✻ Crunched for 3m 10s · 1 shell still running" — the post-turn
+	// status line while background shells live. Short, never truncated;
+	// steadier working evidence than the footer chip (live, 2026-08-21).
+	reShellsRunning = regexp.MustCompile(`^\s*[*·✢✶✻✽].*\b[1-9]\d*\s+shells?\s+still running`)
 	rePromptLine    = regexp.MustCompile(`^\s*❯`)
 	reBarePrompt    = regexp.MustCompile(`^\s*❯\s*$`)
 	reYesOption     = regexp.MustCompile(`(?i)^\s*❯?\s*(1\.\s*)?yes\b`)
@@ -365,7 +373,7 @@ func claudeScreenState(lines []string) (state string, visible, skip bool) {
 	if matchAny(b12, reLiveTurnPause) || matchAny(b12, reLiveTurnSpin) {
 		return "working", true, false
 	}
-	if matchAny(b5, reBgShells) {
+	if matchAny(b5, reBgShells) || matchAny(b12, reShellsRunning) {
 		return "working", true, false
 	}
 

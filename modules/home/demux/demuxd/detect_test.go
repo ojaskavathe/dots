@@ -116,9 +116,12 @@ func TestIdleHold(t *testing.T) {
 	if !d.applyAgentState("%1", a, "idle", false) {
 		t.Fatal("third plain-idle sample held")
 	}
+	// Visible idle no longer bypasses the hold — alternating screens (a
+	// truncated footer working-chip vs an always-visible prompt box) made
+	// the bypass flap on live panes.
 	a = &agentInfo{kind: "claude", state: "working"}
-	if !d.applyAgentState("%1", a, "idle", true) {
-		t.Fatal("visible idle should bypass the hold")
+	if d.applyAgentState("%1", a, "idle", true) {
+		t.Fatal("visible idle must also be held")
 	}
 	a = &agentInfo{kind: "claude", state: "working"}
 	if !d.applyAgentState("%1", a, "blocked", true) {
