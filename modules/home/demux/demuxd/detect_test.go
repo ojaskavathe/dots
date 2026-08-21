@@ -268,8 +268,10 @@ func TestListLayoutPinsAgents(t *testing.T) {
 	}
 	for _, sel := range []int{0, 20, 39, 40, 42} {
 		lay := layoutList(rows, sel, 20)
-		if lay.sepY == -1 || lay.agentH != 3 {
-			t.Fatalf("sel=%d: agents not pinned: %+v", sel, lay)
+		// equal halves (herdr default ratio 0.5): 19 usable -> 10 tree,
+		// rule, 9 agents
+		if lay.sepY != 10 || lay.agentH != 9 {
+			t.Fatalf("sel=%d: not an equal split: %+v", sel, lay)
 		}
 		seen := map[int]bool{}
 		for y := 0; y < 20; y++ {
@@ -293,14 +295,10 @@ func TestListLayoutPinsAgents(t *testing.T) {
 	if lay := layoutList(rows[:40], 5, 20); lay.sepY != -1 || lay.treeH != 20 {
 		t.Fatalf("no-agent layout wrong: %+v", lay)
 	}
-	// short tree in a tall pane: the rule HUGS the tree — agents start
-	// right under it, blank space stays below the section, never between
+	// the split is FIXED: a short tree doesn't move the divider (stable
+	// geometry is the point — herdr's model)
 	short := append(append([]row(nil), rows[:6]...), rows[40:]...)
-	if lay := layoutList(short, 0, 50); lay.sepY != 6 || lay.agentH != 3 {
-		t.Fatalf("rule should hug a short tree: %+v", lay)
-	}
-	// tree fully visible when it fits; agents take the remainder
-	if lay := layoutList(append(append([]row(nil), rows[:10]...), rows[40:]...), 0, 20); lay.sepY != 10 {
-		t.Fatalf("fitting tree should not scroll: %+v", lay)
+	if lay := layoutList(short, 0, 50); lay.sepY != 25 || lay.agentH != 24 {
+		t.Fatalf("divider should stay at the equal split: %+v", lay)
 	}
 }
