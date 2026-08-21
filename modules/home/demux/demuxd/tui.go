@@ -109,6 +109,7 @@ type row struct {
 	window  string // preview target
 	pane    string // agent rows: the agent's pane — commit focuses it
 	session bool
+	arow    bool   // agents-section row (rendered in the pinned bottom region)
 	agent   string // worst agent state (window rows) / the state (agent rows)
 }
 
@@ -163,7 +164,9 @@ func (st *store) rows() []row {
 	// The agents section: one row per agent pane, attention-sorted
 	// (blocked > done > working > idle), enter jumps to the pane. Labels
 	// carry the agent's own task summary — its title minus the state
-	// prefix the glyph already conveys.
+	// prefix the glyph already conveys. These rows render in a PINNED
+	// bottom region under a labeled rule (paintList), so a long session
+	// tree never scrolls the agents out of sight.
 	if len(agents) > 0 {
 		sort.Slice(agents, func(i, j int) bool {
 			ri, rj := rank[agents[i].AgentState], rank[agents[j].AgentState]
@@ -172,13 +175,12 @@ func (st *store) rows() []row {
 			}
 			return agents[i].ID < agents[j].ID
 		})
-		out = append(out, row{label: "agents", session: true})
 		for _, p := range agents {
 			sess := st.sessions[p.SessionID].Name
 			win := st.windows[p.WindowID]
 			out = append(out, row{
-				label:  fmt.Sprintf("   %s %s:%d %s", p.Agent, sess, win.Index, agentTaskTitle(p.Title)),
-				window: p.WindowID, pane: p.ID, agent: p.AgentState,
+				label:  fmt.Sprintf("  %s %s:%d %s", p.Agent, sess, win.Index, agentTaskTitle(p.Title)),
+				window: p.WindowID, pane: p.ID, agent: p.AgentState, arow: true,
 			})
 		}
 	}
@@ -409,7 +411,7 @@ func cmdTui(tmuxSock, demuxSock string) {
 			lw = cols
 		}
 		if x <= lw {
-			i := listTop(len(rows), sel, height) + y - 1
+			i := layoutList(rows, sel, height).rowAt(y-1, len(rows))
 			if i < 0 || i >= len(rows) {
 				return false
 			}
@@ -459,15 +461,15 @@ func cmdTui(tmuxSock, demuxSock string) {
 				// world churn (a window or session appearing/dying — agents
 				// do this constantly) rebuilds rows, and an index-anchored
 				// highlight visibly jumps to whatever slid into its slot.
-				prevWin, prevSession := "", false
+				prevWin, prevSession, prevArow := "", false, false
 				if sel >= 0 && sel < len(rows) {
-					prevWin, prevSession = rows[sel].window, rows[sel].session
+					prevWin, prevSession, prevArow = rows[sel].window, rows[sel].session, rows[sel].arow
 				}
 				st.apply(m)
 				rows = st.rows()
 				if prevWin != "" {
 					for i, r := range rows {
-						if r.window == prevWin && r.session == prevSession {
+						if r.window == prevWin && r.session == prevSession && r.arow == prevArow {
 							sel = i
 							break
 						}
@@ -891,6 +893,61 @@ func listTop(n, sel, height int) int {
 	return top
 }
 
+// listLayout is the list column's two-region geometry: the session tree
+// scrolls in its own window while agent rows stay PINNED at the bottom
+// under a labeled rule. Deterministic from (rows, sel, height) — paint and
+// click mapping both derive it, so a clicked y always lands on the row
+// painted there. No agents (or a tiny pane) collapses to one region.
+type listLayout struct {
+	nTree    int // rows[:nTree] = tree, rows[nTree:] = agents
+	treeH    int
+	sepY     int // separator screen row; -1 = no agents region
+	agentH   int
+	treeTop  int
+	agentTop int
+}
+
+func layoutList(rows []row, sel, height int) listLayout {
+	nA := 0
+	for i := len(rows) - 1; i >= 0 && rows[i].arow; i-- {
+		nA++
+	}
+	nT := len(rows) - nA
+	if nA == 0 || height < 7 {
+		return listLayout{nTree: len(rows), treeH: height, sepY: -1,
+			treeTop: listTop(len(rows), sel, height)}
+	}
+	aH := nA
+	if cap := (height - 1) / 3; aH > cap {
+		aH = cap
+	}
+	tH := height - 1 - aH
+	selT, selA := sel, 0
+	if sel >= nT {
+		selT, selA = 0, sel-nT // tree unanchored while an agent row is selected
+	}
+	return listLayout{nTree: nT, treeH: tH, sepY: tH, agentH: aH,
+		treeTop: listTop(nT, selT, tH), agentTop: listTop(nA, selA, aH)}
+}
+
+// rowAt maps a screen row to a rows index; -1 for the separator or blanks.
+func (l listLayout) rowAt(y, nRows int) int {
+	switch {
+	case y < l.treeH:
+		i := l.treeTop + y
+		if i < l.nTree {
+			return i
+		}
+	case y == l.sepY:
+	default:
+		i := l.nTree + l.agentTop + (y - l.sepY - 1)
+		if i < nRows {
+			return i
+		}
+	}
+	return -1
+}
+
 // benchListPrev remembers the last painted list content (bench mode only):
 // a "list flicker" is by definition rows whose cells actually changed —
 // tmux ships nothing for identical repaints — so diffing consecutive
@@ -907,7 +964,7 @@ func paintList(rows []row, sel int) {
 	if cols <= listWidth+2 {
 		lw, border = cols, false
 	}
-	top := listTop(len(rows), sel, height)
+	lay := layoutList(rows, sel, height)
 	var cur []string
 	if benchLog != nil {
 		cur = make([]string, 0, height)
@@ -915,9 +972,21 @@ func paintList(rows []row, sel int) {
 	var b strings.Builder
 	b.WriteString("\033[?2026h\033[0m")
 	for y := 0; y < height; y++ {
-		i := top + y
+		i := lay.rowAt(y, len(rows))
 		fmt.Fprintf(&b, "\033[%d;1H", y+1)
-		if i < len(rows) {
+		if y == lay.sepY {
+			// the pinned agents region's labeled rule
+			rule := []rune("─ agents " + strings.Repeat("─", lw))[:lw]
+			b.WriteString("\033[2m" + string(rule) + "\033[22m")
+			if benchLog != nil {
+				cur = append(cur, "=agents")
+			}
+			if border {
+				b.WriteString("\033[2m│\033[22m")
+			}
+			continue
+		}
+		if i >= 0 {
 			label := []rune(rows[i].label)
 			if len(label) > lw {
 				label = label[:lw]

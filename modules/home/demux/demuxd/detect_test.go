@@ -254,3 +254,43 @@ func TestAgentTaskTitle(t *testing.T) {
 		}
 	}
 }
+
+// The agents region is PINNED: whatever the tree length and selection,
+// every agent row (up to the region cap) has a screen row, and rowAt
+// round-trips the geometry paint uses.
+func TestListLayoutPinsAgents(t *testing.T) {
+	rows := make([]row, 0, 43)
+	for i := 0; i < 40; i++ {
+		rows = append(rows, row{label: "tree", window: "@1"})
+	}
+	for i := 0; i < 3; i++ {
+		rows = append(rows, row{label: "agent", window: "@2", arow: true})
+	}
+	for _, sel := range []int{0, 20, 39, 40, 42} {
+		lay := layoutList(rows, sel, 20)
+		if lay.sepY == -1 || lay.agentH != 3 {
+			t.Fatalf("sel=%d: agents not pinned: %+v", sel, lay)
+		}
+		seen := map[int]bool{}
+		for y := 0; y < 20; y++ {
+			if i := lay.rowAt(y, len(rows)); i >= 0 {
+				if seen[i] {
+					t.Fatalf("sel=%d: row %d painted twice", sel, i)
+				}
+				seen[i] = true
+			}
+		}
+		for a := 40; a < 43; a++ {
+			if !seen[a] {
+				t.Fatalf("sel=%d: agent row %d has no screen row", sel, a)
+			}
+		}
+		if !seen[sel] {
+			t.Fatalf("sel=%d: selected row not on screen", sel)
+		}
+	}
+	// no agents: single region, full height
+	if lay := layoutList(rows[:40], 5, 20); lay.sepY != -1 || lay.treeH != 20 {
+		t.Fatalf("no-agent layout wrong: %+v", lay)
+	}
+}
