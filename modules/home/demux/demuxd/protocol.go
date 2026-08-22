@@ -29,7 +29,6 @@ type cmdMsg struct {
 	Dir      string `json:"dir,omitempty"`   // nav: "next" | "prev"
 	Width    int    `json:"width,omitempty"` // winch: the TUI's new cols
 	Pane     string `json:"pane,omitempty"`  // commit: focus this pane (billboard click)
-	Delta    int    `json:"delta,omitempty"` // scroll: lines (+ = back into history)
 	Prefetch bool   `json:"prefetch,omitempty"`
 }
 
@@ -85,8 +84,7 @@ type framePane struct {
 	Height int      `json:"height"`
 	Active bool     `json:"active,omitempty"`
 	Lines  []string `json:"lines"`
-	Rows   []int    `json:"rows,omitempty"`   // delta only: row indices for Lines
-	Scroll int      `json:"scroll,omitempty"` // lines back into history this view sits
+	Rows   []int    `json:"rows,omitempty"` // delta only: row indices for Lines
 }
 
 // wireMsg is the client-side decode target: one struct covering every

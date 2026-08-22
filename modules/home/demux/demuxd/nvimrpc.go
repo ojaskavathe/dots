@@ -58,13 +58,13 @@ func (n *nvimConn) call(method, arg string) (any, error) {
 	n.msgid++
 	id := n.msgid
 	var buf []byte
-	buf = append(buf, 0x94, 0x00)                   // fixarray(4), type request
-	buf = append(buf, 0xce)                         // uint32 msgid
-	buf = binary.BigEndian.AppendUint32(buf, id)    //
-	buf = append(buf, 0xa0|byte(len(method)))       // fixstr method (always short)
-	buf = append(buf, method...)                    //
-	buf = append(buf, 0x91)                         // fixarray(1) args
-	buf = mpAppendStr(buf, arg)                     //
+	buf = append(buf, 0x94, 0x00)                // fixarray(4), type request
+	buf = append(buf, 0xce)                      // uint32 msgid
+	buf = binary.BigEndian.AppendUint32(buf, id) //
+	buf = append(buf, 0xa0|byte(len(method)))    // fixstr method (always short)
+	buf = append(buf, method...)                 //
+	buf = append(buf, 0x91)                      // fixarray(1) args
+	buf = mpAppendStr(buf, arg)                  //
 	deadline := time.Now().Add(2 * time.Second)
 	_ = n.c.SetDeadline(deadline)
 	if _, err := n.c.Write(buf); err != nil {

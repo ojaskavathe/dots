@@ -1,56 +1,59 @@
 package rigs
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
 
-// TestScrollPreview: wheel over a billboard split scrolls THAT pane's
-// preview into history (daemon-side capture offset — the real pane never
-// enters copy-mode), instead of walking the sidebar list selection (the
-// original bug). Scrolling back down returns to the live view.
-func TestScrollPreview(t *testing.T) {
+// TestScrollCommits: wheeling over a billboard split ENTERS it for real —
+// the same commit a click sends, focused on the split under the pointer —
+// instead of walking the sidebar list selection (the original bug). The
+// billboard can't scroll faithfully (alt-screen apps like vim have no
+// history), so a scroll gesture routes to the real pane, whose own mouse
+// handling then has full parity with everything else.
+func TestScrollCommits(t *testing.T) {
 	r := New(t)
 
-	// Fill gamma's shell with numbered scrollback, then billboard gamma
-	// itself (browse docks into the client's current window).
-	r.T("select-window", "-t", r.W3)
-	r.SendKeys(r.W3, "for i in $(seq 1 300); do echo SCROLLMARK-$i; done", "Enter")
-	sleep(800)
 	r.D("browse", r.CL)
 	sleep(1000)
 	s := r.Side()
+	r.SendKeys(s.Pane, "k") // scrub to w1 (stream_test's path)
+	sleep(900)
+	r.Chk("billboard shows w1", strings.Contains(r.Capture(s.Pane), "MARKW1"))
 
-	r.Chk("canvas shows live tail", r.WaitUntil(600, func() bool {
-		return strings.Contains(r.Capture(s.Pane), "SCROLLMARK-300")
-	}))
-	r.Chk("old line not visible yet", !strings.Contains(r.Capture(s.Pane), "SCROLLMARK-230"))
-
-	// 10 wheel-up events over the canvas (x=100 > list width): 3 lines
-	// each = 30 back. The listing must not scroll — gamma stays the target.
-	for i := 0; i < 10; i++ {
-		r.Mouse(s.Pane, 64, 100, 20, true)
+	// Locate the MARKW1 pane in w1's (now carved) geometry and aim the
+	// wheel at its center on the canvas: canvas x = pane x + 1 (the 40-col
+	// spacer occupies the sidebar's slot, so coordinates line up 1-based).
+	mark, mx, my := "", 0, 0
+	for _, ln := range strings.Split(r.T("list-panes", "-t", r.W1, "-F",
+		"#{pane_id} #{pane_left} #{pane_top} #{pane_width} #{pane_height} #{pane_start_command}"), "\n") {
+		f := strings.SplitN(ln, " ", 6)
+		if len(f) == 6 && strings.Contains(f[5], "MARKW1") {
+			l, _ := strconv.Atoi(f[1])
+			tp, _ := strconv.Atoi(f[2])
+			w, _ := strconv.Atoi(f[3])
+			h, _ := strconv.Atoi(f[4])
+			mark, mx, my = f[0], l+w/2+1, tp+h/2+1
+		}
 	}
-	r.Chk("wheel scrolls the split back", r.WaitUntil(800, func() bool {
-		c := r.Capture(s.Pane)
-		return strings.Contains(c, "↑30") && strings.Contains(c, "SCROLLMARK-230")
-	}))
-	cap := r.Capture(s.Pane)
-	r.Chk("live tail scrolled away", !strings.Contains(cap, "SCROLLMARK-300"))
-	r.Chk("still gamma's billboard", strings.Contains(cap, "SCROLLMARK"))
+	r.Chk("MARKW1 pane located", mark != "")
 
-	// Wheel back down past the bottom: clamps at live, indicator gone.
-	for i := 0; i < 12; i++ {
-		r.Mouse(s.Pane, 65, 100, 20, true)
+	r.Mouse(s.Pane, 64, mx, my, true) // wheel up over the split
+	sleep(1200)
+
+	side := r.Side()
+	r.Chk("wheel committed into w1", side.Win == r.W1)
+	r.Chk("sidebar docked after commit", side.Width == 40)
+	active := ""
+	for _, ln := range strings.Split(r.T("list-panes", "-t", r.W1, "-F", "#{pane_id} #{pane_active}"), "\n") {
+		if strings.HasSuffix(ln, " 1") {
+			active = strings.Fields(ln)[0]
+		}
 	}
-	r.Chk("wheel down returns to live", r.WaitUntil(800, func() bool {
-		c := r.Capture(s.Pane)
-		return strings.Contains(c, "SCROLLMARK-300") && !strings.Contains(c, "↑")
-	}))
+	r.Chk("wheeled split has focus", active == mark)
 
-	r.SendKeys(s.Pane, "q")
-	sleep(500)
 	r.D("toggle", r.CL)
 	sleep(1000)
-	r.Chk("gamma layout intact", r.Layout(r.W3) == tail(r.LW3))
+	r.Chk("w1 layout restored", r.Layout(r.W1) == tail(r.LW1))
 }

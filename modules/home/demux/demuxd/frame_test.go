@@ -129,26 +129,3 @@ func BenchmarkNewTickBusy(b *testing.B) { // diff + marshal a 3-row delta
 		marshalLine(frameMsg{Type: "frame", Window: "@1", Panes: d, Delta: true})
 	}
 }
-
-func TestCaptureCmdScroll(t *testing.T) {
-	if c := captureCmd("%5", 50, 0); strings.Contains(c, "-S") {
-		t.Fatalf("live capture got scroll flags: %s", c)
-	}
-	// 120 back on a 50-row pane: capture rows -120 .. -71 (top of the
-	// visible screen is line 0, history is negative)
-	c := captureCmd("%5", 50, 120)
-	if !strings.Contains(c, "-S -120") || !strings.Contains(c, "-E -71") {
-		t.Fatalf("scrolled capture window wrong: %s", c)
-	}
-}
-
-func TestApplyDeltaCarriesScroll(t *testing.T) {
-	panes := []framePane{{ID: "%1", Lines: []string{"a", "b"}}}
-	delta := []framePane{{ID: "%1", Rows: []int{1}, Lines: []string{"B"}, Scroll: 7}}
-	if !applyDelta(&panes, delta) {
-		t.Fatal("delta rejected")
-	}
-	if panes[0].Scroll != 7 || panes[0].Lines[1] != "B" {
-		t.Fatalf("scroll/content not carried: %+v", panes[0])
-	}
-}
