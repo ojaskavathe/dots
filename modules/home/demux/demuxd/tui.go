@@ -303,6 +303,7 @@ func cmdTui(tmuxSock, demuxSock string) {
 	frames := map[string]cached{}
 	gen := 0
 	paintedWin, paintedGen := "", -1
+	paintedCurPane := ""
 	var paintedPanes []framePane
 
 	target := func() string {
@@ -326,8 +327,12 @@ func cmdTui(tmuxSock, demuxSock string) {
 	// rows, not 45k cells). Streaming updates of the same window diff at
 	// line level: a claude spinner tick repaints 1-3 lines, not the region.
 	paintFrameFor := func(win string) {
+		// The billboarded cursor follows the SELECTED row's pane (agent
+		// rows carry one) — switching rows within the same window changes
+		// nothing but the cursor, so the skip-guard must see it too.
+		cp := targetPane()
 		c, ok := frames[win]
-		if !ok || (win == paintedWin && c.gen == paintedGen) {
+		if !ok || (win == paintedWin && c.gen == paintedGen && cp == paintedCurPane) {
 			return
 		}
 		if time.Since(c.at) > frameTTL {
@@ -346,8 +351,8 @@ func cmdTui(tmuxSock, demuxSock string) {
 		if win == paintedWin && sameGeometry(paintedPanes, scaled) {
 			prev = paintedPanes
 		}
-		paintFrame(scaled, prev)
-		paintedWin, paintedGen, paintedPanes = win, c.gen, scaled
+		paintFrame(scaled, prev, cp, paintedCurPane)
+		paintedWin, paintedGen, paintedPanes, paintedCurPane = win, c.gen, scaled, cp
 	}
 	paintAll := func() {
 		rows = st.rows()
@@ -1351,8 +1356,33 @@ func paintBorders(b *strings.Builder, frame []framePane, cols, height, offX int)
 // the full region is prefilled so stale content from differently-shaped
 // windows cannot linger. No screen clear either way — tmux diffs cells
 // server-side and ships only real changes to the terminal.
-func paintFrame(frame, prev []framePane) {
+// cursorIdx picks the ONE pane whose cursor the billboard shows: the pane
+// the selection would focus on commit (an agent row's pane), else the
+// window's active pane. A selected pane that hides its cursor shows none —
+// entering it wouldn't show one either.
+func cursorIdx(frame []framePane, pane string) int {
+	active := -1
+	for i, p := range frame {
+		if pane != "" && p.ID == pane {
+			if p.Cursor {
+				return i
+			}
+			return -1
+		}
+		if p.Active && p.Cursor && active == -1 {
+			active = i
+		}
+	}
+	return active
+}
+
+func paintFrame(frame, prev []framePane, curPane, prevCurPane string) {
 	start := time.Now()
+	ci := cursorIdx(frame, curPane)
+	pci := -1
+	if prev != nil {
+		pci = cursorIdx(prev, prevCurPane)
+	}
 	cols, height := surfaceSize()
 	const offX = listWidth + 1 // frame region starts right of the border
 	avail := cols - offX
@@ -1383,17 +1413,17 @@ func paintFrame(frame, prev []framePane) {
 		}
 		// A cursor move alone changes no content rows, but the OLD inverse
 		// cell must be painted away and the new one painted in: force both
-		// rows through the diff.
+		// rows through the diff. Ownership counts as movement — switching
+		// rows can hand the cursor to a different pane in the same frame.
+		showNew, showOld := pi == ci, prev != nil && pi == pci
 		forceOld, forceNew := -1, -1
-		if prev != nil {
-			pp := prev[pi]
-			if pp.Cursor != p.Cursor || pp.CursorX != p.CursorX || pp.CursorY != p.CursorY {
-				if pp.Cursor {
-					forceOld = pp.CursorY
-				}
-				if p.Cursor {
-					forceNew = p.CursorY
-				}
+		if showOld != showNew ||
+			(showOld && (prev[pi].CursorX != p.CursorX || prev[pi].CursorY != p.CursorY)) {
+			if showOld {
+				forceOld = prev[pi].CursorY
+			}
+			if showNew {
+				forceNew = p.CursorY
 			}
 		}
 		for i := 0; i < lines; i++ {
@@ -1426,7 +1456,7 @@ func paintFrame(frame, prev []framePane) {
 		}
 		// The pane's cursor, inverse over whatever the frame shows there —
 		// a billboard without one reads as a screenshot at a glance.
-		if p.Cursor && p.CursorY < p.Height && p.Top+p.CursorY < height && p.CursorX < width {
+		if showNew && p.CursorY < p.Height && p.Top+p.CursorY < height && p.CursorX < width {
 			ch := ' '
 			if p.CursorY < len(p.Lines) {
 				ch = charAtCol(p.Lines[p.CursorY], p.CursorX)

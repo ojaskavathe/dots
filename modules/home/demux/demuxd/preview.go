@@ -330,9 +330,12 @@ func (d *daemon) preview(ctl *control, wid string, prefetch, stream bool) error 
 			height, _ := strconv.Atoi(p[4])
 			cx, _ := strconv.Atoi(p[7])
 			cy, _ := strconv.Atoi(p[8])
-			active := p[5] == "1"
-			panes = append(panes, framePane{ID: p[0], Left: left, Top: top, Width: width, Height: height, Active: active,
-				Cursor: active && p[9] == "1", CursorX: cx, CursorY: cy})
+			// Cursor data ships for EVERY pane (visible-cursor flag, not
+			// just the active pane): the TUI paints the one belonging to
+			// the pane the current selection would focus — an agent row's
+			// billboard puts the cursor in the agent's pane.
+			panes = append(panes, framePane{ID: p[0], Left: left, Top: top, Width: width, Height: height, Active: p[5] == "1",
+				Cursor: p[9] == "1", CursorX: cx, CursorY: cy})
 			caps = append(caps, "capture-pane -e -p -t "+q(p[0]), "display-message -p "+q(frameMarker))
 		}
 		if len(panes) == 0 {

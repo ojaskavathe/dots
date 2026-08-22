@@ -170,3 +170,24 @@ func TestCharAtCol(t *testing.T) {
 		}
 	}
 }
+
+func TestCursorIdx(t *testing.T) {
+	frame := []framePane{
+		{ID: "%1", Active: true, Cursor: true},
+		{ID: "%2", Cursor: true},
+		{ID: "%3", Cursor: false},
+	}
+	for _, tc := range []struct {
+		pane string
+		want int
+	}{
+		{"", 0},    // window row: the active pane's cursor
+		{"%2", 1},  // agent row: the agent pane's cursor wins
+		{"%3", -1}, // selected pane hides its cursor: show none
+		{"%9", 0},  // stale pane id: fall back to active
+	} {
+		if got := cursorIdx(frame, tc.pane); got != tc.want {
+			t.Errorf("cursorIdx(%q) = %d want %d", tc.pane, got, tc.want)
+		}
+	}
+}
