@@ -84,6 +84,26 @@
         "type": "github"
       }
     },
+    "demux": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1787379243,
+        "narHash": "sha256-h3NZP98QYxDsRUt3go7Fow831RutwiVgTdM/eQGW1bk=",
+        "ref": "refs/heads/master",
+        "rev": "ff1a66cc64ed93c934c1aa70f888eb95de5dbe9e",
+        "revCount": 93,
+        "type": "git",
+        "url": "ssh://git@github.com/ojaskavathe/demux.git"
+      },
+      "original": {
+        "type": "git",
+        "url": "ssh://git@github.com/ojaskavathe/demux.git"
+      }
+    },
     "disko": {
       "inputs": {
         "nixpkgs": [
@@ -522,6 +542,7 @@
     },
     "root": {
       "inputs": {
+        "demux": "demux",
         "disko": "disko",
         "flake-parts": "flake-parts",
         "home-manager": "home-manager",

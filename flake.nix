@@ -74,6 +74,14 @@
       flake = false;
     };
 
+    # tmux-native agent dashboard (private until stable). follows matters:
+    # demuxd bakes in ${pkgs.tmux}/bin/tmux, which must be the same tmux
+    # this config runs.
+    demux = {
+      url = "git+ssh://git@github.com/ojaskavathe/demux.git";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
     nvim = {
       url = "path:./modules/_nvim";
       inputs.nixpkgs.follows = "nixpkgs";

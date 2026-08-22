@@ -1,4 +1,4 @@
-{ ... }:
+{ inputs, ... }:
 {
   flake.modules.homeManager.tmux =
     {
@@ -22,30 +22,9 @@
         ];
       };
 
-      # demux daemon + sidebar TUI (thoughts/demux-architecture.md, milestones
-      # 1-3): control-mode world model, NDJSON pub/sub, the M-s sidebar, and
-      # agent state detection (TOML manifests, ~/.config/demux/agents
-      # overrides) — zero process spawns on the event path, no tmux hooks.
-      demuxd = pkgs.buildGoModule {
-        pname = "demuxd";
-        version = "0.4.0";
-
-        src = ./demux/demuxd;
-        vendorHash = "sha256-W78PHNVSHhTrtZ6/7HfdmD+LjniySClfNbWpLaKTDRY=";
-
-        ldflags = [
-          "-X"
-          "main.tmuxPath=${pkgs.tmux}/bin/tmux"
-        ];
-      };
-
-      demux = pkgs.writeShellApplication {
-        name = "demux";
-        runtimeInputs = [ pkgs.tmux ];
-        text = builtins.replaceStrings [ "@frameconf@" ] [ "${./demux/frame.conf}" ] (
-          builtins.readFile ./demux/sidebar.sh
-        );
-      };
+      # demux daemon + sidebar TUI, from its own flake (thoughts/
+      # demux-architecture.md records the design history).
+      inherit (inputs.demux.packages.${pkgs.stdenv.hostPlatform.system}) demuxd demux;
 
     in
     {
