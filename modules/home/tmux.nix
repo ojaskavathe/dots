@@ -168,8 +168,11 @@
             # reachable on prefix+s)
             bind -n M-s run-shell -b '${demuxd}/bin/demuxd toggle "#{client_name}"'
 
-            # M-a: the agent switcher — like M-s but pinned on the
+            # M-g: the agent switcher — like M-s but pinned on the
             # top-attention agent; rapid taps cycle through agents.
+            # (M-a kept too, but aerospace eats alt-a for its accordion
+            # layout, so it only fires if that binding goes away.)
+            bind -n M-g run-shell -b '${demuxd}/bin/demuxd agents "#{client_name}"'
             bind -n M-a run-shell -b '${demuxd}/bin/demuxd agents "#{client_name}"'
             bind -n M-e run-shell -b '${tmuxEqualizeNvim}/bin/tmux-equalize-nvim'
             bind -n M-g send-keys C-l \; run-shell -b -d 0.05 -C 'clear-history -t "#{pane_id}"'
