@@ -91,11 +91,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1787381031,
-        "narHash": "sha256-icOyujZGgfEl9gvSFGyET89wn/My8dDtzGrVKc9XlNM=",
+        "lastModified": 1787383708,
+        "narHash": "sha256-DRtG7p7Cel8OmQBSrC2Q2bvnLml5679Zc0/hOuYafyU=",
         "ref": "refs/heads/master",
-        "rev": "70236cdafb9c94df85c36ddf430290d4540032c9",
-        "revCount": 94,
+        "rev": "4eea02385d927797a758fbc4498519d6aa9a36cc",
+        "revCount": 98,
         "type": "git",
         "url": "ssh://git@github.com/ojaskavathe/demux.git"
       },
