@@ -22,6 +22,11 @@ type previewState struct {
 	lastPanes []framePane
 	frameGen  int
 
+	// Per-pane scrollback offsets (lines back from live) for the current
+	// target: wheel-up on a billboard split scrolls its history without
+	// touching the real pane. Ephemeral — cleared on target change and reset.
+	scroll map[string]int
+
 	// Capture gate: geometry fingerprint and #{window_activity} of the last
 	// capture. A stream tick whose target shows the same rects and activity
 	// — with the last capture a full second past the activity stamp
@@ -47,6 +52,7 @@ type previewState struct {
 // ships a full frame unconditionally (scrub start, target teardown).
 func (pv *previewState) reset() {
 	pv.lastPanes, pv.lastRects, pv.lastActivity = nil, "", 0
+	pv.scroll = nil
 }
 
 // frameBytes marshals the cached target grid as a full frame, for replaying
@@ -327,8 +333,9 @@ func (d *daemon) preview(ctl *control, wid string, prefetch, stream bool) error 
 			width, _ := strconv.Atoi(p[3])
 			top, _ := strconv.Atoi(p[2])
 			height, _ := strconv.Atoi(p[4])
-			panes = append(panes, framePane{ID: p[0], Left: left, Top: top, Width: width, Height: height, Active: p[5] == "1"})
-			caps = append(caps, "capture-pane -e -p -t "+q(p[0]), "display-message -p "+q(frameMarker))
+			off := d.pv.scroll[p[0]]
+			panes = append(panes, framePane{ID: p[0], Left: left, Top: top, Width: width, Height: height, Active: p[5] == "1", Scroll: off})
+			caps = append(caps, captureCmd(p[0], height, off), "display-message -p "+q(frameMarker))
 		}
 		if len(panes) == 0 {
 			return fmt.Errorf("no panes in %s", wid)
@@ -436,6 +443,9 @@ func (d *daemon) preview(ctl *control, wid string, prefetch, stream bool) error 
 		d.h.sendRole("list", marshalLine(frameMsg{Type: "frame", Window: wid, Panes: panes}))
 		return nil
 	}
+	if d.pv.target != wid {
+		d.pv.scroll = nil // scroll offsets are a per-target affordance
+	}
 	d.pv.target = wid
 	stamp := func() {
 		d.pv.lastRects, d.pv.lastActivity, d.pv.lastCapture = rects, activity, time.Now()
@@ -463,6 +473,49 @@ func (d *daemon) preview(ctl *control, wid string, prefetch, stream bool) error 
 	stamp()
 	d.h.sendRole("list", marshalLine(frameMsg{Type: "frame", Window: wid, Panes: panes, Gen: d.pv.frameGen}))
 	return nil
+}
+
+// captureCmd builds one pane's capture: the visible screen, or — scrolled
+// off lines back into history — the window [-off, height-1-off] (capture
+// line 0 is the top of the visible screen, negatives reach into history).
+func captureCmd(id string, height, off int) string {
+	if off <= 0 {
+		return "capture-pane -e -p -t " + q(id)
+	}
+	return fmt.Sprintf("capture-pane -e -p -t %s -S %d -E %d", q(id), -off, height-1-off)
+}
+
+// scrollPreview adjusts one billboard split's scrollback offset (wheel over
+// the canvas) and re-ships the frame. The real pane is untouched — no
+// copy-mode, no interference with whatever runs there; this is a read-only
+// view into its history, clamped to what actually exists.
+func (d *daemon) scrollPreview(ctl *control, pane string, delta int) error {
+	if d.dock == nil || !d.dock.scrubbing || d.pv.target == "" || pane == "" || delta == 0 {
+		return nil
+	}
+	out, err := ctl.run("display-message -p -t " + q(pane) + " -F '#{history_size}'")
+	if err != nil || len(out) == 0 {
+		return err
+	}
+	hist, _ := strconv.Atoi(out[0])
+	off := d.pv.scroll[pane] + delta
+	if off < 0 {
+		off = 0
+	}
+	if off > hist {
+		off = hist
+	}
+	if d.pv.scroll[pane] == off {
+		return nil
+	}
+	if d.pv.scroll == nil {
+		d.pv.scroll = map[string]int{}
+	}
+	d.pv.scroll[pane] = off
+	// Content moved without any pane output: the activity gate would hold
+	// the stale view, so bust it for this one recapture.
+	d.pv.lastRects = ""
+	return d.preview(ctl, d.pv.target, false, true)
 }
 
 // sameFrameShape reports an identical pane set — ids, rects, active — the

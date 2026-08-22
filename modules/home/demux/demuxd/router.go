@@ -85,6 +85,10 @@ func (d *daemon) runCmd(ctl *control, env cmdEnvelope) {
 				err = d.scrubStart(ctl, env.msg.Window)
 			}
 		}
+	case "scroll":
+		// Wheel over a billboard split: scroll that pane's PREVIEW into
+		// history. The real pane never enters copy-mode.
+		err = d.scrollPreview(ctl, env.msg.Pane, env.msg.Delta)
 	case "winch":
 		// The TUI's pane changed size. Docked idle that means a client
 		// resize (monitor switch) rescaled the sidebar off its fixed width;

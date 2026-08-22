@@ -47,12 +47,17 @@ func TestStaleBillboard(t *testing.T) {
 	r.SendKeys(sp, "k") // back to ptwo
 	sleep(500)
 
-	// Sit well past frameTTL (3s) while w1's content changes under the
-	// cache. Generous margin: under full-suite parallel load the prefetch
-	// that stamps the cache can land seconds late, and a cache younger than
-	// the TTL painting old content is accepted behavior, not the bug.
+	// Change w1's content under the cache, and WAIT until the live screen
+	// has actually turned over — under full-suite load the rig shell can
+	// lag seconds behind send-keys, and scrubbing onto a live screen that
+	// still shows OLDMARK is correct behavior, not the stale-cache bug.
+	// Then sit past frameTTL (3s) so the OLDMARK cache is properly stale.
 	r.SendKeys(shell, "clear; while :; do echo FRESHMARK; sleep 2; done", "Enter")
-	sleep(7000)
+	r.Chk("w1 live screen turned fresh", r.WaitUntil(1000, func() bool {
+		c := r.Capture(shell)
+		return strings.Contains(c, "FRESHMARK") && !strings.Contains(c, "OLDMARK")
+	}))
+	sleep(5000)
 
 	r.StartRecord()
 	r.SendKeys(sp, "j") // -> work header row, target w1: stale cache moment

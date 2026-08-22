@@ -569,7 +569,8 @@ func cmdTui(tmuxSock, demuxSock string) {
 			// the held-scrub mush. NOT a debounce: nothing waits, a lone key
 			// finds the queue empty and paints immediately.
 			moved := false
-			relayout := false // divider drag: repaint the list, nothing else
+			relayout := false              // divider drag: repaint the list, nothing else
+			scrollPane, scrollAcc := "", 0 // wheel over a billboard split, coalesced
 			setShrink := func() { shrinkExpected = !narrowMode() }
 			for {
 				switch {
@@ -590,10 +591,37 @@ func cmdTui(tmuxSock, demuxSock string) {
 							}
 							switch {
 							case btn&64 != 0: // wheel
-								if btn&3 == 0 {
-									moved = moveSel(-1) || moved
-								} else if btn&3 == 1 {
-									moved = moveSel(1) || moved
+								cols, _ := surfaceSize()
+								lw := listWidth
+								if cols <= listWidth+2 {
+									lw = cols
+								}
+								up := btn&3 == 0
+								if mx <= lw {
+									// over the list: wheel walks the selection
+									if up {
+										moved = moveSel(-1) || moved
+									} else if btn&3 == 1 {
+										moved = moveSel(1) || moved
+									}
+								} else if paintedWin != "" && paintedWin == target() {
+									// over the canvas: scroll the split under
+									// the pointer (its preview, via the daemon)
+									cx, cy := mx-(listWidth+1)-1, my-1
+									for _, p := range paintedPanes {
+										if p.ID != "" && cx >= p.Left && cx < p.Left+p.Width &&
+											cy >= p.Top && cy < p.Top+p.Height {
+											step := 3
+											if !up {
+												step = -3
+											}
+											if p.ID != scrollPane {
+												scrollPane, scrollAcc = p.ID, 0
+											}
+											scrollAcc += step
+											break
+										}
+									}
 								}
 							case btn&3 == 0 && btn&32 == 0: // left press
 								cols, height := surfaceSize()
@@ -690,6 +718,9 @@ func cmdTui(tmuxSock, demuxSock string) {
 					requestFrames()
 				}
 			}
+			if scrollAcc != 0 && scrollPane != "" {
+				send(cmdMsg{Cmd: "scroll", Pane: scrollPane, Delta: scrollAcc})
+			}
 		case <-winch:
 			shrinkExpected = false // the resize this was armed for has landed
 			paintAll()
@@ -753,7 +784,7 @@ func scaleFrame(frame []framePane, avail int) []framePane {
 		for j, ln := range p.Lines {
 			lines[j], _ = cleanLine(ln, w)
 		}
-		out[i] = framePane{ID: p.ID, Left: x0, Top: p.Top, Width: w, Height: p.Height, Active: p.Active, Lines: lines}
+		out[i] = framePane{ID: p.ID, Left: x0, Top: p.Top, Width: w, Height: p.Height, Active: p.Active, Lines: lines, Scroll: p.Scroll}
 	}
 	return out
 }
@@ -881,6 +912,7 @@ func applyDelta(panes *[]framePane, delta []framePane) bool {
 			lines[r] = dp.Lines[j]
 		}
 		out[pi].Lines = lines
+		out[pi].Scroll = dp.Scroll
 	}
 	*panes = out
 	return true
@@ -893,7 +925,7 @@ func framesEqual(a, b []framePane) bool {
 	for i := range a {
 		if a[i].Left != b[i].Left || a[i].Top != b[i].Top ||
 			a[i].Width != b[i].Width || a[i].Height != b[i].Height ||
-			a[i].Active != b[i].Active ||
+			a[i].Active != b[i].Active || a[i].Scroll != b[i].Scroll ||
 			len(a[i].Lines) != len(b[i].Lines) {
 			return false
 		}
@@ -1303,6 +1335,16 @@ func paintFrame(frame, prev []framePane) {
 			}
 			fmt.Fprintf(&b, "\033[%d;%dH%s%s\033[0m",
 				p.Top+1+i, offX+p.Left+1, ln, blank[:pad])
+		}
+		// Scrolled-back view: a corner tag so a frozen-looking split reads
+		// as "you scrolled it", and how far. Painted after the rows so a
+		// row-0 repaint never wipes it.
+		if p.Scroll > 0 && p.Top < height {
+			tag := fmt.Sprintf(" ↑%d ", p.Scroll)
+			if tw := len(tag) - len("↑") + 1; width > tw {
+				fmt.Fprintf(&b, "\033[%d;%dH\033[7;2m%s\033[0m",
+					p.Top+1, offX+p.Left+1+width-tw, tag)
+			}
 		}
 	}
 	if prev == nil {
