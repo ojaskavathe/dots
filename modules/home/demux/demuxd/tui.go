@@ -570,8 +570,28 @@ func cmdTui(tmuxSock, demuxSock string) {
 			// finds the queue empty and paints immediately.
 			moved := false
 			relayout := false // divider drag: repaint the list, nothing else
-			wheeled := false  // one wheel-commit per batch, drop the rest
+			wheeled := false  // one gesture-commit per batch, drop the rest
 			setShrink := func() { shrinkExpected = !narrowMode() }
+			// commitAt: enter the billboard split under 1-based pane coords.
+			// Wheel, middle and right button all route here — any mouse
+			// gesture on a split means "interact with that pane for real",
+			// and the real pane's own handling (scrollback, paste, menu)
+			// then has full parity. Keyboard stays the picker's.
+			commitAt := func(mx, my int) bool {
+				if paintedWin == "" || paintedWin != target() {
+					return false
+				}
+				cx, cy := mx-(listWidth+1)-1, my-1
+				for _, p := range paintedPanes {
+					if p.ID != "" && cx >= p.Left && cx < p.Left+p.Width &&
+						cy >= p.Top && cy < p.Top+p.Height {
+						setShrink()
+						send(cmdMsg{Cmd: "commit", Window: paintedWin, Pane: p.ID})
+						return true
+					}
+				}
+				return false
+			}
 			for {
 				switch {
 				case esc == 1 && b == '[':
@@ -603,24 +623,19 @@ func cmdTui(tmuxSock, demuxSock string) {
 									} else if btn&3 == 1 {
 										moved = moveSel(1) || moved
 									}
-								} else if !wheeled && paintedWin != "" && paintedWin == target() {
+								} else if !wheeled && commitAt(mx, my) {
 									// Over the canvas: a scroll gesture means
-									// "I want to read that pane" — enter it
-									// for real (same commit a click sends).
+									// "read that pane" — enter it for real.
 									// The billboard can't scroll faithfully
 									// (alt-screen apps like vim have no
-									// history to show); the real pane's own
-									// mouse handling gives full parity.
-									cx, cy := mx-(listWidth+1)-1, my-1
-									for _, p := range paintedPanes {
-										if p.ID != "" && cx >= p.Left && cx < p.Left+p.Width &&
-											cy >= p.Top && cy < p.Top+p.Height {
-											wheeled = true
-											setShrink()
-											send(cmdMsg{Cmd: "commit", Window: paintedWin, Pane: p.ID})
-											break
-										}
-									}
+									// history to show).
+									wheeled = true
+								}
+							case (btn&3 == 1 || btn&3 == 2) && btn&32 == 0:
+								// middle/right press over a split: paste and
+								// menus belong to the real pane — enter it
+								if !wheeled && commitAt(mx, my) {
+									wheeled = true
 								}
 							case btn&3 == 0 && btn&32 == 0: // left press
 								cols, height := surfaceSize()
@@ -780,7 +795,15 @@ func scaleFrame(frame []framePane, avail int) []framePane {
 		for j, ln := range p.Lines {
 			lines[j], _ = cleanLine(ln, w)
 		}
-		out[i] = framePane{ID: p.ID, Left: x0, Top: p.Top, Width: w, Height: p.Height, Active: p.Active, Lines: lines}
+		np := framePane{ID: p.ID, Left: x0, Top: p.Top, Width: w, Height: p.Height, Active: p.Active, Lines: lines}
+		if p.Cursor {
+			// Cursor column scales with the content; off the truncated edge
+			// it simply hides (approximated billboards stay approximate).
+			if cx := int(float64(p.CursorX)*s + 0.5); cx < w {
+				np.Cursor, np.CursorX, np.CursorY = true, cx, p.CursorY
+			}
+		}
+		out[i] = np
 	}
 	return out
 }
@@ -849,6 +872,58 @@ func cleanLine(s string, max int) (string, int) {
 	return b.String(), w
 }
 
+// charAtCol walks a captured line to display column col — the same
+// CSI/OSC-skipping walk as cleanLine — and returns the rune there (space
+// when the line is shorter, or col lands inside a wide rune's second cell).
+func charAtCol(s string, col int) rune {
+	w, esc := 0, 0
+	for _, r := range s {
+		switch esc {
+		case 1:
+			if r == '[' {
+				esc = 2
+			} else if r == ']' {
+				esc = 3
+			} else {
+				esc = 0
+			}
+			continue
+		case 2:
+			if r >= 0x40 && r <= 0x7e {
+				esc = 0
+			}
+			continue
+		case 3:
+			if r == 0x07 {
+				esc = 0
+			} else if r == 0x1b {
+				esc = 4
+			}
+			continue
+		case 4:
+			if r == '\\' || r == 0x07 {
+				esc = 0
+			} else if r != 0x1b {
+				esc = 3
+			}
+			continue
+		}
+		if r == 0x1b {
+			esc = 1
+			continue
+		}
+		rw := runeWidth(r)
+		if w == col && rw > 0 {
+			return r
+		}
+		w += rw
+		if w > col {
+			break
+		}
+	}
+	return ' '
+}
+
 // parseMouse decodes the params of an SGR mouse report (btn;x;y).
 func parseMouse(buf []byte) (btn, x, y int, ok bool) {
 	parts := strings.Split(string(buf), ";")
@@ -897,6 +972,7 @@ func applyDelta(panes *[]framePane, delta []framePane) bool {
 		if pi < 0 || len(dp.Rows) != len(dp.Lines) {
 			return false
 		}
+		out[pi].Cursor, out[pi].CursorX, out[pi].CursorY = dp.Cursor, dp.CursorX, dp.CursorY
 		lines := append([]string(nil), out[pi].Lines...)
 		for j, r := range dp.Rows {
 			if r < 0 {
@@ -920,7 +996,8 @@ func framesEqual(a, b []framePane) bool {
 	for i := range a {
 		if a[i].Left != b[i].Left || a[i].Top != b[i].Top ||
 			a[i].Width != b[i].Width || a[i].Height != b[i].Height ||
-			a[i].Active != b[i].Active ||
+			a[i].Active != b[i].Active || a[i].Cursor != b[i].Cursor ||
+			a[i].CursorX != b[i].CursorX || a[i].CursorY != b[i].CursorY ||
 			len(a[i].Lines) != len(b[i].Lines) {
 			return false
 		}
@@ -1304,6 +1381,21 @@ func paintFrame(frame, prev []framePane) {
 		if prev != nil && len(prev[pi].Lines) > lines {
 			lines = len(prev[pi].Lines) // erase rows the new frame lost
 		}
+		// A cursor move alone changes no content rows, but the OLD inverse
+		// cell must be painted away and the new one painted in: force both
+		// rows through the diff.
+		forceOld, forceNew := -1, -1
+		if prev != nil {
+			pp := prev[pi]
+			if pp.Cursor != p.Cursor || pp.CursorX != p.CursorX || pp.CursorY != p.CursorY {
+				if pp.Cursor {
+					forceOld = pp.CursorY
+				}
+				if p.Cursor {
+					forceNew = p.CursorY
+				}
+			}
+		}
 		for i := 0; i < lines; i++ {
 			if i >= p.Height || p.Top+i >= height {
 				break
@@ -1312,7 +1404,8 @@ func paintFrame(frame, prev []framePane) {
 			if i < len(p.Lines) {
 				ln = p.Lines[i]
 			}
-			if prev != nil && i < len(prev[pi].Lines) && prev[pi].Lines[i] == ln {
+			if prev != nil && i < len(prev[pi].Lines) && prev[pi].Lines[i] == ln &&
+				i != forceOld && i != forceNew {
 				continue
 			}
 			changed++
@@ -1330,6 +1423,17 @@ func paintFrame(frame, prev []framePane) {
 			}
 			fmt.Fprintf(&b, "\033[%d;%dH%s%s\033[0m",
 				p.Top+1+i, offX+p.Left+1, ln, blank[:pad])
+		}
+		// The pane's cursor, inverse over whatever the frame shows there —
+		// a billboard without one reads as a screenshot at a glance.
+		if p.Cursor && p.CursorY < p.Height && p.Top+p.CursorY < height && p.CursorX < width {
+			ch := ' '
+			if p.CursorY < len(p.Lines) {
+				ch = charAtCol(p.Lines[p.CursorY], p.CursorX)
+			}
+			benchf("cursor pane=%s cell=%d,%d ch=%q", p.ID, p.CursorX, p.CursorY, ch)
+			fmt.Fprintf(&b, "\033[%d;%dH\033[7m%c\033[0m",
+				p.Top+1+p.CursorY, offX+p.Left+1+p.CursorX, ch)
 		}
 	}
 	if prev == nil {

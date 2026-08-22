@@ -285,7 +285,8 @@ func (d *daemon) preview(ctl *control, wid string, prefetch, stream bool) error 
 	for attempt := 0; ; attempt++ {
 		query := []string{
 			"list-panes -t " + q(wid) + " -F " +
-				f("#{pane_id}", "#{pane_left}", "#{pane_top}", "#{pane_width}", "#{pane_height}", "#{pane_active}", "#{history_size}"),
+				f("#{pane_id}", "#{pane_left}", "#{pane_top}", "#{pane_width}", "#{pane_height}", "#{pane_active}", "#{history_size}",
+					"#{cursor_x}", "#{cursor_y}", "#{cursor_flag}"),
 			"display-message -p -t " + q(wid) + " -F " + f("#{window_width}", "#{window_height}", "#{window_activity}"),
 			"display-message -p -t " + q(d.dock.win) + " -F " + f("#{window_width}", "#{window_height}"),
 		}
@@ -313,7 +314,7 @@ func (d *daemon) preview(ctl *control, wid string, prefetch, stream bool) error 
 		history := 0
 		for _, ln := range lines {
 			p := strings.Split(ln, sep)
-			if len(p) != 7 {
+			if len(p) != 10 {
 				continue
 			}
 			rects += strings.Join(p[:6], ",") + ";"
@@ -327,7 +328,11 @@ func (d *daemon) preview(ctl *control, wid string, prefetch, stream bool) error 
 			width, _ := strconv.Atoi(p[3])
 			top, _ := strconv.Atoi(p[2])
 			height, _ := strconv.Atoi(p[4])
-			panes = append(panes, framePane{ID: p[0], Left: left, Top: top, Width: width, Height: height, Active: p[5] == "1"})
+			cx, _ := strconv.Atoi(p[7])
+			cy, _ := strconv.Atoi(p[8])
+			active := p[5] == "1"
+			panes = append(panes, framePane{ID: p[0], Left: left, Top: top, Width: width, Height: height, Active: active,
+				Cursor: active && p[9] == "1", CursorX: cx, CursorY: cy})
 			caps = append(caps, "capture-pane -e -p -t "+q(p[0]), "display-message -p "+q(frameMarker))
 		}
 		if len(panes) == 0 {
@@ -428,7 +433,7 @@ func (d *daemon) preview(ctl *control, wid string, prefetch, stream bool) error 
 	if bench {
 		rects := make([]string, len(panes))
 		for i, p := range panes {
-			rects[i] = fmt.Sprintf("%d,%d %dx%d", p.Left, p.Top, p.Width, p.Height)
+			rects[i] = fmt.Sprintf("%d,%d %dx%d cur=%v:%d,%d", p.Left, p.Top, p.Width, p.Height, p.Cursor, p.CursorX, p.CursorY)
 		}
 		log.Printf("bench frame win=%s prefetch=%v rects=%v", wid, prefetch, rects)
 	}
@@ -508,7 +513,11 @@ func deltaPanes(old, cur []framePane) ([]framePane, int) {
 				lns = append(lns, nl)
 			}
 		}
-		if idx != nil {
+		cursorMoved := old[i].Cursor != cur[i].Cursor ||
+			old[i].CursorX != cur[i].CursorX || old[i].CursorY != cur[i].CursorY
+		if idx != nil || cursorMoved {
+			// A cursor-only move ships as a rowless delta: the TUI adopts
+			// the new cursor and repaints just the affected cells.
 			p := cur[i]
 			p.Lines, p.Rows = lns, idx
 			out = append(out, p)

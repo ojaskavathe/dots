@@ -85,6 +85,12 @@ type framePane struct {
 	Active bool     `json:"active,omitempty"`
 	Lines  []string `json:"lines"`
 	Rows   []int    `json:"rows,omitempty"` // delta only: row indices for Lines
+	// The real pane's cursor, billboarded like everything else (a canvas
+	// with no cursor is the quickest visual tell). Only the window's active
+	// pane with a visible cursor sets Cursor.
+	Cursor  bool `json:"cursor,omitempty"`
+	CursorX int  `json:"curx,omitempty"`
+	CursorY int  `json:"cury,omitempty"`
 }
 
 // wireMsg is the client-side decode target: one struct covering every

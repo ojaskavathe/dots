@@ -129,3 +129,44 @@ func BenchmarkNewTickBusy(b *testing.B) { // diff + marshal a 3-row delta
 		marshalLine(frameMsg{Type: "frame", Window: "@1", Panes: d, Delta: true})
 	}
 }
+
+func TestCursorDelta(t *testing.T) {
+	old := []framePane{{ID: "%1", Width: 10, Height: 2, Lines: []string{"ab", "cd"}, Cursor: true, CursorX: 1, CursorY: 0}}
+	cur := []framePane{{ID: "%1", Width: 10, Height: 2, Lines: []string{"ab", "cd"}, Cursor: true, CursorX: 2, CursorY: 1}}
+	// cursor-only move: a rowless delta must still ship
+	d, n := deltaPanes(old, cur)
+	if d == nil || n != 0 || len(d[0].Rows) != 0 || d[0].CursorX != 2 || d[0].CursorY != 1 {
+		t.Fatalf("cursor-only delta wrong: %+v n=%d", d, n)
+	}
+	// and applying it adopts the cursor without touching content
+	cache := append([]framePane(nil), old...)
+	if !applyDelta(&cache, d) {
+		t.Fatal("delta rejected")
+	}
+	if cache[0].CursorX != 2 || cache[0].CursorY != 1 || cache[0].Lines[0] != "ab" {
+		t.Fatalf("cursor not adopted: %+v", cache[0])
+	}
+	// identical frames (cursor included): nothing ships
+	if d, _ := deltaPanes(cur, cur); d != nil {
+		t.Fatalf("no-change delta shipped: %+v", d)
+	}
+}
+
+func TestCharAtCol(t *testing.T) {
+	for _, tc := range []struct {
+		line string
+		col  int
+		want rune
+	}{
+		{"hello", 1, 'e'},
+		{"\x1b[31mred\x1b[0m", 0, 'r'},       // CSI takes no columns
+		{"\x1b]8;;http://x\x07link", 2, 'n'}, // OSC swallowed
+		{"a世b", 1, '世'},                      // wide rune start
+		{"a世b", 2, ' '},                      // wide rune second cell
+		{"ab", 5, ' '},                       // past the end
+	} {
+		if got := charAtCol(tc.line, tc.col); got != tc.want {
+			t.Errorf("charAtCol(%q, %d) = %q want %q", tc.line, tc.col, got, tc.want)
+		}
+	}
+}
