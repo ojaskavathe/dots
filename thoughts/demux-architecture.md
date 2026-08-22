@@ -280,3 +280,35 @@ serialized, so the answer cannot be stale.
   whole-entity, measure)
 - whether the sidebar should also host the "blocked queue" herdr shows, or that
   becomes a separate popup client
+
+## Product direction: config + data/frontend split (2026-08-22)
+
+Two decisions sketched with Ojas, to firm up at OSS-extraction time:
+
+**Configuration.** Three layers, no new config file for scalars:
+1. tmux user options (`@demux-*` in tmux.conf) are THE config surface for
+   everything scalar: sidebar width, default split ratio, status tracking
+   on/off, dock side, tick rates. The audience already lives in tmux.conf,
+   every tmux plugin configures this way, `show-options -g` makes it
+   discoverable. Daemon reads them at attach + on an explicit
+   `demuxd reload` (tmux emits no notification for option changes — same
+   class of gap as config re-sourcing).
+2. Structured data keeps the existing pattern: override files under
+   `$XDG_CONFIG_HOME/demux/` (agent manifests already live there).
+3. Runtime state (persisted split ratio etc.) stays in state files beside
+   the socket, never in config.
+
+**Data plane vs frontend.** The sidebar TUI is already just a socket
+client: demuxd publishes world snapshots/diffs (sessions/windows/panes with
+agent kind+state+reason), frames, selects over JSON lines, and the TUI is
+one subscriber. Alternative frontends (web dashboard, GUI, statusbar
+widget, notification daemon) are the same protocol — this IS the
+architecture, not an ambition. What's missing to make it first-class:
+- the wire protocol is undocumented and versionless (add a version field +
+  a PROTOCOL.md at extraction)
+- frame streaming is coupled to dock state (`d.dock == nil` bails) — a
+  non-tmux frontend can't stream previews without a sidebar docked;
+  decouple stream lifecycle from dock lifecycle
+- command namespace mixes data plane (subscribe, preview) with
+  sidebar-specific UI verbs (dock/scrub/commit); split them so a data-only
+  client never touches dock machinery
