@@ -165,6 +165,7 @@
               defaultMode = "bypassPermissions";
             };
             skipDangerousModePermissionPrompt = true;
+            remoteControlAtStartup = false;
             preferences = {
               reasoning_effort = "high";
             };
