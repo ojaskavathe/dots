@@ -166,6 +166,20 @@
             set -g message-style "fg=#94e2d5,bg=#181825,fill=#181825"
             set -g message-command-style "fg=#94e2d5,bg=#181825,fill=#181825"
 
+            # winch notifications go through the OS, not the terminal.
+            #
+            # The terminal route is winch's default and the portable one — an
+            # OSC to the client's tty, which follows you over ssh. It cannot
+            # work here, because kitty never registers with macOS
+            # notifications: it does not appear in System Settings ->
+            # Notifications at all, so there is no permission to grant and
+            # every dialect fails silently. Not the ad-hoc nix signature
+            # (terminal-notifier has the same one and registers fine), not the
+            # process tree, not the dialect — each ruled out by comparison.
+            # osascript from this same tmux tree lands every time.
+            # A Linux box should leave this unset.
+            set -g @winch-notify-via system
+
             # vim-tmux-navigator's is_vim shells out to `ps -o state=`, and
             # macOS 26.5 hides the process state field behind an entitlement
             # — the blank field breaks its regex, so C-hjkl silently degraded
