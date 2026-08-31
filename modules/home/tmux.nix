@@ -127,6 +127,13 @@
           extraConfig = ''
             set -g set-clipboard on
 
+            # Closing a session's last window destroys the session, and tmux's
+            # default then throws the client all the way out to a bare shell
+            # even with other sessions still running. `off` carries it to the
+            # most recently used one instead. Nothing to do with winch —
+            # verified identical with the sidebar entirely uninvolved.
+            set -g detach-on-destroy off
+
             # kitty supports synchronized output (DECSET 2026) but tmux does
             # not auto-detect it: without the sync feature EVERY redraw —
             # switch-client, zoom, swap-pane, sidebar paints — goes out
