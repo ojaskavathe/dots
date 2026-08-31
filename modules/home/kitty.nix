@@ -43,9 +43,15 @@
             "cmd+h" = "no_op";
             "cmd+l" = "no_op";
             "cmd+t" = "no_op";
-            "opt+s" = "send_key alt+s";
-            "opt+e" = "send_key alt+e";
-            "opt+g" = "send_key alt+g";
+            # macOS treats opt as a compose key, so opt+a types "å" and the
+            # tmux `bind -n M-a` never fires. Rather than macos_option_as_alt,
+            # which costs every accented character, each opt chord tmux binds
+            # is forwarded explicitly. Adding a `bind -n M-<key>` in tmux.nix
+            # means adding it HERE too, or the bind is silently dead.
+            "opt+s" = "send_key alt+s"; # winch: toggle the sidebar
+            "opt+a" = "send_key alt+a"; # winch: the agent switcher
+            "opt+e" = "send_key alt+e"; # tmux-equalize-nvim
+            "opt+g" = "send_key alt+g"; # clear screen + scrollback
           };
         };
       };

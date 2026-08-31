@@ -74,6 +74,13 @@
       flake = false;
     };
 
+    # tmux-native agent dashboard. follows matters: winch bakes in
+    # ${pkgs.tmux}/bin/tmux, which must be the same tmux this config runs.
+    winch = {
+      url = "github:ojaskavathe/winch";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
     nvim = {
       url = "path:./modules/_nvim";
       inputs.nixpkgs.follows = "nixpkgs";

@@ -1,7 +1,7 @@
-# demux architecture
+# winch architecture
 
 herdr-class agent awareness (status, navigation, previews, notifications) built
-natively on tmux. tmux stays the runtime and the UI host; demux adds the world
+natively on tmux. tmux stays the runtime and the UI host; winch adds the world
 model and the surfaces.
 
 ## goals
@@ -50,26 +50,26 @@ hooks stay, but they talk to the daemon socket, not to tmux.
 
 ```
                  ┌────────────────────────────────────────────┐
-                 │              demuxd (daemon)                │
+                 │              winch (daemon)                │
  tmux server ◄──►│  control-mode client ──► reducer ──► state │
                  │                                    │       │
- agent hooks ───►│  unix socket /demux.sock ◄── pub/sub┘       │
- (demux emit)     └───────────▲────────────────▲───────────────┘
+ agent hooks ───►│  unix socket /winch.sock ◄── pub/sub┘       │
+ (winch emit)     └───────────▲────────────────▲───────────────┘
                              │                │
                    ┌─────────┴───┐   ┌────────┴─────────┐
                    │ sidebar TUI │   │ statusline bridge │
                    │ (per pane)  │   │ notifier          │
-                   └─────────────┘   │ demux CLI          │
+                   └─────────────┘   │ winch CLI          │
                                      └───────────────────┘
 ```
 
-### demuxd — the daemon
+### winch — the daemon
 
 one per tmux server socket. owns everything:
 
 - **ingest**: control-mode notifications + agent events on the unix socket
 - **reducer**: events → state mutations → diffs
-- **pub/sub**: clients connect to `$XDG_RUNTIME_DIR/demux/<server>.sock`,
+- **pub/sub**: clients connect to `$XDG_RUNTIME_DIR/winch/<server>.sock`,
   receive a full snapshot then diffs (NDJSON)
 - **timers**: the only time-based logic allowed — debounce `%output` bursts,
   classify "no output for Ns" as idle for unhooked agents. these are internal
@@ -77,8 +77,8 @@ one per tmux server socket. owns everything:
 - **command execution**: jump/kill/spawn requests from clients go out through
   the control-mode connection
 
-lifecycle: lazily started by the first client (`demux` CLI or the toggle keybind
-runs `demux daemon --ensure`), dies when the tmux server dies (`%exit`),
+lifecycle: lazily started by the first client (`winch` CLI or the toggle keybind
+runs `winch daemon --ensure`), dies when the tmux server dies (`%exit`),
 restartable at any time — state is rebuilt from a `list-sessions` /
 `list-windows` / `list-panes` snapshot on connect, so the daemon is disposable
 by design.
@@ -89,7 +89,7 @@ by design.
 2. **hooked agents** — claude code (`Stop`, `Notification`, `PermissionRequest`,
    `UserPromptSubmit`, …) and anything else that can run a command on lifecycle
    events. hook scripts call
-   `demux emit --pane "$TMUX_PANE" --state blocked --note "wants to run rm"` →
+   `winch emit --pane "$TMUX_PANE" --state blocked --note "wants to run rm"` →
    daemon socket. exact, instant, no heuristics.
 3. **unhooked agents** — daemon-side heuristics over `%output` streams +
    `pane_current_command`: known-agent process names, spinner/prompt patterns,
@@ -104,15 +104,15 @@ by design.
   p=preview focus, mouse clicks. rendering is fully ours (lipgloss/ratatui) —
   herdr-look achievable pixel for pixel.
 - **statusline bridge** — on diff:
-  `tmux set -g @demux_status "…" ; refresh-client -S`. the status line stays a
-  dumb `#{@demux_status}` format reference: zero-cost render, instant updates,
+  `tmux set -g @winch_status "…" ; refresh-client -S`. the status line stays a
+  dumb `#{@winch_status}` format reference: zero-cost render, instant updates,
   no `#()`.
 - **notifier** — on working→blocked: `tmux display-message`, bell, or
   terminal-notifier. policy lives here, not in the daemon.
-- **demux CLI** — `demux ls`, `demux jump <target>`, `demux emit …`, scripting
+- **winch CLI** — `winch ls`, `winch jump <target>`, `winch emit …`, scripting
   surface for everything else (and the hook entrypoint).
 
-one binary, subcommands (`demux daemon`, `demux sidebar`, `demux emit`, …) —
+one binary, subcommands (`winch daemon`, `winch sidebar`, `winch emit`, …) —
 single nix package, shared model/protocol code.
 
 ## data model
@@ -181,8 +181,8 @@ previews — capture-pane already returns a rendered screen.
   sidebar); Enter/q landing on the pinned window itself is a free unzoom.
   measured on a held 120-key scrub: 0 real switches, 0 re-lists, 0 nvim
   reflows (the join-per-scrub design cost 28/28/54 on the same load —
-  that was the cpu spike). M-h/M-l route through `demuxd nav` only while
-  `@demux_pinned` is set (`if-shell -F` bind), native otherwise; unrouted
+  that was the cpu spike). M-h/M-l route through `winch nav` only while
+  `@winch_pinned` is set (`if-shell -F` bind), native otherwise; unrouted
   switches (choose-tree) are followed from the notification path. the
   status line shifts past the sidebar via a 41-space session `status-left`
   (saved/restored, padded before switch-client in the same sequence).
@@ -194,11 +194,11 @@ previews — capture-pane already returns a rendered screen.
   blanket ban was about positional/equalizing use, which stays banned);
   stale strings (user split while docked) fail cleanly and are skipped.
   `automatic-rename` is frozen per-window before each join (the sidebar
-  takes focus, which would rename windows to "demuxd") and restored on
-  leave. a placeholder window keeps `_demux` alive while the TUI is docked
+  takes focus, which would rename windows to "winch") and restored on
+  leave. a placeholder window keeps `_winch` alive while the TUI is docked
   out (a session dies when its only pane is joined away — verified).
-- **billboard browser (`demuxd browse`, off the key)** — the full-screen
-  list + preview canvas in `_demux`: j/k paints captured frames, 10fps live
+- **billboard browser (`winch browse`, off the key)** — the full-screen
+  list + preview canvas in `_winch`: j/k paints captured frames, 10fps live
   capture stream while open, Enter/M-s commit, q cancels. kept fully
   working; pinned mode auto-undocks before entering it.
 - still-load-bearing rules: sequences abort at first error (critical
@@ -215,11 +215,11 @@ capable — choose go purely for repo consistency and iteration speed.
 
 ## nix / deployment
 
-- flake package `demux` (buildGoModule) — its own repo once it stabilizes;
-  starts life under `modules/home/demux/`
+- flake package `winch` (buildGoModule) — its own repo once it stabilizes;
+  starts life under `modules/home/winch/`
 - hm module wires: toggle keybind (`prefix b` →
-  `demux sidebar --toggle "#{pane_id}"`), claude code hook entries pointing at
-  `demux emit`, statusline format reference, launchd/systemd user service
+  `winch sidebar --toggle "#{pane_id}"`), claude code hook entries pointing at
+  `winch emit`, statusline format reference, launchd/systemd user service
   optional (lazy start is the default)
 - no tmux hooks needed anymore → the spike's 10 `set-hook` lines disappear
 
@@ -228,19 +228,19 @@ capable — choose go purely for repo consistency and iteration speed.
 - daemon crash: clients show "disconnected", retry with backoff; restart
   rebuilds from snapshot. no persistent state to corrupt.
 - tmux server gone: `%exit` → daemon exits; next toggle restarts everything.
-- hook fires with no daemon: `demux emit` starts it (`--ensure`) or drops the
+- hook fires with no daemon: `winch emit` starts it (`--ensure`) or drops the
   event after a short timeout — hooks must never block the agent.
 
 ## milestones
 
-1. **demuxd core** — control-mode ingest, reducer, snapshot+diff protocol,
-   `demux ls`. proves the event path end to end. **done (2026-08-10).**
+1. **winch core** — control-mode ingest, reducer, snapshot+diff protocol,
+   `winch ls`. proves the event path end to end. **done (2026-08-10).**
 2. **sidebar TUI** — tree render, j/k/enter/x, mouse, toggle mechanics ported
    from spike. replaces sidebar.sh. **shipped (2026-08-10/11): pinned mode
    (dock as a real pane, real-window scrub, routed M-h/M-l, layout
    save/restore, status shift) is the M-s default; the billboard browser
-   survives as `demuxd browse`. still open: x=kill, mouse, styling.**
-3. **agents** — claude code hooks → `demux emit`, agent states in sidebar,
+   survives as `winch browse`. still open: x=kill, mouse, styling.**
+3. **agents** — claude code hooks → `winch emit`, agent states in sidebar,
    statusline bridge, blocked notifications.
 4. **previews** — selection frames, then follow mode.
 5. **heuristic tier** — unhooked agent detection from `%output` patterns.
@@ -267,7 +267,7 @@ others:
 - the attach itself produces one unsolicited `%begin/%end` block that must be
   discarded before reply correlation starts
 
-consequence, implemented in demuxd: notifications are dirty-triggers only;
+consequence, implemented in winch: notifications are dirty-triggers only;
 each trigger debounces (15ms) into one whole-world re-list over the same
 connection. that self-heals the geometry gap at every event. anything acting
 on another session's *current* layout (the sidebar, right before a join) must
@@ -280,3 +280,35 @@ serialized, so the answer cannot be stale.
   whole-entity, measure)
 - whether the sidebar should also host the "blocked queue" herdr shows, or that
   becomes a separate popup client
+
+## Product direction: config + data/frontend split (2026-08-22)
+
+Two decisions sketched with Ojas, to firm up at OSS-extraction time:
+
+**Configuration.** Three layers, no new config file for scalars:
+1. tmux user options (`@winch-*` in tmux.conf) are THE config surface for
+   everything scalar: sidebar width, default split ratio, status tracking
+   on/off, dock side, tick rates. The audience already lives in tmux.conf,
+   every tmux plugin configures this way, `show-options -g` makes it
+   discoverable. Daemon reads them at attach + on an explicit
+   `winch reload` (tmux emits no notification for option changes — same
+   class of gap as config re-sourcing).
+2. Structured data keeps the existing pattern: override files under
+   `$XDG_CONFIG_HOME/winch/` (agent manifests already live there).
+3. Runtime state (persisted split ratio etc.) stays in state files beside
+   the socket, never in config.
+
+**Data plane vs frontend.** The sidebar TUI is already just a socket
+client: winch publishes world snapshots/diffs (sessions/windows/panes with
+agent kind+state+reason), frames, selects over JSON lines, and the TUI is
+one subscriber. Alternative frontends (web dashboard, GUI, statusbar
+widget, notification daemon) are the same protocol — this IS the
+architecture, not an ambition. What's missing to make it first-class:
+- the wire protocol is undocumented and versionless (add a version field +
+  a PROTOCOL.md at extraction)
+- frame streaming is coupled to dock state (`d.dock == nil` bails) — a
+  non-tmux frontend can't stream previews without a sidebar docked;
+  decouple stream lifecycle from dock lifecycle
+- command namespace mixes data plane (subscribe, preview) with
+  sidebar-specific UI verbs (dock/scrub/commit); split them so a data-only
+  client never touches dock machinery
