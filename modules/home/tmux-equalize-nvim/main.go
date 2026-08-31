@@ -367,7 +367,7 @@ func assign(n *node, left, top, width, height int, counts map[string]map[string]
 }
 
 // equalizeDocked equalizes everything EXCEPT the fixed sidebar pane, which
-// must be a direct child of the root row (demux docks with join-pane -hb -f).
+// must be a direct child of the root row (winch docks with join-pane -hb -f).
 // Targets are computed by the normal weighted assign over the main region,
 // then applied as absolute per-leaf resize-pane calls in geometric order —
 // once every boundary left of / above a leaf is settled, setting the leaf's
@@ -407,7 +407,7 @@ func equalizeDocked(root *node, fixed, window string, counts map[string]map[stri
 	pseudo := &node{kind: '{', children: mains}
 	assign(pseudo, left, root.top, width, root.height, counts)
 
-	args := []string{"set-option", "-w", "-t", window, "@demux_layout_dirty", "1"}
+	args := []string{"set-option", "-w", "-t", window, "@winch_layout_dirty", "1"}
 	add := func(cmd ...string) {
 		args = append(args, ";")
 		args = append(args, cmd...)
@@ -439,7 +439,7 @@ func isNvim(command string) bool {
 }
 
 func currentPanes(window string) map[string]paneInfo {
-	lines, err := tmux("list-panes", "-t", window, "-F", "#{pane_id}\t#{pane_dead}\t#{pane_current_command}\t#{@nvim_server}\t#{@demux_sidebar}")
+	lines, err := tmux("list-panes", "-t", window, "-F", "#{pane_id}\t#{pane_dead}\t#{pane_current_command}\t#{@nvim_server}\t#{@winch_sidebar}")
 	if err != nil {
 		return nil
 	}
@@ -543,12 +543,12 @@ func run() error {
 	}()
 
 	if fixed != "" {
-		// A demux sidebar is docked. select-layout assigns geometry by pane
+		// A winch sidebar is docked. select-layout assigns geometry by pane
 		// index order, not by the ids in the string; with a joined sidebar,
 		// index and geometric order diverge and a whole-window layout would
 		// shuffle pane contents. Instead: equalize the main region only,
 		// via id-targeted resize-pane (content-safe), and mark the window
-		// dirty so the demux daemon gives the columns back proportionally
+		// dirty so the winch daemon gives the columns back proportionally
 		// on undock instead of restoring the pre-dock snapshot.
 		if !equalizeDocked(root, fixed, currentWindow, counts) {
 			return nil

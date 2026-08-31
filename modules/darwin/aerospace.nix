@@ -271,8 +271,9 @@
                 alt-ctrl-0 = "summon-workspace 10";
 
                 alt-f = "layout tiling floating"; # toggle floating
-                alt-t = "layout tiles";
-                alt-a = "layout accordion";
+                # toggle tiles <-> accordion; alt-a is freed for the winch
+                # agent switcher (tmux M-a)
+                alt-t = "layout tiles accordion";
 
                 alt-shift-semicolon = "mode service";
               };

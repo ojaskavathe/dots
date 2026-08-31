@@ -1,4 +1,4 @@
-{ ... }:
+{ inputs, ... }:
 {
   flake.modules.homeManager.tmux =
     {
@@ -22,29 +22,9 @@
         ];
       };
 
-      # demux daemon + sidebar TUI (thoughts/demux-architecture.md, milestones
-      # 1+2): control-mode world model, NDJSON pub/sub, and the M-s sidebar —
-      # zero process spawns on the event path, no tmux hooks needed.
-      demuxd = pkgs.buildGoModule {
-        pname = "demuxd";
-        version = "0.3.0";
-
-        src = ./demux/demuxd;
-        vendorHash = "sha256-v9QGoqKB/LGeAPF4NNTyI1Nmy301m43/9ljorcayums=";
-
-        ldflags = [
-          "-X"
-          "main.tmuxPath=${pkgs.tmux}/bin/tmux"
-        ];
-      };
-
-      demux = pkgs.writeShellApplication {
-        name = "demux";
-        runtimeInputs = [ pkgs.tmux ];
-        text = builtins.replaceStrings [ "@frameconf@" ] [ "${./demux/frame.conf}" ] (
-          builtins.readFile ./demux/sidebar.sh
-        );
-      };
+      # winch daemon + sidebar TUI, from its own flake (thoughts/
+      # winch-architecture.md records the design history).
+      inherit (inputs.winch.packages.${pkgs.stdenv.hostPlatform.system}) winch;
 
     in
     {
@@ -57,8 +37,7 @@
       config = lib.mkIf config.tmux.enable {
         home.packages = [
           tmuxEqualizeNvim
-          demux
-          demuxd
+          winch
         ];
 
         programs.tmux = {
@@ -74,7 +53,15 @@
           historyLimit = 100000000;
 
           plugins = with pkgs; [
-            tmuxPlugins.vim-tmux-navigator
+            {
+              plugin = tmuxPlugins.vim-tmux-navigator;
+              extraConfig = ''
+                # treat the winch sidebar like a vim split: navigator keys are
+                # sent INTO it (the TUI maps C-l to enter, C-j/C-k to j/k)
+                # instead of select-pane escaping out of a zoomed billboard
+                set -g @vim_navigator_pattern '(\S+/)?g?\.?(view|l?n?vim?x?|fzf|winch)(diff)?(-wrapped)?'
+              '';
+            }
             {
               plugin = tmuxPlugins.catppuccin;
               extraConfig = ''
@@ -98,7 +85,10 @@
 
                 set -g status-right-length 100
 
-                set -g status-right "#{E:@catppuccin_status_session}"
+                # agent state counts from winch (!blocked ✓done ✻working);
+                # empty when quiet — a plain option reference, zero-cost render
+                set -g status-right "#{E:@winch_agents} "
+                set -ag status-right "#{E:@catppuccin_status_session}"
                 set -ag status-right "#{E:@catppuccin_status_uptime}"
                 set -ag status-right "#{E:@catppuccin_status_date_time}"
               '';
@@ -113,7 +103,19 @@
               '';
             }
             {
-              plugin = tmuxPlugins.continuum;
+              # continuum silently disables autosave when it sees "another
+              # tmux server" — but winch keeps a persistent control-mode
+              # client and the rigs spawn side servers, so the heuristic is
+              # permanently true here and snapshots stopped (2026-08-11,
+              # discovered after a tmux crash left only a 9-day-old save).
+              # The guard exists to stop two full servers rotating the same
+              # save dir; accepted trade-off — saves beat no saves.
+              plugin = tmuxPlugins.continuum.overrideAttrs (old: {
+                postInstall = (old.postInstall or "") + ''
+                  sed -i 's/if ! another_tmux_server_running; then/if true; then/' \
+                    $out/share/tmux-plugins/continuum/continuum.tmux
+                '';
+              });
               extraConfig = ''
                 # restore last save on start (& save every 15 min)
                 set -g @continuum-restore 'on'
@@ -125,25 +127,51 @@
           extraConfig = ''
             set -g set-clipboard on
 
+            # kitty supports synchronized output (DECSET 2026) but tmux does
+            # not auto-detect it: without the sync feature EVERY redraw —
+            # switch-client, zoom, swap-pane, sidebar paints — goes out
+            # unwrapped, and kitty renders whatever half-frame has arrived
+            # when its frame timer fires (random flicker on transitions).
+            set -as terminal-features 'xterm-kitty:sync'
+
             # update status bar every second
             set -g status-interval 15
             set -g status-position top
 
-            # window cycling: native normally; while the demux sidebar is
-            # docked (@demux_pinned set on the session) the switch routes
+            # vim-tmux-navigator's is_vim shells out to `ps -o state=`, and
+            # macOS 26.5 hides the process state field behind an entitlement
+            # — the blank field breaks its regex, so C-hjkl silently degraded
+            # to raw select-pane everywhere: escaping winch billboards,
+            # ignoring nvim splits. Rebind over the plugin with tmux's own
+            # format regex on pane_current_command — no ps, no subprocess
+            # per keypress.
+            bind -n C-h if -F '#{m/r:^(view|l?n?vim?x?|fzf|winch)(diff)?(-wrapped)?$,#{pane_current_command}}' 'send-keys C-h' 'select-pane -L'
+            bind -n C-j if -F '#{m/r:^(view|l?n?vim?x?|fzf|winch)(diff)?(-wrapped)?$,#{pane_current_command}}' 'send-keys C-j' 'select-pane -D'
+            bind -n C-k if -F '#{m/r:^(view|l?n?vim?x?|fzf|winch)(diff)?(-wrapped)?$,#{pane_current_command}}' 'send-keys C-k' 'select-pane -U'
+            bind -n C-l if -F '#{m/r:^(view|l?n?vim?x?|fzf|winch)(diff)?(-wrapped)?$,#{pane_current_command}}' 'send-keys C-l' 'select-pane -R'
+            bind -n 'C-\' if -F '#{m/r:^(view|l?n?vim?x?|fzf|winch)(diff)?(-wrapped)?$,#{pane_current_command}}' 'send-keys C-\\' 'select-pane -l'
+
+            # window cycling: native normally; while the winch sidebar is
+            # docked (@winch_docked set on the session) the switch routes
             # through the daemon so the sidebar arrives WITH the window —
             # never a frame of the target without it
-            bind -n M-h if-shell -F "#{@demux_pinned}" {run-shell -b '${demuxd}/bin/demuxd nav prev "#{client_name}"'} {previous-window}
-            bind -n M-l if-shell -F "#{@demux_pinned}" {run-shell -b '${demuxd}/bin/demuxd nav next "#{client_name}"'} {next-window}
+            bind -n M-h if-shell -F "#{@winch_docked}" {run-shell -b '${winch}/bin/winch nav prev "#{client_name}"'} {previous-window}
+            bind -n M-l if-shell -F "#{@winch_docked}" {run-shell -b '${winch}/bin/winch nav next "#{client_name}"'} {next-window}
 
-            # demux sidebar: M-s docks the list as a real pane on the left
+            # winch sidebar: M-s docks the list as a real pane on the left
             # (herdr-style; main area stays your live panes), M-s again
             # undocks and restores the exact layout. client passed explicitly
             # — implicit targeting picks the wrong client whenever a second
-            # one is attached (the demux control client always is).
+            # one is attached (the winch control client always is).
             # (M-s previously toggled the native session tree — that stays
             # reachable on prefix+s)
-            bind -n M-s run-shell -b '${demuxd}/bin/demuxd toggle "#{client_name}"'
+            bind -n M-s run-shell -b '${winch}/bin/winch toggle "#{client_name}"'
+
+            # M-a: the agent switcher — like M-s but pinned on the
+            # top-attention agent; rapid taps cycle through agents.
+            # (aerospace used to eat alt-a for `layout accordion`; that
+            # toggle lives on alt-t now.)
+            bind -n M-a run-shell -b '${winch}/bin/winch agents "#{client_name}"'
             bind -n M-e run-shell -b '${tmuxEqualizeNvim}/bin/tmux-equalize-nvim'
             bind -n M-g send-keys C-l \; run-shell -b -d 0.05 -C 'clear-history -t "#{pane_id}"'
 
