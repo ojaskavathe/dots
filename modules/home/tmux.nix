@@ -145,6 +145,22 @@
             set -g status-interval 15
             set -g status-position top
 
+            # prefix-: must REPLACE the status line, not draw over it.
+            #
+            # tmux only erases the bar under a prompt when the style carries a
+            # `fill=` — status_prompt_redraw copies the real bar into the prompt
+            # screen and format_draw blanks only what the fill covers; `bg=` does
+            # not do it. tmux's own default is `bg=yellow,fg=black,fill=yellow`,
+            # and that fill is the reason a stock tmux looks like it replaces the
+            # bar. catppuccin sets bg=default and no fill, so the old status text
+            # stayed visible underneath the prompt.
+            #
+            # Both options, because they split the job: message-command-style
+            # paints prefix-: (PROMPT_COMMAND), message-style paints other
+            # messages — and message-style alone decides the prompt's AREA.
+            set -g message-style "fg=#94e2d5,bg=#181825,fill=#181825,align=centre"
+            set -g message-command-style "fg=#94e2d5,bg=#181825,fill=#181825,align=centre"
+
             # vim-tmux-navigator's is_vim shells out to `ps -o state=`, and
             # macOS 26.5 hides the process state field behind an entitlement
             # — the blank field breaks its regex, so C-hjkl silently degraded
