@@ -147,19 +147,24 @@
 
             # prefix-: must REPLACE the status line, not draw over it.
             #
-            # tmux only erases the bar under a prompt when the style carries a
-            # `fill=` — status_prompt_redraw copies the real bar into the prompt
-            # screen and format_draw blanks only what the fill covers; `bg=` does
-            # not do it. tmux's own default is `bg=yellow,fg=black,fill=yellow`,
-            # and that fill is the reason a stock tmux looks like it replaces the
-            # bar. catppuccin sets bg=default and no fill, so the old status text
-            # stayed visible underneath the prompt.
+            # `fill=` is the whole trick. status_prompt_redraw copies the real
+            # bar into the prompt screen and format_draw blanks only what the
+            # fill covers — `bg=` does not do it. tmux's own default is
+            # `bg=yellow,fg=black,fill=yellow`, and that fill is why a stock
+            # tmux looks like it replaces the bar; catppuccin sets bg=default
+            # and no fill, so the old status text stayed visible underneath.
+            #
+            # No align= at all, which means left. align does DOUBLE duty here:
+            # status_prompt_area reads it to place the prompt's area, and
+            # message-format embeds the same style so format_draw reads it again
+            # to place the text inside that area. align=centre therefore centred
+            # the ":" in a full-width area rather than centring anything useful.
             #
             # Both options, because they split the job: message-command-style
-            # paints prefix-: (PROMPT_COMMAND), message-style paints other
-            # messages — and message-style alone decides the prompt's AREA.
-            set -g message-style "fg=#94e2d5,bg=#181825,fill=#181825,align=centre"
-            set -g message-command-style "fg=#94e2d5,bg=#181825,fill=#181825,align=centre"
+            # paints prefix-: (PROMPT_COMMAND), message-style paints every other
+            # message.
+            set -g message-style "fg=#94e2d5,bg=#181825,fill=#181825"
+            set -g message-command-style "fg=#94e2d5,bg=#181825,fill=#181825"
 
             # vim-tmux-navigator's is_vim shells out to `ps -o state=`, and
             # macOS 26.5 hides the process state field behind an entitlement
