@@ -185,6 +185,16 @@
             # per agent, which is a lot if you are not waiting on them.
             set -g @winch-notify all
 
+            # winch suppresses a notification for the agent in the window you
+            # are already on — but "you can see it" is only true if you are
+            # LOOKING. tmux tracks whether the terminal has OS focus
+            # (CLIENT_FOCUSED, cleared on the terminal's focus-out report),
+            # and only asks the terminal to report focus at all when this is
+            # on. Without it every client reads as focused forever and the
+            # rule stays as coarse as it was. nvim's FocusGained/FocusLost
+            # want this too.
+            set -g focus-events on
+
             # vim-tmux-navigator's is_vim shells out to `ps -o state=`, and
             # macOS 26.5 hides the process state field behind an entitlement
             # — the blank field breaks its regex, so C-hjkl silently degraded
