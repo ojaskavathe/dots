@@ -180,6 +180,11 @@
             # A Linux box should leave this unset.
             set -g @winch-notify-via system
 
+            # Notify on turn-end too, not just when an agent is blocked.
+            # winch defaults to blocked-only because done fires once per turn
+            # per agent, which is a lot if you are not waiting on them.
+            set -g @winch-notify all
+
             # vim-tmux-navigator's is_vim shells out to `ps -o state=`, and
             # macOS 26.5 hides the process state field behind an entitlement
             # — the blank field breaks its regex, so C-hjkl silently degraded
