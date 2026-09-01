@@ -699,11 +699,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1788249769,
-        "narHash": "sha256-pGHkVFM0Fkp3oZbbwvWgP3GXAmwQGZ+ZiAzK9pVePzo=",
+        "lastModified": 1788251851,
+        "narHash": "sha256-p6in8GuV9gRagKc9xzwnz838yHJhw232PDsUQBWdBTQ=",
         "owner": "ojaskavathe",
         "repo": "winch",
-        "rev": "b861d2db146456723bfffd0f1ad8a3881445c5f3",
+        "rev": "6ea783ffc2751718be4efdd899d18191e821f2cc",
         "type": "github"
       },
       "original": {
