@@ -40,6 +40,26 @@
           winch
         ];
 
+        # Re-register winch's notification bundle on every switch.
+        #
+        # macOS delivers a notification on behalf of an APP, and
+        # UNUserNotificationCenter only talks to apps LaunchServices knows
+        # about — which it learns by scanning /Applications and
+        # ~/Applications, never the nix store. So the bundle has to be
+        # registered explicitly, and because every rebuild moves its store
+        # path, a registration made once goes stale the next time you switch:
+        # notifications then fail SILENTLY, with no error anywhere.
+        #
+        # Idempotent and cheap, so it just runs. stdout is dropped because
+        # the command's success message is written for a human typing it;
+        # a failure still surfaces.
+        home.activation = lib.mkIf pkgs.stdenv.hostPlatform.isDarwin {
+          winchNotifyInstall = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+            run ${winch}/bin/winch notify-install > /dev/null || \
+              echo "winch: notify-install failed; desktop notifications may not work"
+          '';
+        };
+
         programs.tmux = {
           enable = true;
 
