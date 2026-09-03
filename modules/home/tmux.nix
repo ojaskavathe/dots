@@ -246,7 +246,12 @@
             # (aerospace used to eat alt-a for `layout accordion`; that
             # toggle lives on alt-t now.)
             bind -n M-a run-shell -b '${winch}/bin/winch agents "#{client_name}"'
-            bind -n M-e run-shell -b '${tmuxEqualizeNvim}/bin/tmux-equalize-nvim'
+
+            # equalize. While the sidebar is docked the keystroke resolves to
+            # the sidebar pane like any tmux command would, so route it through
+            # the daemon: it equalizes the SELECTION (the scrubbed window),
+            # never the sidebar's host window. Undocked, the standalone tool.
+            bind -n M-e if-shell -F "#{@winch_docked}" {run-shell -b '${winch}/bin/winch equalize-dock "#{client_name}"'} {run-shell -b '${tmuxEqualizeNvim}/bin/tmux-equalize-nvim'}
             bind -n M-g send-keys C-l \; run-shell -b -d 0.05 -C 'clear-history -t "#{pane_id}"'
 
             # vi mode
@@ -274,7 +279,9 @@
             bind x kill-pane
 
             # equally space tmux panes and neovim splits in the current window
-            bind e run-shell -b '${tmuxEqualizeNvim}/bin/tmux-equalize-nvim'
+            # (docked: route through the daemon so it targets the sidebar's
+            # selection, not the sidebar pane the keystroke lands on)
+            bind e if-shell -F "#{@winch_docked}" {run-shell -b '${winch}/bin/winch equalize-dock "#{client_name}"'} {run-shell -b '${tmuxEqualizeNvim}/bin/tmux-equalize-nvim'}
 
             # restore clear with <prefix>C-l
             bind C-l send-keys 'C-l'
