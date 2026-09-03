@@ -173,6 +173,16 @@
             set -g message-style "fg=#94e2d5,bg=#181825,fill=#181825"
             set -g message-command-style "fg=#94e2d5,bg=#181825,fill=#181825"
 
+            # No focus/resize separation delays on dock transitions —
+            # instant toggles, accepting the Claude Code open/close flicker
+            # they papered over. The flicker is a tmux presentation bug
+            # (tmux/tmux#4983, a ?2026 frame spanning multiple pane reads
+            # presents in fragments), fixed on tmux master and shipping in
+            # 3.8; once winch is ported to next-3.8 and the pin lands, the
+            # flicker dies for real. Delete this comment then; the option
+            # stays.
+            set -g @winch-agent-delay off
+
             # winch notifications go through the OS, not the terminal.
             #
             # The terminal route is winch's default and the portable one — an
