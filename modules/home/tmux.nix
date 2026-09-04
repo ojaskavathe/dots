@@ -57,7 +57,7 @@
 
           escapeTime = 10;
 
-          historyLimit = 100000000;
+          historyLimit = 100000;
 
           plugins = with pkgs; [
             {
