@@ -183,6 +183,9 @@
             # stays.
             set -g @winch-agent-delay off
 
+            # agent card: session · agent, conversation title below
+            set -g @winch-agent-rows "state_text workspace agent | title"
+
             # winch notifications go through the OS, not the terminal.
             #
             # The terminal route is winch's default and the portable one — an
