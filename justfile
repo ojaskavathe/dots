@@ -45,7 +45,7 @@ update-claude:
     version=$(curl -sf "$base/latest")
     current=$(jq -r '.version' modules/home/claude-version.json)
     if [[ "$version" == "$current" ]]; then
-      echo "already up to date ($version)"
+      echo "claude: already up to date ($version)"
       exit 0
     fi
     manifest=$(curl -sf "$base/$version/manifest.json")
@@ -55,7 +55,7 @@ update-claude:
     jq -n --arg v "$version" --arg d "$darwin" --arg l "$linux" \
       '{version: $v, hashes: {"aarch64-darwin": $d, "x86_64-linux": $l}}' \
       > modules/home/claude-version.json
-    echo "updated $current -> $version"
+    echo "claude: updated $current -> $version"
 
 update-codex:
     #!/usr/bin/env bash
@@ -64,7 +64,7 @@ update-codex:
     version="${tag#rust-v}"
     current=$(jq -r '.version' modules/home/codex-version.json)
     if [[ "$version" == "$current" ]]; then
-      echo "already up to date ($version)"
+      echo "codex: already up to date ($version)"
       exit 0
     fi
     base="https://github.com/openai/codex/releases/download/${tag}"
@@ -74,7 +74,7 @@ update-codex:
     jq -n --arg v "$version" --arg d "$darwin" --arg l "$linux" \
       '{version: $v, hashes: {"aarch64-darwin": $d, "x86_64-linux": $l}}' \
       > modules/home/codex-version.json
-    echo "updated $current -> $version"
+    echo "codex: updated $current -> $version"
 
 update-grok:
     #!/usr/bin/env bash
@@ -84,7 +84,7 @@ update-grok:
     version=$(curl -sf "$base/stable")
     current=$(jq -r '.version' modules/home/grok-version.json)
     if [[ "$version" == "$current" ]]; then
-      echo "already up to date ($version)"
+      echo "grok: already up to date ($version)"
       exit 0
     fi
     sri() { nix hash convert --hash-algo sha256 --to sri "$(nix-prefetch-url --type sha256 "$1" 2>/dev/null | tail -1)"; }
@@ -93,7 +93,7 @@ update-grok:
     jq -n --arg v "$version" --arg d "$darwin" --arg l "$linux" \
       '{version: $v, hashes: {"aarch64-darwin": $d, "x86_64-linux": $l}}' \
       > modules/home/grok-version.json
-    echo "updated $current -> $version"
+    echo "grok: updated $current -> $version"
 
 # bump every pinned coding-agent CLI
 update-agents: update-claude update-codex update-grok
