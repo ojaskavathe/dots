@@ -54,28 +54,15 @@
 
       # Keys Nix manages in ~/.codex/config.toml. Codex writes the rest of this
       # file at runtime (auth, migrations, model NUX, [projects.*]), so instead
-      # of owning the file we layer only these keys in on activation with dasel,
-      # leaving everything codex wrote untouched.
-      managed = {
+      # of owning the file we deep-merge these in on activation, leaving
+      # everything codex wrote untouched.
+      managedConfig = (pkgs.formats.toml { }).generate "codex-managed.toml" {
         # nix owns the binary, so codex's self-update check is pointless noise
-        "check_for_update_on_startup" = {
-          type = "bool";
-          value = false;
-        };
+        check_for_update_on_startup = false;
         # code mode is default-on since 0.153 and needs codex-code-mode-host,
         # which the npm packaging above now provides; assert it explicitly
-        "features.code_mode_host" = {
-          type = "bool";
-          value = true;
-        };
+        features.code_mode_host = true;
       };
-      renderValue = v: if builtins.isBool v then (if v then "true" else "false") else toString v;
-      putCommands = lib.concatStringsSep "\n" (
-        lib.mapAttrsToList (
-          path: spec:
-          ''${pkgs.dasel}/bin/dasel put -f "$CONFIG" -r toml -t ${spec.type} -v '${renderValue spec.value}' '${path}' ''
-        ) managed
-      );
     in
     {
 
@@ -94,7 +81,8 @@
           mkdir -p $HOME/.codex
           CONFIG=$HOME/.codex/config.toml
           [ -f "$CONFIG" ] || : > "$CONFIG"
-          ${putCommands}
+          ${pkgs.yq}/bin/tomlq -s -t '.[0] * .[1]' "$CONFIG" ${managedConfig} > "$CONFIG.merged"
+          mv "$CONFIG.merged" "$CONFIG"
           chmod 600 "$CONFIG"
         '';
       };
