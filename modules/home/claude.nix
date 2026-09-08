@@ -161,6 +161,10 @@
           settings = {
             tui = "fullscreen";
             theme = "auto";
+            # nix owns the binary, so the self-updater is dead weight
+            env.DISABLE_AUTOUPDATER = "1";
+            # never add Co-Authored-By: Claude trailers to commits
+            includeCoAuthoredBy = false;
             permissions = {
               defaultMode = "bypassPermissions";
             };
