@@ -60,19 +60,25 @@ update-claude:
 update-codex:
     #!/usr/bin/env bash
     set -euo pipefail
-    tag=$(curl -sf https://api.github.com/repos/openai/codex/releases/latest | jq -r .tag_name)
-    version="${tag#rust-v}"
+    # codex is packaged from the npm launcher @openai/codex (see codex.nix): the
+    # standalone tarball omits codex-code-mode-host, which code mode needs.
+    version=$(npm view @openai/codex version)
     current=$(jq -r '.version' modules/home/codex-version.json)
     if [[ "$version" == "$current" ]]; then
       echo "codex: already up to date ($version)"
       exit 0
     fi
-    base="https://github.com/openai/codex/releases/download/${tag}"
-    sri() { nix hash convert --hash-algo sha256 --to sri "$(nix-prefetch-url --type sha256 "$1" 2>/dev/null | tail -1)"; }
-    darwin=$(sri "${base}/codex-aarch64-apple-darwin.tar.gz")
-    linux=$(sri "${base}/codex-x86_64-unknown-linux-musl.tar.gz")
-    jq -n --arg v "$version" --arg d "$darwin" --arg l "$linux" \
-      '{version: $v, hashes: {"aarch64-darwin": $d, "x86_64-linux": $l}}' \
+    sri() { nix hash convert --hash-algo sha256 --to sri "$1"; }
+    # src hash: the launcher tarball, hashed unpacked to match fetchzip
+    src_hash=$(sri "$(nix-prefetch-url --unpack --type sha256 "https://registry.npmjs.org/@openai/codex/-/codex-${version}.tgz" 2>/dev/null | tail -1)")
+    # regenerate the pinned lockfile, then hash its dependency closure
+    tmp=$(mktemp -d)
+    ( cd "$tmp" && npm i --package-lock-only "@openai/codex@${version}" >/dev/null 2>&1 )
+    cp "$tmp/package-lock.json" modules/home/codex-package-lock.json
+    rm -rf "$tmp"
+    npm_deps=$(sri "$(nix run nixpkgs#prefetch-npm-deps -- modules/home/codex-package-lock.json)")
+    jq -n --arg v "$version" --arg s "$src_hash" --arg n "$npm_deps" \
+      '{version: $v, srcHash: $s, npmDepsHash: $n}' \
       > modules/home/codex-version.json
     echo "codex: updated $current -> $version"
 
