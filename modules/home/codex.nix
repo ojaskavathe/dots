@@ -9,29 +9,36 @@
     }:
     let
       data = lib.importJSON ./codex-version.json;
-      platformSuffix =
-        {
-          aarch64-darwin = "aarch64-apple-darwin";
-          x86_64-linux = "x86_64-unknown-linux-musl";
-        }
-        .${pkgs.stdenv.hostPlatform.system};
 
-      codex-pkg = pkgs.stdenvNoCC.mkDerivation {
+      # Codex is packaged from the npm launcher `@openai/codex` rather than the
+      # standalone release tarball. The tarball ships ONLY the `codex` binary; as
+      # of 0.153 "code mode" is on by default and executes commands via a
+      # companion `codex-code-mode-host` binary, failing closed if it's missing.
+      # The npm package pulls a per-platform optionalDependency that vendors the
+      # real binaries (codex, codex-code-mode-host, codex-app-server) side by
+      # side, so buildNpmPackage installs the whole tree with every companion
+      # present. The pinned package-lock.json + npmDepsHash keep it reproducible.
+      codex-pkg = pkgs.buildNpmPackage {
         pname = "codex";
         inherit (data) version;
+        nodejs = pkgs.nodejs_22;
 
-        src = pkgs.fetchurl {
-          url = "https://github.com/openai/codex/releases/download/rust-v${data.version}/codex-${platformSuffix}.tar.gz";
-          hash = data.hashes.${pkgs.stdenv.hostPlatform.system};
+        src = pkgs.fetchzip {
+          url = "https://registry.npmjs.org/@openai/codex/-/codex-${data.version}.tgz";
+          hash = data.srcHash;
         };
 
-        sourceRoot = ".";
-        dontBuild = true;
-        dontStrip = true;
+        npmDepsHash = data.npmDepsHash;
+        makeCacheWritable = true;
+        postPatch = ''cp ${./codex-package-lock.json} package-lock.json'';
+        dontNpmBuild = true;
 
         installPhase = ''
           runHook preInstall
-          install -Dm755 codex-${platformSuffix} $out/bin/codex
+          mkdir -p $out/bin $out/lib/node_modules/@openai/codex
+          cp -r . $out/lib/node_modules/@openai/codex/
+          ln -s $out/lib/node_modules/@openai/codex/bin/codex.js $out/bin/codex
+          chmod +x $out/bin/codex
           runHook postInstall
         '';
 
@@ -44,6 +51,31 @@
           ];
         };
       };
+
+      # Keys Nix manages in ~/.codex/config.toml. Codex writes the rest of this
+      # file at runtime (auth, migrations, model NUX, [projects.*]), so instead
+      # of owning the file we layer only these keys in on activation with dasel,
+      # leaving everything codex wrote untouched.
+      managed = {
+        # nix owns the binary, so codex's self-update check is pointless noise
+        "check_for_update_on_startup" = {
+          type = "bool";
+          value = false;
+        };
+        # code mode is default-on since 0.153 and needs codex-code-mode-host,
+        # which the npm packaging above now provides; assert it explicitly
+        "features.code_mode_host" = {
+          type = "bool";
+          value = true;
+        };
+      };
+      renderValue = v: if builtins.isBool v then (if v then "true" else "false") else toString v;
+      putCommands = lib.concatStringsSep "\n" (
+        lib.mapAttrsToList (
+          path: spec:
+          ''${pkgs.dasel}/bin/dasel put -f "$CONFIG" -r toml -t ${spec.type} -v '${renderValue spec.value}' '${path}' ''
+        ) managed
+      );
     in
     {
 
@@ -55,6 +87,16 @@
 
       config = lib.mkIf config.codex.enable {
         home.packages = [ codex-pkg ];
+
+        # Layer the managed keys onto codex's own mutable config.toml (runtime
+        # keys are preserved). Re-applied on every switch.
+        home.activation.codexConfig = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+          mkdir -p $HOME/.codex
+          CONFIG=$HOME/.codex/config.toml
+          [ -f "$CONFIG" ] || : > "$CONFIG"
+          ${putCommands}
+          chmod 600 "$CONFIG"
+        '';
       };
     };
 }
