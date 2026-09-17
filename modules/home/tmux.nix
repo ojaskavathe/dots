@@ -134,6 +134,12 @@
           extraConfig = ''
             set -g set-clipboard on
 
+            # hm-session-vars.sh only loads once per environment; drop its guards
+            # so new panes pick up the current session vars instead of the ones
+            # this server inherited when it started.
+            set-environment -gu __HM_SESS_VARS_SOURCED
+            set-environment -gu __HM_ZSH_SESS_VARS_SOURCED
+
             # Closing a session's last window destroys the session, and tmux's
             # default then throws the client all the way out to a bare shell
             # even with other sessions still running. `off` carries it to the
