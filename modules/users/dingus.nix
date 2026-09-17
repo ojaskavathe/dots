@@ -16,7 +16,6 @@
           EDITOR = "nvim";
           BROWSER = "firefox";
           TERMINAL = "kitty";
-          NIX_CFG_PATH = "$HOME/dots";
         };
       };
 

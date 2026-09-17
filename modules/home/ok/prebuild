@@ -1,0 +1,22 @@
+# ok: build system + home closures without activating, so nrs/hms are store hits
+# Out-links in the config flake dir keep gc roots, so a `nix store gc` can't undo the work.
+
+if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
+  echo "usage: ok prebuild"
+  exit 0
+fi
+
+flake="${OK_FLAKE:?run via ok}"
+host="$(hostname -s)"
+user="$(whoami)"
+read -ra extra <<<"${OK_FLAKE_ARGS:-}"
+case "$(uname -s)" in
+Darwin) system="$flake#darwinConfigurations.$host.system" ;;
+Linux) system="$flake#nixosConfigurations.$host.config.system.build.toplevel" ;;
+*)
+  echo "ok prebuild: unsupported platform $(uname -s)" >&2
+  exit 1
+  ;;
+esac
+nix build ${extra[@]+"${extra[@]}"} --out-link "$flake/.result-system" "$system"
+nix build ${extra[@]+"${extra[@]}"} --out-link "$flake/.result-home" "$flake#homeConfigurations.\"$user@$host\".activationPackage"

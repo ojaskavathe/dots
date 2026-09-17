@@ -15,7 +15,6 @@
         sessionVariables = {
           EDITOR = "nvim";
           TERMINAL = "wsl";
-          NIX_CFG_PATH = "$HOME/dots";
         };
       };
       home.packages = with pkgs; [

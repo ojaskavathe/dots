@@ -1,0 +1,19 @@
+# ok: system rebuild (darwin-rebuild on macOS, nixos-rebuild on Linux)
+# Flake and extra args come from the ok dispatcher (OK_FLAKE, OK_FLAKE_ARGS).
+
+if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
+  echo "usage: ok nrs [rebuild switch args...]"
+  exit 0
+fi
+
+flake="${OK_FLAKE:?run via ok}"
+host="$(hostname -s)"
+read -ra extra <<<"${OK_FLAKE_ARGS:-}"
+case "$(uname -s)" in
+Darwin) exec sudo darwin-rebuild switch --flake "$flake#$host" ${extra[@]+"${extra[@]}"} "$@" ;;
+Linux) exec sudo nixos-rebuild switch --flake "$flake#$host" ${extra[@]+"${extra[@]}"} "$@" ;;
+*)
+  echo "ok nrs: unsupported platform $(uname -s)" >&2
+  exit 1
+  ;;
+esac

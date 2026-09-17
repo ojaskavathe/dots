@@ -1,0 +1,111 @@
+# ok: dispatcher over the commands registered in the `ok.commands` home-manager option.
+# OK_COMMANDS (set at build) is a directory with one executable per command.
+
+usage() {
+  cat <<'USAGE'
+usage: ok [-y] [-q] [-v] [--json] <command> [args...]
+       ok help | ok which <command>
+
+flags (exported to commands as OK_YES, OK_QUIET, OK_VERBOSE, OK_JSON):
+  -y, --yes     never prompt
+  -q, --quiet   results only
+  -v, --verbose extra diagnostics on stderr
+  --json        machine-readable output where supported
+
+commands:
+
+config flake: $OK_FLAKE, else the one named in ~/.config/ok/flake, else ~/dots
+USAGE
+  list_commands
+  echo
+  echo "ok <command> --help for details"
+}
+
+describe() {
+  sed -n 's/^# ok: //p' "$OK_COMMANDS/$1" | head -1
+}
+
+list_commands() {
+  local path name
+  for path in "$OK_COMMANDS"/*; do
+    name="${path##*/}"
+    printf '  %-14s %s\n' "$name" "$(describe "$name")"
+  done
+}
+
+# The config flake is resolved here, from the filesystem, never from an inherited
+# session variable: long-lived parents (tmux) would pin a stale value.
+# A flake that wraps this one points ok at itself by writing $OK_FLAKE_FILE
+# (OK_FLAKE= and OK_FLAKE_ARGS= lines) outside home-manager's file management,
+# so a switch from this flake alone can't remove it. OK_FLAKE overrides for one run.
+OK_FLAKE_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/ok/flake"
+if [[ -z "${OK_FLAKE:-}" ]]; then
+  OK_FLAKE_ARGS=""
+  if [[ -r "$OK_FLAKE_FILE" ]]; then
+    while IFS='=' read -r key value; do
+      case "$key" in
+      OK_FLAKE) OK_FLAKE="$value" ;;
+      OK_FLAKE_ARGS) OK_FLAKE_ARGS="$value" ;;
+      esac
+    done <"$OK_FLAKE_FILE"
+  fi
+  OK_FLAKE="${OK_FLAKE:-$HOME/dots}"
+fi
+export OK_FLAKE OK_FLAKE_ARGS="${OK_FLAKE_ARGS:-}"
+
+export OK_YES="${OK_YES:-0}" OK_QUIET="${OK_QUIET:-0}" OK_VERBOSE="${OK_VERBOSE:-0}" OK_JSON="${OK_JSON:-0}"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+  -y | --yes)
+    OK_YES=1
+    shift
+    ;;
+  -q | --quiet)
+    OK_QUIET=1
+    shift
+    ;;
+  -v | --verbose)
+    OK_VERBOSE=1
+    shift
+    ;;
+  --json)
+    OK_JSON=1
+    shift
+    ;;
+  *) break ;;
+  esac
+done
+
+cmd="${1:-help}"
+shift || true
+
+case "$cmd" in
+help | -h | --help)
+  usage
+  ;;
+--list)
+  for path in "$OK_COMMANDS"/*; do echo "${path##*/}"; done
+  ;;
+--actions)
+  # used by completion: subcommands a command declares via `# ok-actions: a b c`
+  [[ -x "$OK_COMMANDS/${1:-}" ]] && sed -n 's/^# ok-actions: //p' "$OK_COMMANDS/$1" | head -1
+  ;;
+which)
+  target="$OK_COMMANDS/${1:?usage: ok which <command>}"
+  [[ -x "$target" ]] || {
+    echo "ok: unknown command: $1" >&2
+    exit 1
+  }
+  readlink -f "$target"
+  ;;
+*)
+  if [[ ! -x "$OK_COMMANDS/$cmd" ]]; then
+    echo "ok: unknown command: $cmd" >&2
+    echo "commands:" >&2
+    list_commands >&2
+    exit 2
+  fi
+  exec "$OK_COMMANDS/$cmd" "$@"
+  ;;
+esac

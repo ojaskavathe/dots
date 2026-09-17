@@ -1,0 +1,11 @@
+# ok: home-manager switch for this user@host
+# Flake and extra args come from the ok dispatcher (OK_FLAKE, OK_FLAKE_ARGS).
+
+if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
+  echo "usage: ok hms [home-manager switch args...]"
+  exit 0
+fi
+
+flake="${OK_FLAKE:?run via ok}"
+read -ra extra <<<"${OK_FLAKE_ARGS:-}"
+exec home-manager switch --flake "$flake#$(whoami)@$(hostname -s)" ${extra[@]+"${extra[@]}"} "$@"

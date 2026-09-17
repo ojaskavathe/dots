@@ -11,6 +11,7 @@ in
     imports = [
       hm.nixpkgs # allowUnfree + pkgs-stable arg
       hm.zsh
+      hm.ok
       hm.git
       hm.direnv
       hm.tmux
@@ -26,6 +27,7 @@ in
     ];
 
     zsh.enable = lib.mkDefault true;
+    ok.enable = lib.mkDefault true;
     direnv.enable = lib.mkDefault true;
     git.enable = lib.mkDefault true;
     tmux.enable = lib.mkDefault true;

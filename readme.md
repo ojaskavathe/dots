@@ -31,9 +31,17 @@ host hardware (`hosts/_tuf`), and non-module helpers (`home/_hyprland`).
 ## use
 
 ```
-nrs   # system rebuild — darwin or nixos, picked by host
-hms   # home-manager switch --flake .#<user>@<host>
+ok nrs       # system rebuild — darwin or nixos, picked by host
+ok hms       # home-manager switch --flake <config>#<user>@<host>
+ok prebuild  # build both closures without activating
+ok help      # everything else
 ```
+
+`nrs`/`hms` are aliases for the `ok` forms. `ok` is a small dispatcher
+(`modules/home/ok.nix`); commands are scripts registered in `ok.commands`, so
+other flakes can add their own. the config flake is `~/dots` unless
+`~/.config/ok/flake` names another (`OK_FLAKE` overrides). `just` stays for
+maintaining this repo.
 
 ## neovim
 
