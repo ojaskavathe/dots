@@ -52,6 +52,7 @@
             "opt+a" = "send_key alt+a"; # winch: the agent switcher
             "opt+e" = "send_key alt+e"; # tmux-equalize-nvim
             "opt+g" = "send_key alt+g"; # clear screen + scrollback
+            "opt+/" = "send_key alt+/"; # winch: fuzzy finder (M-/)
           };
         };
       };

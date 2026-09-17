@@ -256,6 +256,12 @@
             # toggle lives on alt-t now.)
             bind -n M-a run-shell -b '${winch}/bin/winch agents "#{client_name}"'
 
+            # M-/: the fuzzy finder. Docks if needed and drops straight into a
+            # type-to-filter over every session and agent — one keystroke from
+            # any pane to jumping by name. (alt+punctuation, forwarded by kitty
+            # like the other alt chords; see kitty.nix.)
+            bind -n M-/ run-shell -b '${winch}/bin/winch find "#{client_name}"'
+
             # equalize. While the sidebar is docked the keystroke resolves to
             # the sidebar pane like any tmux command would, so route it through
             # the daemon: it equalizes the SELECTION (the scrubbed window),
