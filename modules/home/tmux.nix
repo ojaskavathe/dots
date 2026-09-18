@@ -258,8 +258,9 @@
 
             # M-/: the fuzzy finder. Docks if needed and drops straight into a
             # type-to-filter over every session and agent — one keystroke from
-            # any pane to jumping by name. (alt+punctuation, forwarded by kitty
-            # like the other alt chords; see kitty.nix.)
+            # any pane to jumping by name. Triggered by cmd+/ here: aerospace
+            # owns alt+hjkl and macOS owns option for accents, so Meta rides the
+            # Cmd key (tmux reads kitty's keyboard-protocol codes for it as M-).
             bind -n M-/ run-shell -b '${winch}/bin/winch find "#{client_name}"'
 
             # equalize. While the sidebar is docked the keystroke resolves to
