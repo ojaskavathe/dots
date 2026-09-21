@@ -154,6 +154,14 @@
             # when its frame timer fires (random flicker on transitions).
             set -as terminal-features 'xterm-kitty:sync'
 
+            # Pass OSC 8 hyperlinks through to kitty. Without this tmux strips
+            # them, and kitty falls back to detecting URLs in plain text. That
+            # breaks on wrapped links: tmux redraws every row with its own
+            # cursor move, so kitty sees each row as a separate line and only
+            # the first row is clickable. With OSC 8, every cell carries the
+            # link, so shift-click works on any row.
+            set -as terminal-features 'xterm-kitty:hyperlinks'
+
             # update status bar every second
             set -g status-interval 15
             set -g status-position top
