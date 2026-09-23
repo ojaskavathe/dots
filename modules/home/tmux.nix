@@ -271,6 +271,15 @@
             # Cmd key (tmux reads kitty's keyboard-protocol codes for it as M-).
             bind -n M-/ run-shell -b '${winch}/bin/winch find "#{client_name}"'
 
+            # M-o / M-i: vim's CTRL-O / CTRL-I across windows and sessions.
+            # tmux alone only toggles one step back (last-window, switch-client
+            # -l); the winch daemon keeps the real history, and a docked
+            # sidebar rides the jump. C-o/C-i themselves stay with the pane:
+            # C-i is Tab, and nvim and shells want C-o.
+            set -g @winch-jumplist on
+            bind -n M-o run-shell -b '${winch}/bin/winch jump back "#{client_name}"'
+            bind -n M-i run-shell -b '${winch}/bin/winch jump fwd "#{client_name}"'
+
             # equalize. While the sidebar is docked the keystroke resolves to
             # the sidebar pane like any tmux command would, so route it through
             # the daemon: it equalizes the SELECTION (the scrubbed window),
