@@ -139,6 +139,30 @@
 
         printf '%s · %s%s · ctx %s%% (%s/%s)' "$model" "$disp" "$seg" "$pct" "$usedfmt" "$maxfmt"
       '';
+
+      # Keys Nix manages in ~/.claude/settings.json. Claude writes the rest of
+      # this file at runtime (/config, plugins, permission rules), so instead of
+      # owning the file we deep-merge these in on activation, like codex.nix.
+      managedSettings = jsonFormat.generate "claude-managed-settings.json" {
+        tui = "fullscreen";
+        theme = "auto";
+        # nix owns the binary, so the self-updater is dead weight
+        env.DISABLE_AUTOUPDATER = "1";
+        # never add Co-Authored-By: Claude trailers to commits
+        includeCoAuthoredBy = false;
+        permissions = {
+          defaultMode = "bypassPermissions";
+        };
+        skipDangerousModePermissionPrompt = true;
+        remoteControlAtStartup = false;
+        preferences = {
+          reasoning_effort = "high";
+        };
+        statusLine = {
+          type = "command";
+          command = "${statusline}";
+        };
+      };
     in
     {
 
@@ -155,30 +179,25 @@
       };
 
       config = lib.mkIf config.claude.enable {
+        # package only: with `settings` empty, home-manager doesn't symlink a
+        # read-only store file over ~/.claude/settings.json
         programs.claude-code = {
           enable = true;
           package = claude-code-pkg;
-          settings = {
-            tui = "fullscreen";
-            theme = "auto";
-            # nix owns the binary, so the self-updater is dead weight
-            env.DISABLE_AUTOUPDATER = "1";
-            # never add Co-Authored-By: Claude trailers to commits
-            includeCoAuthoredBy = false;
-            permissions = {
-              defaultMode = "bypassPermissions";
-            };
-            skipDangerousModePermissionPrompt = true;
-            remoteControlAtStartup = false;
-            preferences = {
-              reasoning_effort = "high";
-            };
-            statusLine = {
-              type = "command";
-              command = "${statusline}";
-            };
-          };
         };
+
+        # Layer the managed keys onto claude's own mutable settings.json (runtime
+        # keys are preserved). Re-applied on every switch. Runs after
+        # linkGeneration so the stale store symlink from when home-manager owned
+        # the file has already been cleaned up; a leftover one is dropped anyway.
+        home.activation.claudeSettings = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
+          mkdir -p $HOME/.claude
+          SETTINGS=$HOME/.claude/settings.json
+          [ -L "$SETTINGS" ] && rm "$SETTINGS"
+          [ -s "$SETTINGS" ] || echo '{}' > "$SETTINGS"
+          ${pkgs.jq}/bin/jq -s '.[0] * .[1]' "$SETTINGS" ${managedSettings} > "$SETTINGS.merged"
+          mv "$SETTINGS.merged" "$SETTINGS"
+        '';
 
         home.packages = lib.mkIf config.sops-home.enable (
           with pkgs;
