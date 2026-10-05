@@ -43,12 +43,5 @@ in
     blender-mcp.enable = lib.mkDefault false;
 
     sops-home.enable = lib.mkDefault false;
-
-    # system gc only expires root/system generations; home-manager's live in
-    # the user's profile dir and need their own pass
-    nix.gc = {
-      automatic = lib.mkDefault true;
-      options = lib.mkDefault "--delete-older-than 14d";
-    };
   };
 }
