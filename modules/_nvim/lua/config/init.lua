@@ -82,3 +82,8 @@ require("config.plugins")
 if nixCats("general.always") or nixCats("lsp") then
 	require("config.LSPs")
 end
+
+-- rustaceanvim starts rust-analyzer itself, outside vim.lsp.config("*")
+vim.g.rustaceanvim = {
+	server = { on_attach = require("config.LSPs.on_attach") },
+}

@@ -29,6 +29,9 @@ require("lze").load({
 					section_separators = "",
 					globalstatus = true, -- Single statusline at bottom for all splits
 				},
+				sections = {
+					lualine_x = { "lsp_status", "encoding", "fileformat", "filetype" },
+				},
 			})
 		end,
 	},

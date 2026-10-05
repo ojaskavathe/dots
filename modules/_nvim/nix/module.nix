@@ -75,6 +75,7 @@ inputs:
       nvim-web-devicons # nerd font icons (lualine, snacks, oil, ...)
       catppuccin-nvim # colorscheme (loaded early so the UI isn't unstyled)
       nvim-treesitter.withAllGrammars
+      rustaceanvim # rust tools (LSP + debugging); lazy by filetype on its own
     ]);
   };
 
@@ -114,7 +115,6 @@ inputs:
       conform-nvim # formatter (replaces none-ls)
       undotree # undo history visualizer
       lazydev-nvim # neovim API docs for lua development
-      rustaceanvim # rust tools (LSP + debugging)
       crates-nvim # Cargo.toml dependency helper
     ];
   };
