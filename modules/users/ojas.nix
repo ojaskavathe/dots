@@ -148,23 +148,8 @@
             output = "json";
           };
         };
-        credentials = {
-          default = {
-            credential_process = "${pkgs.writeShellScript "aws_credential_process.sh" ''
-              ACCESS_KEY_FILE="${config.sops.secrets.aws_access_key_id.path}"
-              SECRET_KEY_FILE="${config.sops.secrets.aws_secret_access_key.path}"
-
-              ACCESS_KEY=$(cat "$ACCESS_KEY_FILE")
-              SECRET_KEY=$(cat "$SECRET_KEY_FILE")
-
-              echo '{
-                "Version": 1,
-                "AccessKeyId": "'$ACCESS_KEY'",
-                "SecretAccessKey": "'$SECRET_KEY'"
-              }'
-            ''}";
-          };
-        };
+        # credentials come from the private flake: the account requires MFA, so
+        # the sops key alone no longer authorizes calls
       };
 
       zen.enable = false;
