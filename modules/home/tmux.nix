@@ -294,6 +294,13 @@
             bind-key -T copy-mode-vi C-v send-keys -X rectangle-toggle
             bind-key -T copy-mode-vi y send-keys -X copy-selection
 
+            # search: prefix / drops into copy-mode with an incremental search
+            # up the history. Inside copy-mode / and ? are incremental too, and
+            # / searches up since copy-mode starts at the bottom.
+            bind / copy-mode \; command-prompt -i -T search -p "(search up)" { send-keys -X search-backward-incremental "%%" }
+            bind-key -T copy-mode-vi / command-prompt -i -T search -p "(search up)" { send-keys -X search-backward-incremental "%%" }
+            bind-key -T copy-mode-vi ? command-prompt -i -T search -p "(search down)" { send-keys -X search-forward-incremental "%%" }
+
             # disable 'release mouse to copy'
             unbind-key -T copy-mode-vi MouseDragEnd1Pane
 
