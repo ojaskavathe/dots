@@ -63,6 +63,7 @@
 
       config = lib.mkIf cfg.enable {
         ok.commands = {
+          computer.script = ./ok/computer;
           hms.script = ./ok/hms;
           nrs.script = ./ok/nrs;
           prebuild.script = ./ok/prebuild;

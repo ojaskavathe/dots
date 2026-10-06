@@ -1,0 +1,70 @@
+# ok: power and session control for this machine (kys, restart, sleep, lock, logout)
+# ok-actions: kys shutdown restart sleep lock logout
+
+usage() {
+  cat <<'USAGE'
+usage: ok computer <action>
+
+actions:
+  kys, shutdown  power off
+  restart        reboot
+  sleep          suspend
+  lock           lock the screen
+  logout         end the session
+
+kys, restart and logout ask first unless -y.
+USAGE
+}
+
+action="${1:-}"
+case "$action" in
+-h | --help | "")
+  usage
+  exit 0
+  ;;
+kys) action=shutdown ;;
+esac
+
+confirm() {
+  [[ "$OK_YES" == 1 ]] && return 0
+  read -rp "$1 [y/N] " reply </dev/tty
+  [[ "$reply" == [yY]* ]]
+}
+
+case "$action" in
+shutdown) confirm "shut down?" || exit 1 ;;
+restart) confirm "restart?" || exit 1 ;;
+logout) confirm "log out?" || exit 1 ;;
+sleep | lock) ;;
+*)
+  echo "ok computer: unknown action: $1" >&2
+  usage >&2
+  exit 2
+  ;;
+esac
+
+case "$(uname -s)" in
+Darwin)
+  # System Events quits apps gracefully and needs no sudo, unlike `shutdown`.
+  case "$action" in
+  shutdown) osascript -e 'tell application "System Events" to shut down' ;;
+  restart) osascript -e 'tell application "System Events" to restart' ;;
+  logout) osascript -e 'tell application "System Events" to log out' ;;
+  sleep) pmset sleepnow ;;
+  lock) pmset displaysleepnow ;;
+  esac
+  ;;
+Linux)
+  case "$action" in
+  shutdown) systemctl poweroff ;;
+  restart) systemctl reboot ;;
+  logout) loginctl terminate-session "${XDG_SESSION_ID:-self}" ;;
+  sleep) systemctl suspend ;;
+  lock) loginctl lock-session ;;
+  esac
+  ;;
+*)
+  echo "ok computer: unsupported platform $(uname -s)" >&2
+  exit 1
+  ;;
+esac
