@@ -51,7 +51,6 @@
           casks = [
             "ghostty"
             "spotify"
-            "cursor"
             "discord"
             "steam"
             "epic-games"
