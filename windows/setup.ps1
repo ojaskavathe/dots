@@ -10,6 +10,7 @@ $ErrorActionPreference = "Stop"
 $packages = @(
     "Git.Git"
     "GitHub.cli"
+    "jqlang.jq"  # claude status line
 )
 
 function Update-Path {
@@ -120,6 +121,9 @@ if ((Test-Path $settingsPath) -and (Get-Item $settingsPath).Length -gt 0) {
 }
 $managed = [IO.File]::ReadAllText((Join-Path $dots "modules\home\claude-settings.json")) | ConvertFrom-Json
 Merge-Object $settings $managed
+# the status line script is shared with claude.nix; claude runs it under Git Bash
+$statusScript = (Join-Path $dots "modules\home\claude-statusline.sh") -replace '\\', '/'
+Merge-Object $settings ([pscustomobject]@{ statusLine = [pscustomobject]@{ type = "command"; command = "bash `"$statusScript`"" } })
 [IO.File]::WriteAllText($settingsPath, ($settings | ConvertTo-Json -Depth 100), (New-Object Text.UTF8Encoding $false))
 Write-Host "claude: merged settings into $settingsPath"
 
