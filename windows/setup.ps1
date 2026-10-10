@@ -30,6 +30,23 @@ function Merge-Object($base, $over) {
     }
 }
 
+# --- developer mode ---
+# lets unelevated processes (git, mainly) create symlinks. HKLM, so this one
+# step elevates; it's skipped once set
+$devModeKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock"
+if ((Get-ItemProperty $devModeKey -ErrorAction SilentlyContinue).AllowDevelopmentWithoutDevLicense -eq 1) {
+    Write-Host "developer mode: on"
+} else {
+    Write-Host "developer mode: enabling (UAC prompt)..."
+    # not New-Item -Force: on the registry that recreates an existing key, values and all
+    $cmd = "if (-not (Test-Path '$devModeKey')) { New-Item -Path '$devModeKey' | Out-Null }; " +
+           "Set-ItemProperty -Path '$devModeKey' -Name AllowDevelopmentWithoutDevLicense -Value 1 -Type DWord"
+    Start-Process powershell -Verb RunAs -Wait -ArgumentList "-NoProfile", "-Command", $cmd
+    if ((Get-ItemProperty $devModeKey -ErrorAction SilentlyContinue).AllowDevelopmentWithoutDevLicense -ne 1) {
+        throw "developer mode wasn't enabled (UAC declined?)"
+    }
+}
+
 # --- packages ---
 foreach ($id in $packages) {
     winget list --id $id -e --accept-source-agreements *> $null
@@ -75,6 +92,11 @@ $gitInclude = (Join-Path $dots "modules\home\gitconfig") -replace '\\', '/'
 # global config, so make sure there is one
 $gitconfig = Join-Path $HOME ".gitconfig"
 if (-not (Test-Path $gitconfig)) { New-Item -ItemType File -Path $gitconfig | Out-Null }
+# windows-only: keep files byte-for-byte as committed (git for windows' system
+# config defaults to autocrlf=true, which breaks shell scripts) and check out
+# real symlinks (needs developer mode, below)
+git config --global core.autocrlf false
+git config --global core.symlinks true
 $includes = @(git config --global --get-all include.path)
 if ($includes -contains $gitInclude) {
     Write-Host "git: include already set"
