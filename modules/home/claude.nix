@@ -143,26 +143,18 @@
       # Keys Nix manages in ~/.claude/settings.json. Claude writes the rest of
       # this file at runtime (/config, plugins, permission rules), so instead of
       # owning the file we deep-merge these in on activation, like codex.nix.
-      managedSettings = jsonFormat.generate "claude-managed-settings.json" {
-        tui = "fullscreen";
-        theme = "auto";
-        # nix owns the binary, so the self-updater is dead weight
-        env.DISABLE_AUTOUPDATER = "1";
-        # never add Co-Authored-By: Claude trailers to commits
-        includeCoAuthoredBy = false;
-        permissions = {
-          defaultMode = "bypassPermissions";
-        };
-        skipDangerousModePermissionPrompt = true;
-        remoteControlAtStartup = false;
-        preferences = {
-          reasoning_effort = "high";
-        };
-        statusLine = {
-          type = "command";
-          command = "${statusline}";
-        };
-      };
+      # The portable keys live in claude-settings.json, which windows/setup.ps1
+      # merges the same way; only nix-specific ones are added here.
+      managedSettings = jsonFormat.generate "claude-managed-settings.json" (
+        lib.recursiveUpdate (lib.importJSON ./claude-settings.json) {
+          # nix owns the binary, so the self-updater is dead weight
+          env.DISABLE_AUTOUPDATER = "1";
+          statusLine = {
+            type = "command";
+            command = "${statusline}";
+          };
+        }
+      );
     in
     {
 

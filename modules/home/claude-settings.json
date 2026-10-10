@@ -1,0 +1,13 @@
+{
+  "tui": "fullscreen",
+  "theme": "auto",
+  "includeCoAuthoredBy": false,
+  "permissions": {
+    "defaultMode": "bypassPermissions"
+  },
+  "skipDangerousModePermissionPrompt": true,
+  "remoteControlAtStartup": false,
+  "preferences": {
+    "reasoning_effort": "high"
+  }
+}

@@ -18,43 +18,9 @@
         programs.git = {
           enable = true;
           signing.format = null;
-          settings = {
-            user = {
-              name = "Ojas Kavathe";
-              email = "66531618+ojaskavathe@users.noreply.github.com";
-            };
-            pull.rebase = false;
-            merge.tool = "nvimdiff";
-            alias = {
-              a = "add";
-              c = "commit";
-              ca = "commit --amend";
-              can = "commit --amend --no-edit";
-              cl = "clone";
-              cm = "commit -m";
-              co = "checkout";
-              cp = "cherry-pick";
-              cpx = "cherry-pick -x";
-              d = "diff";
-              f = "fetch";
-              fo = "fetch origin";
-              fu = "fetch upstream";
-              lol = "log --graph --decorate --pretty=oneline --abbrev-commit";
-              lola = "log --graph --decorate --pretty=oneline --abbrev-commit --all";
-              pl = "pull";
-              pr = "pull -r";
-              ps = "push";
-              psf = "push -f";
-              rb = "rebase";
-              rbi = "rebase -i";
-              r = "remote";
-              ra = "remote add";
-              rr = "remote rm";
-              rv = "remote -v";
-              rs = "remote show";
-              st = "status";
-            };
-          };
+          # identity and aliases live in a plain gitconfig so windows (no nix)
+          # can include the same file; see windows/setup.ps1
+          includes = [ { path = ./gitconfig; } ];
         };
       };
     };

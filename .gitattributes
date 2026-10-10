@@ -1,0 +1,3 @@
+# keep LF everywhere, including windows checkouts (git for windows defaults
+# to core.autocrlf=true, which breaks the shell scripts when used from wsl)
+* text=auto eol=lf

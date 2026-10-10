@@ -75,12 +75,24 @@ Extensions. a launchd daemon then runs kanata on boot (logs in `/tmp`). add
 kanata, tmux, and kitty to Settings > Privacy & Security > Input Monitoring
 (from their `~/.nix-profile/bin` symlinks).
 
-## windows (kanata only)
+## windows
 
-from an elevated powershell:
+no nix here, so windows gets a small dev base: git, gh, and claude code, plus
+the git and claude config shared with the nix hosts. from powershell:
 
 ```
 irm https://raw.githubusercontent.com/ojaskavathe/dots/master/windows/setup.ps1 | iex
+```
+
+clones this repo to `~/dots` if needed, installs what's missing, points
+`~/.gitconfig` at `modules/home/gitconfig`, and merges
+`modules/home/claude-settings.json` into `~/.claude/settings.json` (the same
+two files `git.nix` and `claude.nix` read). re-run to apply changes.
+
+kanata, from an elevated powershell:
+
+```
+irm https://raw.githubusercontent.com/ojaskavathe/dots/master/windows/kanata.ps1 | iex
 ```
 
 installs kanata, fetches the latest keyboard config, runs it at login. re-run to
