@@ -77,7 +77,9 @@ kanata, tmux, and kitty to Settings > Privacy & Security > Input Monitoring
 
 ## windows
 
-no nix here, so windows gets a small dev base: git, gh, and claude code, plus
+no nix here, so windows gets a small dev base: git, gh, claude code, and a
+rust + c++ toolchain (rustup, VS 2026 build tools with the components in
+`windows/dev.vsconfig`, cmake, ninja), plus
 the git and claude config shared with the nix hosts. from powershell:
 
 ```

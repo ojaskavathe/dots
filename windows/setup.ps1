@@ -11,6 +11,9 @@ $packages = @(
     "Git.Git"
     "GitHub.cli"
     "jqlang.jq"  # claude status line
+    "Rustlang.Rustup"
+    "Kitware.CMake"
+    "Ninja-build.Ninja"
 )
 
 function Update-Path {
@@ -85,6 +88,49 @@ if ($PSScriptRoot -and (Test-Path (Join-Path $PSScriptRoot "..\flake.nix"))) {
     }
 }
 Write-Host "dots: $dots"
+
+# --- c++ build tools ---
+# VS 2026 Build Tools (MSVC, Windows SDK, CMake tools, ASan, clang for
+# bindgen) with the components in dev.vsconfig. The installer needs admin, so
+# installing or adding components brings up UAC; once everything is present
+# it's skipped
+$vsConfig = Join-Path $dots "windows\dev.vsconfig"
+$vsComponents = ([IO.File]::ReadAllText($vsConfig) | ConvertFrom-Json).components
+$vsInstaller = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer"
+function Find-BuildTools([string[]]$requires) {
+    $vswhere = Join-Path $vsInstaller "vswhere.exe"
+    if (-not (Test-Path $vswhere)) { return $null }
+    $vsArgs = @("-products", "Microsoft.VisualStudio.Product.BuildTools", "-version", "[18.0,19.0)", "-property", "installationPath")
+    if ($requires) { $vsArgs += @("-requires") + $requires }
+    & $vswhere @vsArgs | Select-Object -First 1
+}
+if (Find-BuildTools $vsComponents) {
+    Write-Host "build tools: installed"
+} elseif ($vsPath = Find-BuildTools) {
+    Write-Host "build tools: adding components (UAC prompt)..."
+    $p = Start-Process (Join-Path $vsInstaller "setup.exe") -Verb RunAs -Wait -PassThru -ArgumentList `
+        "modify", "--installPath", "`"$vsPath`"", "--config", "`"$vsConfig`"", "--quiet", "--norestart"
+    if ($p.ExitCode -ne 0 -and $p.ExitCode -ne 3010) { throw "build tools modify failed (exit $($p.ExitCode))" }
+} else {
+    Write-Host "build tools: installing, several GB (UAC prompt)..."
+    winget install --id Microsoft.VisualStudio.BuildTools -e --accept-package-agreements --accept-source-agreements `
+        --override "--wait --quiet --norestart --nocache --config `"$vsConfig`""
+}
+# the bootstrapper's exit codes vary (3010 = reboot wanted); check the result
+if (-not (Find-BuildTools $vsComponents)) { throw "build tools are missing components from $vsConfig" }
+
+# --- rust ---
+# rustup comes from winget above; make sure the MSVC stable toolchain is the
+# default (rustup itself keeps it updated: `rustup update`)
+Update-Path
+$env:Path = (Join-Path $HOME ".cargo\bin") + ";" + $env:Path
+$toolchains = @(rustup toolchain list)
+if ($toolchains -match "^stable-x86_64-pc-windows-msvc .*default") {
+    Write-Host "rust: stable msvc is default"
+} else {
+    rustup default stable-x86_64-pc-windows-msvc
+    if ($LASTEXITCODE -ne 0) { throw "rustup default failed" }
+}
 
 # --- git ---
 # ~/.gitconfig stays a normal mutable file; it just includes the shared one
