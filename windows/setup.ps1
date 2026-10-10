@@ -127,6 +127,56 @@ Merge-Object $settings ([pscustomobject]@{ statusLine = [pscustomobject]@{ type 
 [IO.File]::WriteAllText($settingsPath, ($settings | ConvertTo-Json -Depth 100), (New-Object Text.UTF8Encoding $false))
 Write-Host "claude: merged settings into $settingsPath"
 
+# --- font ---
+# the same Nerd Font stylix uses on the nix hosts (JetBrainsMonoNL Nerd Font
+# Mono), from the official release, pinned by version and sha256. Installed
+# per user, so no admin; re-run after bumping the version.
+$fontVersion = "v3.5.1"
+$fontSha256 = "fab782a66f7d3019da64f6572db9fc5d3a4bcb19f9fa13e2d8a62e3693d6396e"
+$fontFamily = "JetBrainsMonoNL Nerd Font Mono"
+# the name Windows registers (legacy family name); the long typographic name
+# above is what stylix uses, but terminal font lookup goes by this one
+$fontFace = "JetBrainsMonoNL NFM"
+$fontDir = Join-Path $env:LOCALAPPDATA "Microsoft\Windows\Fonts"
+$fontMarker = Join-Path $fontDir ".jetbrainsmono-nerdfont-version"
+$fontRegKey = "HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Fonts"
+if ((Test-Path $fontMarker) -and ((Get-Content $fontMarker -Raw).Trim() -eq $fontVersion)) {
+    Write-Host "font: $fontFamily $fontVersion installed"
+} else {
+    Write-Host "font: installing $fontFamily $fontVersion..."
+    $zip = Join-Path $env:TEMP "JetBrainsMono-$fontVersion.zip"
+    $extract = Join-Path $env:TEMP "JetBrainsMono-$fontVersion"
+    Invoke-WebRequest "https://github.com/ryanoasis/nerd-fonts/releases/download/$fontVersion/JetBrainsMono.zip" -OutFile $zip -UseBasicParsing
+    if ((Get-FileHash $zip -Algorithm SHA256).Hash.ToLower() -ne $fontSha256) { throw "font zip sha256 mismatch" }
+    if (Test-Path $extract) { Remove-Item $extract -Recurse -Force }
+    Expand-Archive $zip -DestinationPath $extract
+    New-Item -ItemType Directory -Path $fontDir -Force | Out-Null
+    if (-not (Test-Path $fontRegKey)) { New-Item -Path $fontRegKey | Out-Null }
+    foreach ($ttf in Get-ChildItem $extract -Filter "JetBrainsMonoNLNerdFontMono-*.ttf") {
+        $dest = Join-Path $fontDir $ttf.Name
+        Copy-Item $ttf.FullName $dest -Force
+        Set-ItemProperty -Path $fontRegKey -Name "$($ttf.BaseName) (TrueType)" -Value $dest
+    }
+    Set-Content -Path $fontMarker -Value $fontVersion -Encoding ascii
+    Remove-Item $zip, $extract -Recurse -Force
+    Write-Host "font: installed (restart apps to see it)"
+}
+
+# Windows Terminal: use it for every profile. settings.json is JSON with
+# comments allowed; skip rather than mangle it if it doesn't parse
+$wtSettings = Join-Path $env:LOCALAPPDATA "Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json"
+if (Test-Path $wtSettings) {
+    try {
+        $wt = [IO.File]::ReadAllText($wtSettings) | ConvertFrom-Json
+        if (-not $wt.profiles.defaults) { $wt.profiles | Add-Member -NotePropertyName defaults -NotePropertyValue ([pscustomobject]@{}) -Force }
+        Merge-Object $wt.profiles.defaults ([pscustomobject]@{ font = [pscustomobject]@{ face = $fontFace } })
+        [IO.File]::WriteAllText($wtSettings, ($wt | ConvertTo-Json -Depth 100), (New-Object Text.UTF8Encoding $false))
+        Write-Host "terminal: font set to $fontFace"
+    } catch {
+        Write-Host "terminal: settings.json didn't parse as plain JSON; set the font to '$fontFace' by hand"
+    }
+}
+
 # --- auth ---
 $ErrorActionPreference = "Continue" # gh reports logged-out on stderr
 gh auth status *> $null

@@ -85,9 +85,11 @@ irm https://raw.githubusercontent.com/ojaskavathe/dots/master/windows/setup.ps1 
 ```
 
 clones this repo to `~/dots` if needed, installs what's missing, points
-`~/.gitconfig` at `modules/home/gitconfig`, and merges
-`modules/home/claude-settings.json` into `~/.claude/settings.json` (the same
-two files `git.nix` and `claude.nix` read). re-run to apply changes.
+`~/.gitconfig` at `modules/home/gitconfig`, merges
+`modules/home/claude-settings.json` into `~/.claude/settings.json` with the
+status line from `modules/home/claude-statusline.sh` (the same files
+`git.nix` and `claude.nix` read), and installs stylix's nerd font
+(JetBrainsMonoNL, pinned) as windows terminal's font. re-run to apply changes.
 
 kanata, from an elevated powershell:
 
