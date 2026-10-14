@@ -57,6 +57,8 @@
       # of owning the file we deep-merge these in on activation, leaving
       # everything codex wrote untouched.
       managedConfig = (pkgs.formats.toml { }).generate "codex-managed.toml" {
+        approval_policy = "never";
+        sandbox_mode = "danger-full-access";
         # nix owns the binary, so codex's self-update check is pointless noise
         check_for_update_on_startup = false;
         # code mode is default-on since 0.153 and needs codex-code-mode-host,
