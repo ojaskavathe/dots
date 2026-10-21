@@ -546,11 +546,11 @@
     "secrets": {
       "flake": false,
       "locked": {
-        "lastModified": 1777998820,
-        "narHash": "sha256-YORBaBVJXKb82AQt+0aIBS76Vm5siezmuo2dM1US31M=",
+        "lastModified": 1792598657,
+        "narHash": "sha256-6EO+mAM9Xf3gEcDMwCfwYjj5MK49fUoqCAAFGtJjW4w=",
         "ref": "refs/heads/master",
-        "rev": "fa47ff4b671db73980d302f6226a7d7f6a4df17a",
-        "revCount": 3,
+        "rev": "b16db2843bca6e1f989597060cbfa96ddfbd3e93",
+        "revCount": 4,
         "type": "git",
         "url": "ssh://git@github.com/ojaskavathe/secrets.git"
       },
