@@ -5,6 +5,7 @@
   "permissions": {
     "defaultMode": "bypassPermissions"
   },
+  "enableArtifact": false,
   "skipDangerousModePermissionPrompt": true,
   "remoteControlAtStartup": false,
   "preferences": {
