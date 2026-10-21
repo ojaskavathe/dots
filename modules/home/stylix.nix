@@ -58,6 +58,9 @@
             # GTK theming is meaningless on macOS (no GTK apps), and stylix's gtk
             # target now sets gtk.gtk4.theme unconditionally, which conflicts.
             gtk.enable = !pkgs.stdenv.hostPlatform.isDarwin;
+            # the hyprland target reads hyprland.configType even where hyprland
+            # is off, forcing its stateVersion deprecation warning on every host.
+            hyprland.enable = config.wayland.windowManager.hyprland.enable;
           };
         };
       };
