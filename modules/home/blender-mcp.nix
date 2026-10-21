@@ -31,7 +31,11 @@
         ];
 
         # Telemetry is opt-out and defaults to uploading prompts and code snippets.
-        makeWrapperArgs = [ "--set DISABLE_TELEMETRY true" ];
+        makeWrapperArgs = [
+          "--set"
+          "DISABLE_TELEMETRY"
+          "true"
+        ];
 
         doCheck = false; # upstream ships no tests
         pythonImportsCheck = [ "blender_mcp.server" ];
