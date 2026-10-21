@@ -26,6 +26,8 @@
 
         wayland.windowManager.hyprland = {
           enable = true;
+          # settings below are hyprlang; the lua default came with stateVersion 26.05
+          configType = "hyprlang";
 
           settings = {
             "$mainMod" = "SUPER";
