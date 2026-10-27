@@ -148,8 +148,7 @@
             output = "json";
           };
         };
-        # credentials come from the private flake: the account requires MFA, so
-        # the sops key alone no longer authorizes calls
+        # credentials come from the private flake (Google SSO via `ok aws login`)
       };
 
       zen.enable = false;
