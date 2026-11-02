@@ -26,7 +26,7 @@
 
         build-system = with pkgs.python3Packages; [ setuptools ];
         dependencies = with pkgs.python3Packages; [
-          mcp
+          mcp_1 # upstream imports mcp.server.fastmcp, which mcp 2.x removed
           httpx
         ];
 
