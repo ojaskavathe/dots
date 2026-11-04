@@ -204,18 +204,14 @@
               ];
 
               gaps = {
-                # room for the spaces sidebar, one per monitor
-                outer.left = [
-                  { monitor."LG ULTRAWIDE" = 220; }
-                  { monitor."Built-in Retina Display" = 220; }
-                  0
-                ];
-                outer.bottom = 0; # 8
-                outer.top = 0; # 8
-                outer.right = 0; # 8
+                # spaces widens outer.left live for its sidebar; see the launcher below
+                outer.left = 8;
+                outer.bottom = 8;
+                outer.top = 8;
+                outer.right = 8;
 
-                inner.horizontal = 0; # 8
-                inner.vertical = 0; # 8
+                inner.horizontal = 8;
+                inner.vertical = 8;
               };
 
               mode.main.binding = {
@@ -294,6 +290,34 @@
               };
             };
           };
+
+          # AeroSpace has no command for gaps, only a config it can reload, so it runs
+          # from a writable copy that spaces edits. Reset to this config on every start.
+          launchd.user.agents.aerospace.command =
+            let
+              # TOML has no null, also not inside the lists of on-window-detected
+              withoutNulls =
+                v:
+                if lib.isAttrs v then
+                  lib.mapAttrs (_: withoutNulls) (lib.filterAttrs (_: x: x != null) v)
+                else if lib.isList v then
+                  map withoutNulls v
+                else
+                  v;
+              configFile = (pkgs.formats.toml { }).generate "aerospace.toml" (
+                withoutNulls config.services.aerospace.settings
+              );
+              # /bin/sh, not nix bash: macOS holds whatever launched AeroSpace responsible
+              # for its Accessibility access, and a nix bash would have to be granted it.
+              launcher = pkgs.writeScript "aerospace-live-config" ''
+                #!/bin/sh
+                live="$HOME/.local/state/spaces/aerospace.toml"
+                /bin/mkdir -p "$(/usr/bin/dirname "$live")"
+                /usr/bin/install -m 644 ${configFile} "$live"
+                exec ${config.services.aerospace.package}/Applications/AeroSpace.app/Contents/MacOS/AeroSpace --config-path "$live"
+              '';
+            in
+            lib.mkForce "${launcher}";
 
           launchd.user.agents.aerospace-workspace-rebalance = {
             serviceConfig = {
