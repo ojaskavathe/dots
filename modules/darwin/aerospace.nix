@@ -204,7 +204,12 @@
               ];
 
               gaps = {
-                outer.left = 0; # 8
+                # room for the spaces sidebar, one per monitor
+                outer.left = [
+                  { monitor."LG ULTRAWIDE" = 220; }
+                  { monitor."Built-in Retina Display" = 220; }
+                  0
+                ];
                 outer.bottom = 0; # 8
                 outer.top = 0; # 8
                 outer.right = 0; # 8
