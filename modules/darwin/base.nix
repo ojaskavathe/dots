@@ -7,15 +7,9 @@ in
 {
   flake.modules.darwin.base = {
     imports = [
-      dm.aerospace
       dm.homebrew
       dm.kanata
     ];
-
-    aerospace = {
-      enable = lib.mkDefault true;
-      borders = lib.mkDefault true;
-    };
 
     nix-hb = {
       enable = lib.mkDefault true;
