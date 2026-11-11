@@ -72,6 +72,13 @@
           expose-group-apps = true;
         };
 
+        # macOS's own window tiling fights Winch's layouts: no snapping on Option-drag or at screen edges.
+        WindowManager = {
+          EnableTilingOptionAccelerator = false;
+          EnableTilingByEdgeDrag = false;
+          EnableTopTilingByEdgeDrag = false;
+        };
+
         finder = {
           _FXShowPosixPathInTitle = true; # show full path in finder title
           AppleShowAllExtensions = true; # show all file extensions
