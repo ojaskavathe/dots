@@ -96,6 +96,7 @@
       claude.enable = true;
       codex.enable = true;
       grok.enable = true;
+      helium.enable = true;
       blender-mcp.enable = true;
 
       programs.fzf = {

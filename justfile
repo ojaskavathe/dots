@@ -86,5 +86,19 @@ update-grok:
       > modules/home/grok-version.json
     echo "grok: updated $current -> $version"
 
+update-helium:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    version=$(curl -sf https://api.github.com/repos/imputnet/helium-macos/releases/latest | jq -r '.tag_name')
+    current=$(jq -r '.version' modules/home/helium-version.json)
+    if [[ "$version" == "$current" ]]; then
+      echo "helium: already up to date ($version)"
+      exit 0
+    fi
+    url="https://github.com/imputnet/helium-macos/releases/download/${version}/helium_${version}_arm64-macos.dmg"
+    hash=$(nix hash convert --hash-algo sha256 --to sri "$(nix-prefetch-url --type sha256 "$url" 2>/dev/null | tail -1)")
+    jq -n --arg v "$version" --arg h "$hash" '{version: $v, hash: $h}' > modules/home/helium-version.json
+    echo "helium: updated $current -> $version"
+
 # bump every pinned coding-agent CLI
 update-agents: update-claude update-codex update-grok
