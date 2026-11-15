@@ -66,6 +66,12 @@
 
                 bindkey -v                  # vi mode
 
+                # In a Winch terminal: Ghostty's shell integration, which Winch's sessions don't get on their own
+                # (winch-session starts the shell, not Ghostty). Its prompt marks let opt+g keep the whole prompt.
+                if [[ -n $WINCH_SESSION && -r $WINCH_DIR/vendor/ghostty-resources/ghostty/shell-integration/zsh/ghostty-integration ]]; then
+                  source $WINCH_DIR/vendor/ghostty-resources/ghostty/shell-integration/zsh/ghostty-integration
+                fi
+
                 if [[ $options[zle] = on ]]; then
                   source <(${pkgs.fzf}/bin/fzf --zsh)
                 fi
