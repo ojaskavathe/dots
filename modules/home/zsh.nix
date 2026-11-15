@@ -16,6 +16,13 @@
       };
 
       config = lib.mkIf config.zsh.enable {
+        # Winch (~/dev/winch) installs its binaries here, the same ones its daemon and terminals run: `winch`,
+        # `winch-session`. First, so its `winch` is the one found, not the old tmux tool's.
+        home.sessionPath = [ "$HOME/.local/state/winch/bin" ];
+        # Where its daemon lives, which `winch` has no default for (tests run their own): set in Winch's own
+        # terminals, needed in any other shell.
+        home.sessionVariables.WINCH_DIR = "$HOME/.local/state/winch";
+
         programs.zsh = {
           enable = true;
           enableCompletion = true;
