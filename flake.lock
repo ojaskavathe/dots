@@ -539,7 +539,6 @@
         "secrets": "secrets",
         "sops-nix": "sops-nix",
         "stylix": "stylix",
-        "winch": "winch",
         "zen-browser": "zen-browser"
       }
     },
@@ -689,26 +688,6 @@
       "original": {
         "owner": "tinted-theming",
         "repo": "base16-zed",
-        "type": "github"
-      }
-    },
-    "winch": {
-      "inputs": {
-        "nixpkgs": [
-          "nixpkgs"
-        ]
-      },
-      "locked": {
-        "lastModified": 1790323626,
-        "narHash": "sha256-T7ht95FoELVib+V68qgzCxTDDJbaH0jc0Dl+IV9jmrM=",
-        "owner": "ojaskavathe",
-        "repo": "winch",
-        "rev": "f825978b6148e5c89f0a35b2652bc5d9f905e98f",
-        "type": "github"
-      },
-      "original": {
-        "owner": "ojaskavathe",
-        "repo": "winch",
         "type": "github"
       }
     },
