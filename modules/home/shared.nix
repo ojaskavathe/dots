@@ -25,6 +25,7 @@ in
       hm.grok
       hm.helium
       hm.blender-mcp
+      hm.tailscale-personal
     ];
 
     zsh.enable = lib.mkDefault true;
@@ -43,6 +44,7 @@ in
     grok.enable = lib.mkDefault false;
     helium.enable = lib.mkDefault false;
     blender-mcp.enable = lib.mkDefault false;
+    tailscale-personal.enable = lib.mkDefault false;
 
     sops-home.enable = lib.mkDefault false;
   };

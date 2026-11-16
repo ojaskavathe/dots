@@ -98,6 +98,7 @@
       grok.enable = true;
       helium.enable = true;
       blender-mcp.enable = true;
+      tailscale-personal.enable = true;
 
       programs.fzf = {
         enable = true;

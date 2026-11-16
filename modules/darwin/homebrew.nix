@@ -67,6 +67,9 @@
             "android-file-transfer"
             "protonvpn"
             "osquery"
+            # The standalone app (network extension, menu bar, account switching): on the work tailnet. The personal
+            # one is a second tailscaled, from home-manager (modules/home/tailscale-personal.nix).
+            "tailscale-app"
           ];
 
           masApps = {
