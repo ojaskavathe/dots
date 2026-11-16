@@ -72,7 +72,8 @@
           expose-group-apps = true;
         };
 
-        # macOS's own window tiling fights Winch's layouts: no snapping on Option-drag or at screen edges.
+        # macOS's own window tiling fights a tiling window manager's layouts: no snapping on Option-drag or at screen
+        # edges.
         WindowManager = {
           EnableTilingOptionAccelerator = false;
           EnableTilingByEdgeDrag = false;

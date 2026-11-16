@@ -16,13 +16,6 @@
       };
 
       config = lib.mkIf config.zsh.enable {
-        # Winch (~/dev/winch) installs its binaries here, the same ones its daemon and terminals run: `winch`,
-        # `winch-session`. First, so its `winch` is the one found, not the old tmux tool's.
-        home.sessionPath = [ "$HOME/.local/state/winch/bin" ];
-        # Where its daemon lives, which `winch` has no default for (tests run their own): set in Winch's own
-        # terminals, needed in any other shell.
-        home.sessionVariables.WINCH_DIR = "$HOME/.local/state/winch";
-
         programs.zsh = {
           enable = true;
           enableCompletion = true;
@@ -65,12 +58,6 @@
                 export LANG=en_US.UTF-8
 
                 bindkey -v                  # vi mode
-
-                # In a Winch terminal: Ghostty's shell integration, which Winch's sessions don't get on their own
-                # (winch-session starts the shell, not Ghostty). Its prompt marks let opt+g keep the whole prompt.
-                if [[ -n $WINCH_SESSION && -r $WINCH_DIR/vendor/ghostty-resources/ghostty/shell-integration/zsh/ghostty-integration ]]; then
-                  source $WINCH_DIR/vendor/ghostty-resources/ghostty/shell-integration/zsh/ghostty-integration
-                fi
 
                 if [[ $options[zle] = on ]]; then
                   source <(${pkgs.fzf}/bin/fzf --zsh)
